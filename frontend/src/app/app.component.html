@@ -1,0 +1,27 @@
+<div class="container">
+  <h1>PudimJobs</h1>
+  <h2>Backend Health Status</h2>
+
+  @if (error) {
+    <div class="status degraded">
+      <span class="indicator"></span>
+      <p>{{ error }}</p>
+    </div>
+  } @else if (health) {
+    <div class="status" [class.healthy]="health.status === 'ok'" [class.degraded]="health.status !== 'ok'">
+      <span class="indicator"></span>
+      <div class="details">
+        <p><strong>Status:</strong> {{ health.status }}</p>
+        <p><strong>Database:</strong> {{ health.db }}</p>
+        <p><strong>Timestamp:</strong> {{ health.timestamp }}</p>
+      </div>
+    </div>
+  } @else {
+    <div class="status loading">
+      <span class="indicator"></span>
+      <p>Checking backend health...</p>
+    </div>
+  }
+
+  <router-outlet />
+</div>

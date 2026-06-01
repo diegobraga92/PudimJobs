@@ -1,0 +1,82 @@
+openapi: "3.1.0"
+info:
+  title: PudimJobs Health API
+  version: "0.1.0"
+  description: Health check endpoint for the PudimJobs backend service
+paths:
+  /health:
+    get:
+      summary: Service health check
+      description: Returns the current health status of the service, including database connectivity
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - timestamp
+                  - db
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                    example: ok
+                    description: Overall service status
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2026-01-06T08:00:00+00:00"
+                    description: Current server time in ISO 8601 format
+                  db:
+                    type: string
+                    enum: [connected]
+                    example: connected
+                    description: Database connectivity status
+        "503":
+          description: Service is degraded (database unavailable)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - timestamp
+                  - db
+                properties:
+                  status:
+                    type: string
+                    enum: [degraded]
+                    example: degraded
+                    description: Overall service status
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: Current server time in ISO 8601 format
+                  db:
+                    type: string
+                    enum: [disconnected]
+                    example: disconnected
+                    description: Database connectivity status
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - db
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        timestamp:
+          type: string
+          format: date-time
+        db:
+          type: string
+          enum: [connected, disconnected]
