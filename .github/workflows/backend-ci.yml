@@ -71,8 +71,21 @@ jobs:
       - name: Lint with ruff
         run: ruff check .
 
+      - name: Audit Python dependencies (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit
+
       - name: Run tests
         run: python -m pytest
 
       - name: Build Docker image
         run: docker build -t pudimjobs-backend .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: pudimjobs-backend
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH

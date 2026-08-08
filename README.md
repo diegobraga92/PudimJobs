@@ -124,9 +124,9 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 | 3 — JD parsing & CV tailoring | ✅ Done |
 | 4 — Matching alerts & notifications | ✅ Done |
 | 5 — Observability, data quality & search | ✅ Done |
-| 6 — Security hardening | 🔜 Next |
-| 7 — Chaos & incident postmortem | ⏳ Planned |
-| 8 — Cost analysis & portfolio polish | ⏳ Planned |
+| 6 — Security hardening | ✅ Done |
+| 7 — Chaos & incident postmortem | ✅ Done |
+| 8 — Cost analysis & portfolio polish | 🔜 Next |
 
 ### What's implemented so far
 
@@ -202,6 +202,26 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 - Load test script (`scripts/load_test.py`) + real `EXPLAIN ANALYZE` results
   in `docs/database-performance.md`; PostgreSQL-vs-Elasticsearch evaluation in
   `docs/elasticsearch-comparison.md`
+
+**Security hardening (Phase 6)**
+- STRIDE threat model for API + scrapers (`docs/stride-threat-model.md`)
+- API rate limiting with `slowapi` (Redis-backed): login 5/min, authenticated
+  API 120/min; 429 responses
+- Audit investigation API (`GET /api/admin/audit` with user/action/entity/date
+  filters + `/audit/actions` facets) and an Audit Log tab in the admin UI with
+  expandable change-diffs
+- CI security gates: `pip-audit` on Python deps + Trivy container scan
+- Secrets rotation guide (`docs/secrets-rotation.md`)
+
+**Resilience, chaos & postmortems (Phase 7)**
+- Chaos experiment scripts (`scripts/chaos/`): kill RabbitMQ, break scraper
+  HTML, exhaust worker memory, break a normalization rule — each injects a
+  failure and verifies the system's response
+- Blameless postmortem: `docs/postmortems/001-scraper-outage-data-quality.md`
+  (simulated job-board HTML change → circuit breaker → DLQ → raw-HTML replay
+  recovery, with corrective actions)
+- Four runbooks in `docs/runbooks/`: scraper failure, RabbitMQ backlog, data
+  quality degradation, database failover
 
 **Frontend (Angular)**
 - Login page + auth guard + JWT interceptor

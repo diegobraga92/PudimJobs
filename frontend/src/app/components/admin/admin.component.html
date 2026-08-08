@@ -150,3 +150,53 @@
 } @else {
   <p class="muted">No assessed jobs yet — trigger a scrape to generate quality data.</p>
 }
+
+<h3>Audit Log</h3>
+<div class="audit-filters">
+  <select [(ngModel)]="auditAction" (ngModelChange)="loadAudit()">
+    <option value="">All actions</option>
+    @for (action of auditActions.actions; track action) {
+      <option [value]="action">{{ action }}</option>
+    }
+  </select>
+  <select [(ngModel)]="auditEntity" (ngModelChange)="loadAudit()">
+    <option value="">All entity types</option>
+    @for (type of auditActions.entity_types; track type) {
+      <option [value]="type">{{ type }}</option>
+    }
+  </select>
+  <input type="date" [(ngModel)]="auditFrom" (ngModelChange)="loadAudit()" title="From date" />
+  <input type="date" [(ngModel)]="auditTo" (ngModelChange)="loadAudit()" title="To date" />
+</div>
+
+@if (auditEntries.length === 0) {
+  <p class="muted">No audit entries match the filters.</p>
+} @else {
+  <table class="panel">
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>User</th>
+        <th>Action</th>
+        <th>Entity</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (entry of auditEntries; track entry.id) {
+        <tr>
+          <td>{{ entry.timestamp | date: 'short' }}</td>
+          <td>{{ entry.email || entry.user_id }}</td>
+          <td><span class="action-tag">{{ entry.action }}</span></td>
+          <td>{{ entry.entity_type }}<span class="muted small"> {{ entry.entity_id ? '· ' + entry.entity_id.slice(0, 8) : '' }}</span></td>
+          <td><button class="ghost small" (click)="toggleAuditDetails(entry.id)">{{ expandedAuditId === entry.id ? 'Hide' : 'Details' }}</button></td>
+        </tr>
+        @if (expandedAuditId === entry.id) {
+          <tr>
+            <td colspan="5"><pre class="changes">{{ entry.changes | json }}</pre></td>
+          </tr>
+        }
+      }
+    </tbody>
+  </table>
+}

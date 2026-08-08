@@ -6,6 +6,7 @@ from app.schemas.alert_rule import (
     AlertRuleUpdate,
 )
 from app.schemas.application import ApplicationCreate, ApplicationResponse, ApplicationUpdate
+from app.schemas.audit import AuditLogResponse
 from app.schemas.auth import LoginRequest, TokenResponse, UserResponse
 from app.schemas.generated_cv import GeneratedCVResponse, TailorRequest
 from app.schemas.jd import ParsedJDResponse
@@ -29,6 +30,7 @@ __all__ = [
     "ApplicationCreate",
     "ApplicationResponse",
     "ApplicationUpdate",
+    "AuditLogResponse",
     "CVStructure",
     "EducationItem",
     "ExperienceItem",

@@ -138,6 +138,38 @@ tr.flagged td {
   font-size: 0.78rem;
 }
 
+.audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+
+  select,
+  input {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+}
+
+.action-tag {
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: #eef5fb;
+  color: #1e3a5f;
+  font-size: 0.75rem;
+}
+
+.changes {
+  margin: 0;
+  padding: 0.75rem;
+  background: #f7f8fa;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  overflow-x: auto;
+}
+
 button.ghost,
 button.primary {
   padding: 0.4rem 0.8rem;

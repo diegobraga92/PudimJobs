@@ -24,6 +24,9 @@ os.environ.setdefault(
 os.environ.setdefault("REDIS_URL", "redis://localhost:6380/0")
 os.environ.setdefault("RABBITMQ_URL", "amqp://pudimjobs:pudimjobs_dev@localhost:5673/")
 os.environ.setdefault("CELERY_BROKER_URL", "amqp://pudimjobs:pudimjobs_dev@localhost:5673/")
+# Permissive rate limits so integration tests don't trip the limiter.
+os.environ.setdefault("RATE_LIMIT_LOGIN", "1000/minute")
+os.environ.setdefault("RATE_LIMIT_API", "100000/minute")
 
 import pytest
 from httpx import ASGITransport, AsyncClient

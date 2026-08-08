@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 export interface AdminStats {
@@ -56,6 +56,29 @@ export interface QualityJob {
   issues: string[];
 }
 
+export interface AuditEntry {
+  id: string;
+  user_id: string | null;
+  email: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  changes: Record<string, unknown> | null;
+  timestamp: string;
+}
+
+export interface AuditFilters {
+  action?: string;
+  entity_type?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface AuditActions {
+  entity_types: string[];
+  actions: string[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class AdminService {
   constructor(private http: HttpClient) {}
@@ -98,5 +121,19 @@ export class AdminService {
     return this.http.get<QualityJob[]>('/api/admin/quality/jobs', {
       params: flaggedOnly ? { flagged_only: 'true' } : {},
     });
+  }
+
+  auditLog(filters: AuditFilters = {}): Observable<AuditEntry[]> {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        params = params.set(key, value);
+      }
+    }
+    return this.http.get<AuditEntry[]>('/api/admin/audit', { params });
+  }
+
+  auditActions(): Observable<AuditActions> {
+    return this.http.get<AuditActions>('/api/admin/audit/actions');
   }
 }

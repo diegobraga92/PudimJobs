@@ -1,9 +1,13 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 
 import {
   AdminService,
   AdminStats,
+  AuditActions,
+  AuditEntry,
+  AuditFilters,
   QualityBySource,
   QualityJob,
   QualityOverview,
@@ -14,7 +18,7 @@ import {
 @Component({
   selector: 'app-admin',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './admin.component.html',
   styleUrl: './admin.component.scss',
 })
@@ -26,6 +30,13 @@ export class AdminComponent implements OnInit {
   qualityBySource: QualityBySource[] = [];
   qualityJobs: QualityJob[] = [];
   showFlaggedOnly = false;
+  auditEntries: AuditEntry[] = [];
+  auditActions: AuditActions = { entity_types: [], actions: [] };
+  auditAction = '';
+  auditEntity = '';
+  auditFrom = '';
+  auditTo = '';
+  expandedAuditId: string | null = null;
   error: string | null = null;
   loading = false;
 
@@ -65,6 +76,8 @@ export class AdminComponent implements OnInit {
       error: () => undefined,
     });
     this.loadQualityJobs();
+    this.loadAudit();
+    this.loadAuditActions();
   }
 
   loadQualityJobs(): void {
@@ -77,6 +90,30 @@ export class AdminComponent implements OnInit {
   toggleFlaggedOnly(): void {
     this.showFlaggedOnly = !this.showFlaggedOnly;
     this.loadQualityJobs();
+  }
+
+  loadAudit(): void {
+    const filters: AuditFilters = {
+      action: this.auditAction || undefined,
+      entity_type: this.auditEntity || undefined,
+      date_from: this.auditFrom || undefined,
+      date_to: this.auditTo || undefined,
+    };
+    this.service.auditLog(filters).subscribe({
+      next: (entries) => (this.auditEntries = entries),
+      error: () => (this.error = 'Failed to load audit log'),
+    });
+  }
+
+  loadAuditActions(): void {
+    this.service.auditActions().subscribe({
+      next: (actions) => (this.auditActions = actions),
+      error: () => undefined,
+    });
+  }
+
+  toggleAuditDetails(id: string): void {
+    this.expandedAuditId = this.expandedAuditId === id ? null : id;
   }
 
   triggerScrape(sourceId: string): void {

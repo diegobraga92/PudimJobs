@@ -11,7 +11,7 @@ from app.audit import log_audit
 from app.auth import require_admin
 from app.broker import enqueue_scrape
 from app.database import get_db
-from app.models import Job, ScrapeQuality, ScrapeRun, Source
+from app.models import AuditLog, Job, ScrapeQuality, ScrapeRun, Source
 from app.models.user import User
 from app.schemas.admin import (
     ReparseResponse,
@@ -20,6 +20,7 @@ from app.schemas.admin import (
     SourceHealthResponse,
     StatsResponse,
 )
+from app.schemas.audit import AuditLogResponse
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -168,6 +169,68 @@ async def trigger_scrape(
     )
     await db.commit()
     return {"enqueued": True, "source_id": str(source.id)}
+
+
+@router.get("/audit", response_model=list[AuditLogResponse])
+async def audit_log(
+    user_id: uuid.UUID | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Search the audit log by user, action, entity type, and date range."""
+    stmt = (
+        select(AuditLog, User.email)
+        .outerjoin(User, AuditLog.user_id == User.id)
+        .order_by(AuditLog.timestamp.desc())
+        .limit(min(limit, 200))
+    )
+    if user_id:
+        stmt = stmt.where(AuditLog.user_id == user_id)
+    if action:
+        stmt = stmt.where(AuditLog.action == action)
+    if entity_type:
+        stmt = stmt.where(AuditLog.entity_type == entity_type)
+    if date_from:
+        stmt = stmt.where(AuditLog.timestamp >= date_from)
+    if date_to:
+        stmt = stmt.where(AuditLog.timestamp <= date_to)
+    rows = (await db.execute(stmt)).all()
+    return [
+        AuditLogResponse(
+            id=entry.id,
+            user_id=entry.user_id,
+            email=email,
+            action=entry.action,
+            entity_type=entry.entity_type,
+            entity_id=entry.entity_id,
+            changes=entry.changes,
+            timestamp=entry.timestamp,
+        )
+        for entry, email in rows
+    ]
+
+
+@router.get("/audit/actions")
+async def audit_actions(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Distinct entity types/actions recorded in the audit log (for filters)."""
+    types = await db.execute(
+        select(AuditLog.entity_type).distinct().order_by(AuditLog.entity_type)
+    )
+    actions = await db.execute(
+        select(AuditLog.action).distinct().order_by(AuditLog.action)
+    )
+    return {
+        "entity_types": [row[0] for row in types.all()],
+        "actions": [row[0] for row in actions.all()],
+    }
 
 
 @router.get("/quality/overview")

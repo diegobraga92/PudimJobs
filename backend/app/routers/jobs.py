@@ -1,17 +1,19 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import ARRAY, String, cast, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.broker import enqueue_parse_jd, enqueue_tailor
+from app.config import settings
 from app.database import get_db
 from app.models.job import Job
 from app.models.source import Source
 from app.models.user import User
+from app.ratelimit import auth_key, limiter
 from app.schemas.generated_cv import TailorRequest
 from app.schemas.jd import ParsedJDResponse
 from app.schemas.job import JobCreate, JobResponse, JobSummary, JobUpdate
@@ -42,7 +44,9 @@ async def validate_source(source_id: uuid.UUID | None, user: User, db: AsyncSess
 
 
 @router.get("", response_model=list[JobSummary])
+@limiter.limit(settings.rate_limit_api, key_func=auth_key)
 async def list_jobs(
+    request: Request,
     q: str | None = None,
     company: str | None = None,
     date_from: date | None = None,
