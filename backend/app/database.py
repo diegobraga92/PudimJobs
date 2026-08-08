@@ -41,5 +41,5 @@ async def check_db_health() -> bool:
                 __import__("sqlalchemy").text("SELECT 1")
             )
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - any failure means the DB is unreachable
         return False
