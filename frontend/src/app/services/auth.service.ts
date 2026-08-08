@@ -23,6 +23,10 @@ export class AuthService {
     return this.http.post<LoginResponse>('/api/auth/login', { email, password });
   }
 
+  me(): Observable<User> {
+    return this.http.get<User>('/api/auth/me');
+  }
+
   getToken(): string | null {
     return localStorage.getItem(TOKEN_STORAGE_KEY);
   }

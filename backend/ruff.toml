@@ -3,6 +3,10 @@
 
 line-length = 100
 target-version = "py312"
+exclude = [
+    # Migrations are (re)generated with alembic; skip style checks.
+    "alembic/versions",
+]
 
 [lint]
 select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM"]
@@ -11,4 +15,5 @@ ignore = [
     # FastAPI dependency-injection pattern.
     "B008",
 ]
+
 

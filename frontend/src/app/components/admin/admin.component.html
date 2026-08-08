@@ -1,0 +1,71 @@
+<div class="page-header">
+  <h2>Admin</h2>
+  <button class="ghost" (click)="refresh()">Refresh</button>
+</div>
+
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
+
+@if (stats) {
+  <div class="stats">
+    <div class="stat-card"><span class="stat-value">{{ stats.sources }}</span><span class="stat-label">Sources</span></div>
+    <div class="stat-card"><span class="stat-value">{{ stats.jobs }}</span><span class="stat-label">Jobs</span></div>
+    <div class="stat-card"><span class="stat-value">{{ stats.jobs_last_24h }}</span><span class="stat-label">Jobs (24h)</span></div>
+    <div class="stat-card" [class.alert]="stats.failed_runs > 0">
+      <span class="stat-value">{{ stats.failed_runs }}</span>
+      <span class="stat-label">Failed runs</span>
+    </div>
+    <div class="stat-card"><span class="stat-value">{{ stats.total_runs }}</span><span class="stat-label">Total runs</span></div>
+  </div>
+}
+
+<h3>Source Health</h3>
+<table class="panel">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Health</th>
+      <th>Last scraped</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    @for (source of sources; track source.id) {
+      <tr>
+        <td>{{ source.name }}</td>
+        <td>{{ source.type }}</td>
+        <td><span class="health" [class.healthy]="source.health === 'healthy'" [class.failing]="source.health === 'failing'">{{ source.health }}</span></td>
+        <td>{{ source.last_scraped ? (source.last_scraped | date: 'short') : 'never' }}</td>
+        <td><button class="ghost small" (click)="triggerScrape(source.id)">Scrape now</button></td>
+      </tr>
+    }
+  </tbody>
+</table>
+
+<h3>Dead-Letter Queue (failed scrape runs)</h3>
+@if (dlq.length === 0) {
+  <p class="muted">No failed runs. 🎉</p>
+} @else {
+  <table class="panel">
+    <thead>
+      <tr>
+        <th>Started</th>
+        <th>Error</th>
+        <th>Jobs</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (run of dlq; track run.id) {
+        <tr>
+          <td>{{ run.started_at | date: 'short' }}</td>
+          <td class="error-cell">{{ run.error }}</td>
+          <td>{{ run.new_jobs }}</td>
+          <td><button class="primary small" (click)="replay(run.id)">Replay</button></td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}

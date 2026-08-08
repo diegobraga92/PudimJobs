@@ -120,8 +120,8 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 |-------|--------|
 | 0 — Project skeleton, infra & CI/CD | ✅ Done |
 | 1 — Core data models & basic CRUD | ✅ Done |
-| 2 — Scraping engine & reprocessing | 🔜 Next |
-| 3 — CV parsing & tailoring | ⏳ Planned |
+| 2 — Scraping engine & reprocessing | ✅ Done |
+| 3 — CV parsing & tailoring | 🔜 Next |
 | 4 — Matching alerts & notifications | ⏳ Planned |
 | 5 — Observability, data quality & search | ⏳ Planned |
 | 6 — Security hardening | ⏳ Planned |
@@ -137,8 +137,23 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 - Audit logging for CV modifications and application status changes
 - Alembic migrations (`alembic upgrade head`) and an idempotent seed
   (`python -m app.seed`)
-- 30 unit + integration tests (integration tests run against
-  `TEST_DATABASE_URL`, default `...:5433/pudimjobs_test`)
+- 45 unit + integration tests (PostgreSQL + Redis test services via
+  `TEST_DATABASE_URL` / `REDIS_URL`)
+
+**Scraping engine (Celery + RabbitMQ)**
+- Celery worker + Beat scheduler in `workers/`, wired into docker-compose
+- Pluggable scrapers in `scrapers/` (career page via schema.org/JSON-LD, RSS
+  via feedparser, aggregator base)
+- `scrape_source` task: circuit-breaker check → rate limit → fetch → parse →
+  normalize → dedup insert → publish `job.new` event → update source health
+- Resilience: Redis-backed per-source circuit breaker (5 failures → pause 1h),
+  per-domain rate limiting, robots.txt checks, user-agent rotation,
+  exponential-backoff retries, RabbitMQ DLX
+- Reprocessing: `scrape_runs` durable failed-run log; admin endpoints to list
+  the DLQ, replay runs, and re-parse stored raw HTML
+- Versioned `job.new` events in `api/events/` (JSON on a topic exchange,
+  `job.new.v1` routing key)
+- Admin dashboard in the frontend: stats, source health, DLQ with replay
 
 **Frontend (Angular)**
 - Login page + auth guard + JWT interceptor
@@ -148,6 +163,7 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 - Master CV editor (summary, experience, education, skills, projects) with
   version history
 - Application pipeline (Kanban: saved → applied → interview → offer → rejected)
+- Admin dashboard (source health, scrape stats, dead-letter queue)
 
 **Demo credentials** (seeded by `python -m app.seed`, dev only):
 `admin@pudimjobs.dev` / `admin123`

@@ -10,6 +10,7 @@ from app.models.audit_log import AuditLog
 from app.models.enums import ApplicationStatus, SourceHealth, SourceType
 from app.models.job import Job
 from app.models.master_cv import MasterCV
+from app.models.scrape_run import ScrapeRun
 from app.models.source import Source
 from app.models.user import User
 
@@ -20,6 +21,7 @@ __all__ = [
     "Base",
     "Job",
     "MasterCV",
+    "ScrapeRun",
     "Source",
     "SourceHealth",
     "SourceType",

@@ -47,11 +47,67 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./api:/app/api
+      - ./scrapers:/app/scrapers
     environment:
       DATABASE_URL: postgresql+asyncpg://pudimjobs:pudimjobs_dev@postgres:5432/pudimjobs
       RABBITMQ_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
       REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      PYTHONPATH: /app
       LOG_LEVEL: DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: workers/Dockerfile
+    volumes:
+      - ./backend:/app/backend
+      - ./workers:/app/workers
+      - ./api:/app/api
+      - ./scrapers:/app/scrapers
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pudimjobs:pudimjobs_dev@postgres:5432/pudimjobs
+      RABBITMQ_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      PYTHONPATH: /app/backend:/app/workers:/app
+      LOG_LEVEL: DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    build:
+      context: .
+      dockerfile: workers/Dockerfile
+    volumes:
+      - ./backend:/app/backend
+      - ./workers:/app/workers
+      - ./api:/app/api
+      - ./scrapers:/app/scrapers
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pudimjobs:pudimjobs_dev@postgres:5432/pudimjobs
+      RABBITMQ_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      PYTHONPATH: /app/backend:/app/workers:/app
+      LOG_LEVEL: DEBUG
+    command: celery -A workers.celery_app beat --loglevel=info
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,0 +1,138 @@
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+
+  h2 {
+    margin: 0;
+  }
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem;
+  border: 1px solid #e2e5ea;
+  border-radius: 10px;
+  background: #fff;
+
+  &.alert .stat-value {
+    color: #c62828;
+  }
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #1e3a5f;
+}
+
+.stat-label {
+  font-size: 0.78rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+h3 {
+  margin: 1.25rem 0 0.6rem;
+  color: #1e3a5f;
+}
+
+.panel {
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e2e5ea;
+  border-radius: 10px;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #eef0f3;
+    font-size: 0.9rem;
+  }
+
+  th {
+    color: #6b7280;
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.health {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: #e3f0fa;
+  color: #1e3a5f;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+
+  &.healthy {
+    background: #e8f5e9;
+    color: #2e7d32;
+  }
+
+  &.failing {
+    background: #ffebee;
+    color: #c62828;
+  }
+}
+
+.error-cell {
+  color: #c62828;
+  font-size: 0.82rem;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.ghost,
+button.primary {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+
+  &.small {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.8rem;
+  }
+}
+
+button.ghost {
+  border: 1px solid #ccc;
+  background: #fff;
+  color: #333;
+}
+
+button.primary {
+  border: none;
+  background: #1e3a5f;
+  color: #fff;
+  font-weight: 600;
+}
+
+.error {
+  color: #c62828;
+}
+
+.muted {
+  color: #6b7280;
+}

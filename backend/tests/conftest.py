@@ -8,11 +8,22 @@ Two client fixtures are provided:
 
 Integration tests require a reachable PostgreSQL test database (defaults to
 ``postgresql+asyncpg://pudimjobs:pudimjobs_test@localhost:5433/pudimjobs_test``,
-override with the ``TEST_DATABASE_URL`` environment variable). When no test DB
-is available those tests are skipped; the /health tests still run.
+override with the ``TEST_DATABASE_URL`` environment variable). Worker/scraper
+tests additionally need Redis (default ``redis://localhost:6380/0``).
+When these services are unavailable the relevant tests are skipped.
 """
 
 import os
+
+# Configure shared settings BEFORE importing the application so the app engine,
+# Celery app and resilience Redis client target the test services.
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+asyncpg://pudimjobs:pudimjobs_test@localhost:5433/pudimjobs_test",
+)
+os.environ.setdefault("REDIS_URL", "redis://localhost:6380/0")
+os.environ.setdefault("RABBITMQ_URL", "amqp://pudimjobs:pudimjobs_dev@localhost:5673/")
+os.environ.setdefault("CELERY_BROKER_URL", "amqp://pudimjobs:pudimjobs_dev@localhost:5673/")
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -76,6 +87,24 @@ async def db_client(test_engine):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+# --- Redis (worker/resilience tests) ----------------------------------------
+
+
+@pytest.fixture
+def redis_client():
+    """A connected sync Redis client; skips tests when Redis is unavailable."""
+    try:
+        import redis as redis_lib
+
+        client = redis_lib.Redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+        client.ping()
+    except Exception as exc:  # noqa: BLE001 - environment without Redis
+        pytest.skip(f"Redis unavailable ({exc}); skipping worker tests")
+    yield client
+    client.flushdb()
+    client.close()
 
 
 # --- Plain client for non-DB tests ------------------------------------------

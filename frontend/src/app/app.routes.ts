@@ -1,6 +1,8 @@
 import { Routes } from '@angular/router';
 
+import { adminGuard } from './guards/admin.guard';
 import { authGuard } from './guards/auth.guard';
+import { AdminComponent } from './components/admin/admin.component';
 import { ApplicationsComponent } from './components/applications/applications.component';
 import { CvEditorComponent } from './components/cv-editor/cv-editor.component';
 import { JobDetailComponent } from './components/job-detail/job-detail.component';
@@ -22,8 +24,10 @@ export const routes: Routes = [
       { path: 'sources', component: SourcesComponent },
       { path: 'cv', component: CvEditorComponent },
       { path: 'applications', component: ApplicationsComponent },
+      { path: 'admin', component: AdminComponent, canActivate: [adminGuard] },
     ],
   },
   { path: '**', redirectTo: 'jobs' },
 ];
+
 
