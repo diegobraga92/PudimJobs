@@ -1,0 +1,33 @@
+<div class="page-header">
+  <h2>Notifications</h2>
+  <button class="ghost" (click)="markAllRead()" [disabled]="unread === 0">Mark all read</button>
+</div>
+
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
+
+<p class="muted">{{ total }} total · {{ unread }} unread</p>
+
+@if (notifications.length === 0) {
+  <p class="muted">No notifications yet. New matching jobs will appear here.</p>
+} @else {
+  <div class="list">
+    @for (item of notifications; track item.id) {
+      <div class="panel item" [class.unread]="!item.read">
+        <div class="item-main">
+          <div class="item-title">{{ item.title }}</div>
+          @if (item.message) {
+            <div class="item-message">{{ item.message }}</div>
+          }
+          <div class="item-meta">
+            {{ item.channel }} · {{ item.created_at | date: 'short' }} · {{ item.status }}
+          </div>
+        </div>
+        @if (!item.read) {
+          <button class="ghost small" (click)="markRead(item)">Mark read</button>
+        }
+      </div>
+    }
+  </div>
+}

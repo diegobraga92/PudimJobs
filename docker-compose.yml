@@ -116,6 +116,38 @@ services:
       redis:
         condition: service_healthy
 
+  event-consumer:
+    build:
+      context: .
+      dockerfile: workers/Dockerfile
+    volumes:
+      - ./backend:/app/backend
+      - ./workers:/app/workers
+      - ./api:/app/api
+      - ./scrapers:/app/scrapers
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pudimjobs:pudimjobs_dev@postgres:5432/pudimjobs
+      RABBITMQ_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      PYTHONPATH: /app/backend:/app/workers:/app
+      LOG_LEVEL: DEBUG
+    command: python -m workers.consume_events
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
   frontend:
     build:
       context: ./frontend

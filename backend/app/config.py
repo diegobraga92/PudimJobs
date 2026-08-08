@@ -20,6 +20,15 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
 
+    # Notifications / email (Mailpit for local dev)
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_from: str = "PudimJobs <alerts@pudimjobs.dev>"
+    smtp_username: str = ""
+    smtp_password: str = ""
+    notification_from_name: str = "PudimJobs"
+    in_app_notification_enabled: bool = True
+
     # Celery / workers
     celery_broker_url: str = "amqp://pudimjobs:pudimjobs_dev@localhost:5672/"
     celery_result_backend: str = "redis://localhost:6379/1"

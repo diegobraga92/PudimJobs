@@ -8,6 +8,9 @@ COPY backend/requirements.txt ./backend-requirements.txt
 COPY workers/requirements.txt ./workers-requirements.txt
 RUN pip install --no-cache-dir -r ./backend-requirements.txt -r ./workers-requirements.txt
 
+# Download the spaCy model used by the JD parser
+RUN python -m spacy download en_core_web_sm
+
 # Copy both trees; the worker needs the backend's app package and its own code,
 # plus the shared api/scrapers packages.
 COPY backend/ ./backend/

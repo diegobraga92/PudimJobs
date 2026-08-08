@@ -1,0 +1,103 @@
+<div class="page-header">
+  <h2>Job Alerts</h2>
+  <button class="primary" (click)="openCreate()">+ New alert</button>
+</div>
+
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
+
+@if (showForm) {
+  <form class="panel form" [formGroup]="alertForm" (ngSubmit)="save()">
+    <h3>{{ editingId ? 'Edit alert' : 'New alert' }}</h3>
+
+    <label>Name
+      <input formControlName="name" placeholder="Senior Python jobs" />
+    </label>
+
+    <div class="grid-2">
+      <label>Keywords (comma separated)
+        <input formControlName="keywordsText" placeholder="python, fastapi" />
+      </label>
+      <label>Companies (comma separated)
+        <input formControlName="companiesText" placeholder="Acme, Globex" />
+      </label>
+    </div>
+
+    <div class="grid-2">
+      <label>Tags (comma separated)
+        <input formControlName="tagsText" placeholder="backend, remote" />
+      </label>
+      <label>Min years of experience
+        <input formControlName="min_years_experience" type="number" min="0" max="50" />
+      </label>
+    </div>
+
+    <label>Channels (comma separated: in_app, email)
+      <input [value]="channelsText" (input)="channelsText = $any($event.target).value" placeholder="in_app, email" />
+    </label>
+
+    <label class="checkbox">
+      <input formControlName="remote_only" type="checkbox" />
+      Remote-only
+    </label>
+
+    <label class="checkbox">
+      <input formControlName="active" type="checkbox" />
+      Active
+    </label>
+
+    <div class="actions">
+      <button type="button" class="ghost" (click)="cancelForm()">Cancel</button>
+      <button type="submit" class="primary" [disabled]="alertForm.invalid">
+        {{ editingId ? 'Save changes' : 'Create alert' }}
+      </button>
+    </div>
+  </form>
+}
+
+@if (loading) {
+  <p class="muted">Loading…</p>
+} @else if (rules.length === 0) {
+  <p class="muted">No alert rules yet. Create one to get notified about new matching jobs.</p>
+} @else {
+  <table class="panel">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Keywords</th>
+        <th>Companies</th>
+        <th>Remote</th>
+        <th>Min years</th>
+        <th>Channels</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (rule of rules; track rule.id) {
+        <tr>
+          <td><strong>{{ rule.name }}</strong></td>
+          <td class="tags-cell">
+            @for (kw of rule.keywords; track kw) {
+              <span class="tag">{{ kw }}</span>
+            }
+          </td>
+          <td>{{ rule.companies.join(', ') }}</td>
+          <td>{{ rule.remote_only ? 'Yes' : '—' }}</td>
+          <td>{{ rule.min_years_experience ?? '—' }}</td>
+          <td>{{ rule.channels.join(', ') }}</td>
+          <td>
+            <button class="ghost small" (click)="toggleActive(rule)">
+              {{ rule.active ? 'Active' : 'Paused' }}
+            </button>
+          </td>
+          <td class="row-actions">
+            <button class="ghost small" (click)="openEdit(rule)">Edit</button>
+            <button class="danger small" (click)="remove(rule)">Delete</button>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}

@@ -11,7 +11,16 @@ from app.config import settings
 from app.database import check_db_health
 from app.logging_config import configure_logging
 from app.metrics import setup_metrics
-from app.routers import admin, applications, auth, cv, jobs, sources
+from app.routers import (
+    admin,
+    alert_rules,
+    applications,
+    auth,
+    cv,
+    jobs,
+    notifications,
+    sources,
+)
 
 # Context variable for trace_id propagation
 trace_id_var: ContextVar[str] = ContextVar("trace_id", default="")
@@ -64,6 +73,8 @@ app.include_router(jobs.router)
 app.include_router(cv.router)
 app.include_router(applications.router)
 app.include_router(admin.router)
+app.include_router(alert_rules.router)
+app.include_router(notifications.router)
 
 
 @app.get("/health")

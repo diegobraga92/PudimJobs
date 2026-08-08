@@ -1,5 +1,10 @@
 """API request/response schemas (Pydantic)."""
 
+from app.schemas.alert_rule import (
+    AlertRuleCreate,
+    AlertRuleResponse,
+    AlertRuleUpdate,
+)
 from app.schemas.application import ApplicationCreate, ApplicationResponse, ApplicationUpdate
 from app.schemas.auth import LoginRequest, TokenResponse, UserResponse
 from app.schemas.generated_cv import GeneratedCVResponse, TailorRequest
@@ -14,9 +19,13 @@ from app.schemas.master_cv import (
     MasterCVUpdate,
     ProjectItem,
 )
+from app.schemas.notification import NotificationListResponse, NotificationResponse
 from app.schemas.source import SourceCreate, SourceResponse, SourceUpdate
 
 __all__ = [
+    "AlertRuleCreate",
+    "AlertRuleResponse",
+    "AlertRuleUpdate",
     "ApplicationCreate",
     "ApplicationResponse",
     "ApplicationUpdate",
@@ -32,6 +41,8 @@ __all__ = [
     "MasterCVCreate",
     "MasterCVResponse",
     "MasterCVUpdate",
+    "NotificationListResponse",
+    "NotificationResponse",
     "ParsedJDResponse",
     "ProjectItem",
     "SourceCreate",

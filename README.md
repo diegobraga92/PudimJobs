@@ -122,8 +122,8 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 | 1 — Core data models & basic CRUD | ✅ Done |
 | 2 — Scraping engine & reprocessing | ✅ Done |
 | 3 — JD parsing & CV tailoring | ✅ Done |
-| 4 — Matching alerts & notifications | 🔜 Next |
-| 5 — Observability, data quality & search | ⏳ Planned |
+| 4 — Matching alerts & notifications | ✅ Done |
+| 5 — Observability, data quality & search | 🔜 Next |
 | 6 — Security hardening | ⏳ Planned |
 | 7 — Chaos & incident postmortem | ⏳ Planned |
 | 8 — Cost analysis & portfolio polish | ⏳ Planned |
@@ -170,6 +170,19 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
   `GET /api/cv/generated/{id}/pdf`
 - Frontend: "Tailor CV for this job" button + parsed-JD panel on the job
   detail page; generated-CV list with PDF download on the CV editor
+
+**Matching alerts & notifications**
+- Alert rules (saved searches): keywords, companies, tags, remote-only,
+  min years of experience, channels, active toggle — `alert_rules` table +
+  full CRUD API + frontend page
+- Event-driven matching: `workers/consume_events.py` consumes `job.new`
+  RabbitMQ events and enqueues `match_job`; `match_job` evaluates the job
+  against all active rules for its owner (`app/services/matcher.py`)
+- Delivery: in-app notifications (`notifications` table) + email via SMTP
+  (Mailpit for local dev, Jinja2 template); per-notification delivery status
+  (created/sent/failed) for observability
+- API: `/api/alert-rules`, `/api/notifications` (list, mark-read, read-all)
+- Frontend: Alerts page (CRUD + pause/resume) and Notifications page
 
 **Frontend (Angular)**
 - Login page + auth guard + JWT interceptor
