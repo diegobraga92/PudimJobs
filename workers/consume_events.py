@@ -23,8 +23,10 @@ MATCHING_QUEUE = Queue(
 def _handle(body, message):
     job_id = body.get("job_id")
     if job_id:
+        # One event, multiple consumers: alert matching + data quality.
         celery_app.send_task("workers.tasks.match.match_job", args=[job_id])
-        print(f"enqueued match for job {job_id}", flush=True)
+        celery_app.send_task("workers.tasks.quality.assess_quality", args=[job_id])
+        print(f"enqueued match+quality for job {job_id}", flush=True)
     else:
         print("skipped event without job_id", flush=True)
     message.ack()

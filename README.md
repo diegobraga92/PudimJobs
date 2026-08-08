@@ -123,8 +123,8 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 | 2 — Scraping engine & reprocessing | ✅ Done |
 | 3 — JD parsing & CV tailoring | ✅ Done |
 | 4 — Matching alerts & notifications | ✅ Done |
-| 5 — Observability, data quality & search | 🔜 Next |
-| 6 — Security hardening | ⏳ Planned |
+| 5 — Observability, data quality & search | ✅ Done |
+| 6 — Security hardening | 🔜 Next |
 | 7 — Chaos & incident postmortem | ⏳ Planned |
 | 8 — Cost analysis & portfolio polish | ⏳ Planned |
 
@@ -183,6 +183,25 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
   (created/sent/failed) for observability
 - API: `/api/alert-rules`, `/api/notifications` (list, mark-read, read-all)
 - Frontend: Alerts page (CRUD + pause/resume) and Notifications page
+
+**Observability, data quality & search**
+- PostgreSQL Full-Text Search: generated `search_vector` (title A > company B
+  > description C) + GIN index; `plainto_tsquery`/`ts_rank` ranking with a
+  per-result `score` (replaces ILIKE) — migration `0006`
+- Data quality pipeline: `scrape_quality` table; company/title/skill
+  normalization (mapping files + taxonomy aliases), completeness scoring,
+  fuzzy cross-source duplicate detection — dispatched from the same `job.new`
+  event consumer as alert matching (migration `0007`)
+- Admin "Data Quality" dashboard: overview cards, per-source breakdown,
+  flagged-jobs list with normalization + issues
+- OpenTelemetry: FastAPI + Celery instrumentation → Jaeger (OTLP), trace IDs
+  bridged to structured logs; docker-compose now runs Prometheus, Grafana
+  (provisioned RED/scraper dashboard), and Jaeger
+- Worker Prometheus metrics wired into the scrape task (scrapes total,
+  duration); `/metrics` on a sidecar port
+- Load test script (`scripts/load_test.py`) + real `EXPLAIN ANALYZE` results
+  in `docs/database-performance.md`; PostgreSQL-vs-Elasticsearch evaluation in
+  `docs/elasticsearch-comparison.md`
 
 **Frontend (Angular)**
 - Login page + auth guard + JWT interceptor

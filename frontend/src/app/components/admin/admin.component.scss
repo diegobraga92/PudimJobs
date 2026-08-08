@@ -94,6 +94,10 @@ h3 {
   }
 }
 
+.flagged-toggle {
+  margin: 0.75rem 0;
+}
+
 .error-cell {
   color: #c62828;
   font-size: 0.82rem;
@@ -101,6 +105,37 @@ h3 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+tr.flagged td {
+  background: #fff8e1;
+}
+
+.issues-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  max-width: 320px;
+}
+
+.issue {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #ffebee;
+  color: #c62828;
+  font-size: 0.72rem;
+}
+
+.muted.small {
+  font-size: 0.78rem;
 }
 
 button.ghost,

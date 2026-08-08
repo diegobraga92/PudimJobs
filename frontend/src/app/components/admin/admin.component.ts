@@ -4,6 +4,9 @@ import { CommonModule } from '@angular/common';
 import {
   AdminService,
   AdminStats,
+  QualityBySource,
+  QualityJob,
+  QualityOverview,
   ScrapeRun,
   SourceHealth,
 } from '../../services/admin.service';
@@ -19,6 +22,10 @@ export class AdminComponent implements OnInit {
   stats: AdminStats | null = null;
   sources: SourceHealth[] = [];
   dlq: ScrapeRun[] = [];
+  quality: QualityOverview | null = null;
+  qualityBySource: QualityBySource[] = [];
+  qualityJobs: QualityJob[] = [];
+  showFlaggedOnly = false;
   error: string | null = null;
   loading = false;
 
@@ -49,6 +56,27 @@ export class AdminComponent implements OnInit {
         this.loading = false;
       },
     });
+    this.service.qualityOverview().subscribe({
+      next: (quality) => (this.quality = quality),
+      error: () => (this.error = 'Failed to load quality overview'),
+    });
+    this.service.qualityBySource().subscribe({
+      next: (bySource) => (this.qualityBySource = bySource),
+      error: () => undefined,
+    });
+    this.loadQualityJobs();
+  }
+
+  loadQualityJobs(): void {
+    this.service.qualityJobs(this.showFlaggedOnly).subscribe({
+      next: (jobs) => (this.qualityJobs = jobs),
+      error: () => (this.error = 'Failed to load quality jobs'),
+    });
+  }
+
+  toggleFlaggedOnly(): void {
+    this.showFlaggedOnly = !this.showFlaggedOnly;
+    this.loadQualityJobs();
   }
 
   triggerScrape(sourceId: string): void {
@@ -65,3 +93,4 @@ export class AdminComponent implements OnInit {
     });
   }
 }
+

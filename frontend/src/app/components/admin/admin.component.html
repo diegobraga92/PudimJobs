@@ -69,3 +69,84 @@
     </tbody>
   </table>
 }
+
+<h3>Data Quality</h3>
+@if (quality) {
+  <div class="stats">
+    <div class="stat-card"><span class="stat-value">{{ quality.assessed }}/{{ quality.jobs_total }}</span><span class="stat-label">Jobs assessed</span></div>
+    <div class="stat-card"><span class="stat-value">{{ quality.avg_completeness | percent }}</span><span class="stat-label">Avg completeness</span></div>
+    <div class="stat-card" [class.alert]="quality.duplicates > 0">
+      <span class="stat-value">{{ quality.duplicates }}</span>
+      <span class="stat-label">Duplicates</span>
+    </div>
+    <div class="stat-card"><span class="stat-value">{{ quality.normalization_coverage | percent }}</span><span class="stat-label">Normalization</span></div>
+    <div class="stat-card" [class.alert]="quality.jobs_with_issues > 0">
+      <span class="stat-value">{{ quality.jobs_with_issues }}</span>
+      <span class="stat-label">With issues</span>
+    </div>
+  </div>
+}
+
+@if (qualityBySource.length > 0) {
+  <table class="panel">
+    <thead>
+      <tr>
+        <th>Source</th>
+        <th>Jobs</th>
+        <th>Avg completeness</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (entry of qualityBySource; track entry.source) {
+        <tr>
+          <td>{{ entry.source }}</td>
+          <td>{{ entry.jobs }}</td>
+          <td>{{ entry.avg_completeness | percent }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<div class="flagged-toggle">
+  <label class="checkbox">
+    <input type="checkbox" [checked]="showFlaggedOnly" (change)="toggleFlaggedOnly()" />
+    Flagged only (duplicates / issues)
+  </label>
+</div>
+
+@if (qualityJobs.length > 0) {
+  <table class="panel">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Company</th>
+        <th>Completeness</th>
+        <th>Normalized</th>
+        <th>Issues</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (entry of qualityJobs; track entry.job_id) {
+        <tr [class.flagged]="entry.is_duplicate || entry.issues.length > 0">
+          <td>{{ entry.title }}</td>
+          <td>{{ entry.company }}</td>
+          <td>{{ entry.completeness_score | percent }}</td>
+          <td>
+            {{ entry.normalized_company || entry.company }}
+            @if (entry.normalized_title && entry.normalized_title !== entry.title) {
+              <div class="muted small">→ {{ entry.normalized_title }}</div>
+            }
+          </td>
+          <td class="issues-cell">
+            @for (issue of entry.issues; track issue) {
+              <span class="issue">{{ issue }}</span>
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+} @else {
+  <p class="muted">No assessed jobs yet — trigger a scrape to generate quality data.</p>
+}

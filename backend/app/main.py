@@ -6,6 +6,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from app.config import settings
 from app.database import check_db_health
@@ -21,6 +22,7 @@ from app.routers import (
     notifications,
     sources,
 )
+from app.telemetry import init_telemetry
 
 # Context variable for trace_id propagation
 trace_id_var: ContextVar[str] = ContextVar("trace_id", default="")
@@ -75,6 +77,11 @@ app.include_router(applications.router)
 app.include_router(admin.router)
 app.include_router(alert_rules.router)
 app.include_router(notifications.router)
+
+# OpenTelemetry: instrument the API when a collector is configured.
+init_telemetry("pudimjobs-api")
+if settings.otlp_endpoint:
+    FastAPIInstrumentor.instrument_app(app)
 
 
 @app.get("/health")

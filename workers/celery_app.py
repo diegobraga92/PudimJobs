@@ -5,8 +5,22 @@ exchanges); Redis is the result backend and stores circuit-breaker state.
 """
 
 from app.config import settings
+from app.telemetry import init_telemetry
 from celery import Celery
 from kombu import Exchange, Queue
+
+# OpenTelemetry for task execution (no-op when no collector is configured).
+init_telemetry("pudimjobs-worker")
+if settings.otlp_endpoint:
+    from opentelemetry.instrumentation.celery import CeleryInstrumentor
+
+    CeleryInstrumentor().instrument()
+
+# Expose Prometheus worker metrics on a sidecar HTTP port (0 = disabled).
+if settings.worker_metrics_port:
+    from workers.metrics import start_metrics_server
+
+    start_metrics_server(settings.worker_metrics_port)
 
 # Broker-level dead-letter topology: tasks that are rejected or expire land in
 # the ``pudimjobs.dlx`` queue so they can be inspected and replayed.

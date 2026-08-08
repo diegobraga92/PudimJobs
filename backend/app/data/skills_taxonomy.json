@@ -36,5 +36,20 @@
     "vscode", "intellij", "pycharm", "vim", "emacs", "linux", "unix",
     "macos", "windows", "postman", "swagger", "openapi", "docker compose",
     "jupyter", "pytest", "jest", "mocha", "selenium", "cypress"
-  ]
+  ],
+  "aliases": {
+    "react": ["react.js", "reactjs"],
+    "kubernetes": ["k8s", "kube"],
+    "node.js": ["node", "nodejs"],
+    "typescript": ["ts"],
+    "postgresql": ["postgres", "psql"],
+    "golang": ["go"],
+    "c++": ["cpp"],
+    "machine learning": ["ml"],
+    "natural language processing": ["nlp"],
+    "github actions": ["gh actions", "gha"],
+    "ci/cd": ["cicd"],
+    "rest api": ["restful api", "rest apis"],
+    "microservices": ["microservice", "micro-services"]
+  }
 }

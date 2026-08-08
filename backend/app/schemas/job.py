@@ -34,6 +34,7 @@ class JobSummary(BaseModel):
     posted_date: date | None
     tags: list[str]
     created_at: datetime
+    score: float = 0.0
 
 
 class JobResponse(JobSummary):

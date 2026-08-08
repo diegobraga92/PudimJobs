@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import ARRAY, String, cast, or_, select
+from sqlalchemy import ARRAY, String, cast, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,21 +51,22 @@ async def list_jobs(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Search and filter jobs.
+    """Search and filter jobs using PostgreSQL full-text search.
 
-    Phase 1 uses ILIKE over title/company/description; PostgreSQL full-text
-    search (tsvector + ranking) replaces this in Phase 5.
+    The ``search_vector`` generated column weights title (A) > company (B) >
+    description (C). Results are ordered by ``ts_rank`` when a keyword is
+    given (with a per-result ``score``), otherwise by recency.
     """
-    stmt = select(Job).where(Job.user_id == user.id)
-    if q:
-        pattern = f"%{q.strip()}%"
-        stmt = stmt.where(
-            or_(
-                Job.title.ilike(pattern),
-                Job.company.ilike(pattern),
-                Job.description.ilike(pattern),
-            )
+    has_keyword = bool(q and q.strip())
+    if has_keyword:
+        query = func.plainto_tsquery("english", q.strip())
+        rank = func.ts_rank(Job.search_vector, query)
+        stmt = select(Job, rank.label("score")).where(
+            Job.user_id == user.id, Job.search_vector.op("@@")(query)
         )
+    else:
+        stmt = select(Job).where(Job.user_id == user.id)
+
     if company:
         stmt = stmt.where(Job.company.ilike(f"%{company.strip()}%"))
     if date_from:
@@ -78,8 +79,20 @@ async def list_jobs(
             # JSONB `?|` requires a text[] operand; cast the Python list explicitly.
             stmt = stmt.where(Job.tags.op("?|")(cast(tag_list, ARRAY(String))))
 
-    stmt = stmt.order_by(Job.created_at.desc())
+    if has_keyword:
+        stmt = stmt.order_by(func.ts_rank(Job.search_vector, query).desc(), Job.created_at.desc())
+    else:
+        stmt = stmt.order_by(Job.created_at.desc())
+
     result = await db.execute(stmt)
+    if has_keyword:
+        # select(Job, rank) returns tuples; rehydrate summaries with scores.
+        return [
+            JobSummary.model_validate(job).model_copy(
+                update={"score": round(float(score), 4)}
+            )
+            for job, score in result.all()
+        ]
     return result.scalars().all()
 
 

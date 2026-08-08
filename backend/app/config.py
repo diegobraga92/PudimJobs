@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     notification_from_name: str = "PudimJobs"
     in_app_notification_enabled: bool = True
 
+    # Observability
+    otlp_endpoint: str = ""  # e.g. http://jaeger:4318/v1/traces (empty = disabled)
+    worker_metrics_port: int = 0  # 0 = worker /metrics server disabled
+
     # Celery / workers
     celery_broker_url: str = "amqp://pudimjobs:pudimjobs_dev@localhost:5672/"
     celery_result_backend: str = "redis://localhost:6379/1"

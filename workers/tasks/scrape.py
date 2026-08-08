@@ -7,6 +7,7 @@ Redis-backed circuit breaker.
 """
 
 import asyncio
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -22,6 +23,7 @@ from api.events.producer import publish_job_new
 from api.events.schemas import JobNewEvent
 from scrapers.registry import get_scraper
 from workers.celery_app import celery_app
+from workers.metrics import SCRAPE_DURATION, SCRAPES_TOTAL
 from workers.resilience import (
     CircuitBreakerOpenError,
     circuit_breaker_is_open,
@@ -179,5 +181,17 @@ async def _run_scrape(source_id: str) -> dict:
 )
 def scrape_source(self: Task, source_id: str) -> dict:
     """Celery entry point; wraps the async pipeline with ``asyncio.run``."""
-    return asyncio.run(_run_scrape(source_id))
+    started = time.monotonic()
+    try:
+        result = asyncio.run(_run_scrape(source_id))
+        SCRAPES_TOTAL.labels(source_id=source_id, status="success").inc()
+        return result
+    except CircuitBreakerOpenError:
+        SCRAPES_TOTAL.labels(source_id=source_id, status="skipped").inc()
+        raise
+    except Exception:
+        SCRAPES_TOTAL.labels(source_id=source_id, status="failed").inc()
+        raise
+    finally:
+        SCRAPE_DURATION.labels(source_id=source_id).observe(time.monotonic() - started)
 
