@@ -80,12 +80,15 @@ jobs:
         run: python -m pytest
 
       - name: Build Docker image
-        run: docker build -t pudimjobs-backend .
+        working-directory: .
+        run: docker build -f backend/Dockerfile -t pudimjobs-backend .
 
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          image-ref: pudimjobs-backend
-          format: table
-          exit-code: 0
-          severity: CRITICAL,HIGH
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            --exit-code 0 \
+            --severity CRITICAL,HIGH \
+            --format table \
+            pudimjobs-backend

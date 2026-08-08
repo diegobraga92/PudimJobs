@@ -1,0 +1,26 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local env
+.env
+.env.*
+*.log
+
+# Node / Angular (if backend is ever built from the repo root)
+node_modules/
+dist/
+.angular/
+
+# Git / IDE
+.git/
+.gitignore
+.idea/
+.vscode/

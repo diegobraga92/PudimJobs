@@ -12,7 +12,9 @@ pydantic-settings>=2.0.0
 structlog>=24.0.0
 opentelemetry-api>=1.24.0
 opentelemetry-sdk>=1.24.0
-opentelemetry-instrumentation-celery>=0.45.0
+# Instrumentation packages ship only as pre-releases (e.g. 0.65b0); pin exact
+# versions so `pip install` without --pre can resolve them.
+opentelemetry-instrumentation-celery==0.65b0
 opentelemetry-exporter-otlp>=1.24.0
 
 # The worker shares models/config with the backend (backend/app is mounted or

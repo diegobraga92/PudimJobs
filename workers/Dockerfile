@@ -2,11 +2,19 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# System libraries for weasyprint PDF rendering (CV tailoring runs in the worker)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Backend requirements cover the shared models/config; worker requirements add
 # the scraping/runtime deps on top.
 COPY backend/requirements.txt ./backend-requirements.txt
 COPY workers/requirements.txt ./workers-requirements.txt
-RUN pip install --no-cache-dir -r ./backend-requirements.txt -r ./workers-requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools \
+    && pip install --no-cache-dir -r ./backend-requirements.txt -r ./workers-requirements.txt
 
 # Download the spaCy model used by the JD parser
 RUN python -m spacy download en_core_web_sm

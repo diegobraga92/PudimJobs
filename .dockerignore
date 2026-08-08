@@ -1,0 +1,29 @@
+# Python
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/.ruff_cache/
+.coverage
+htmlcov/
+
+# Local env
+.env
+.env.*
+**/*.log
+
+# Node / Angular
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+
+# Git / IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# Runtime / test data
+*.sqlite3

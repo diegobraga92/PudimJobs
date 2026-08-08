@@ -23,9 +23,14 @@ weasyprint>=60.0
 Jinja2>=3.1.0
 opentelemetry-api>=1.24.0
 opentelemetry-sdk>=1.24.0
-opentelemetry-instrumentation-fastapi>=0.45.0
-opentelemetry-instrumentation-celery>=0.45.0
+# Instrumentation packages ship only as pre-releases (e.g. 0.65b0); pin exact
+# versions so `pip install` without --pre can resolve them (CI + Docker).
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-instrumentation-celery==0.65b0
 opentelemetry-exporter-otlp>=1.24.0
+# Trivy HIGH fixes in the Python layer (msgpack via CacheControl, base setuptools)
+msgpack>=1.2.1
+setuptools>=78.1.1
 ruff>=0.3.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
