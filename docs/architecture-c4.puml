@@ -1,0 +1,55 @@
+@startuml pudimjobs-c4
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title PudimJobs — Container Diagram (C4)
+
+Person(user, "Job Seeker", "Manages sources, jobs, CV, and applications")
+Person(admin, "Administrator", "Monitors health, DLQ, data quality, audit log")
+
+System_Boundary(ui, "Frontend") {
+  Container(spa, "Angular SPA", "TypeScript / nginx", "Login, job search, CV editor, kanban, alerts, admin dashboards")
+}
+
+System_Boundary(be, "Backend") {
+  Container(api, "FastAPI", "Python 3.12", "REST API, JWT auth, CRUD, search (PG FTS), rate limiting")
+  Container(worker, "Celery Worker", "Python", "scrape_source, match_job, assess_quality, tailor, jd_parse")
+  Container(beat, "Celery Beat", "Python", "Periodic sweep_sources every 15 min")
+  Container(consumer, "Event Consumer", "Python", "Consumes job.new → dispatches match + quality")
+}
+
+System_Boundary(data, "Data & Brokers") {
+  ContainerDb(pg, "PostgreSQL 16", "SQL", "Jobs, sources, CV, applications, alerts, notifications, audit, quality")
+  ContainerDb(rmq, "RabbitMQ 3", "AMQP", "pudimjobs.events topic exchange + DLX")
+  ContainerDb(redis, "Redis 7", "In-memory", "Celery broker/backend, circuit breakers, rate limiting")
+}
+
+System_Boundary(obs, "Observability") {
+  Container(metrics, "Prometheus", "TSDB", "Scrapes /metrics from API + worker")
+  Container(grafana, "Grafana", "Dashboards", "RED API, scraper throughput, data quality")
+  Container(jaeger, "Jaeger", "Tracing", "OTLP traces from API + Celery")
+  Container(mailpit, "Mailpit", "SMTP", "Local email capture (dev)")
+}
+
+System_Ext(boards, "Job Boards / RSS feeds", "External websites")
+
+Rel(user, spa, "HTTPS /api", "JWT")
+Rel(admin, spa, "HTTPS /api", "JWT (role=admin)")
+Rel(spa, api, "REST JSON", "")
+Rel(api, pg, "asyncpg SQL", "user_id-scoped")
+Rel(api, rmq, "publish job.new", "kombu")
+Rel(api, redis, "rate limit / CB", "")
+Rel(worker, pg, "async SQL", "")
+Rel(worker, rmq, "consume task queue", "Celery")
+Rel(worker, redis, "broker/backend/CB", "")
+Rel(beat, rmq, "enqueue sweep tasks", "")
+Rel(consumer, rmq, "consume job.new.#", "")
+Rel(consumer, worker, "send_task match/quality", "Celery")
+Rel(worker, boards, "HTTPS scrape", "httpx, robots.txt, UA rotation")
+Rel(worker, mailpit, "SMTP alerts", "")
+Rel(api, metrics, "/metrics", "prometheus_client")
+Rel(worker, metrics, "/metrics", "sidecar port")
+Rel(metrics, grafana, "query", "PromQL")
+Rel(api, jaeger, "OTLP spans", "opentelemetry")
+Rel(worker, jaeger, "OTLP spans", "opentelemetry")
+
+@enduml

@@ -4,6 +4,33 @@
 >
 > Flagship project for async pipelines, data engineering, search, and resilient external integrations.
 
+---
+
+## Who this is for
+
+**Job seekers** — PudimJobs watches your target companies and feeds for you:
+new postings are scraped, deduplicated, and matched against your saved
+searches (alerts in-app and by email). The "Tailor CV" button produces a
+job-specific CV PDF from your master CV, and the kanban pipeline tracks each
+application from *saved* through *offer*.
+
+**Hiring managers / HR** — this is a portfolio project that demonstrates how a
+small engineering team would build a production job board: an event-driven
+scraping pipeline with circuit breakers and a dead-letter queue, a data
+quality pipeline with normalization and dashboards, relevance-ranked search,
+and versioned CV generation. See [docs/tradeoffs.md](docs/tradeoffs.md) for the
+engineering decisions behind each component.
+
+**Engineers / interviewers** — the interesting depth lives in the docs:
+- [Development plan](docs/DEV_PLAN.md) — 8 phases, every checkbox traceable to code
+- [Architecture decision records](docs/adr/) — 9 ADRs (FastAPI, data model, events, reprocessing, resilience, tailoring, alerting, data quality, search)
+- [Resilience](docs/stride-threat-model.md) · [runbooks](docs/runbooks/) · [postmortem](docs/postmortems/)
+- [Database performance](docs/database-performance.md) — real `EXPLAIN ANALYZE` numbers
+- [Cost & capacity](docs/cost-estimate.md) · [docs/capacity-plan.md](docs/capacity-plan.md)
+- [C4 architecture diagram](docs/architecture-c4.puml)
+
+---
+
 ## Architecture
 
 | Layer | Technology | Purpose |
@@ -14,7 +41,7 @@
 | **Cache / broker** | Redis | Celery result backend, rate limiting |
 | **Search** | PostgreSQL Full-Text Search | Keyword search over jobs (Elasticsearch tradeoff documented) |
 | **Frontend** | Angular 17 + TypeScript | Source management, job search, CV editor, application pipeline |
-| **Observability** | OpenTelemetry, Prometheus, structlog, ELK (planned) | Traces, metrics, structured logs, dashboards |
+| **Observability** | OpenTelemetry → Jaeger, Prometheus, Grafana, structlog | Traces, metrics, structured logs, RED + data-quality dashboards |
 | **Infrastructure** | Docker Compose (dev), Terraform + AWS (prod) | Local & cloud deployment |
 
 ```
@@ -35,14 +62,15 @@
 ```
 PudimJobs/
 ├── backend/          # FastAPI application (Python 3.12)
-│   └── app/          #   config, database, logging, metrics, routers
+│   └── app/          #   config, database, models, routers, services, data, templates
 ├── frontend/         # Angular 17 application
-│   └── src/app/      #   components, services, routing
+│   └── src/app/      #   components, services, routing, guards, interceptors
 ├── scrapers/         # Scraper implementations & adapters (per-source)
-├── workers/          # Celery tasks (scraping, parsing, matching, tailoring)
-├── api/openapi/      # Hand-written OpenAPI contract specs
-├── infra/            # Terraform (RDS, compute, ECR)
-├── docs/             # DEV_PLAN, ADRs, SLOs, runbooks, tradeoffs
+├── workers/          # Celery app, tasks, event consumer, metrics
+├── api/              # Event schemas/producer + hand-written OpenAPI specs
+├── infra/            # Terraform (RDS, ECR) + Prometheus/Grafana provisioning
+├── scripts/          # Load test + chaos experiment scripts
+├── docs/             # DEV_PLAN, 9 ADRs, SLOs, runbooks, postmortems, tradeoffs
 └── docker-compose.yml
 ```
 
@@ -238,12 +266,31 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 
 ## Documentation
 
-- [Development Plan](docs/DEV_PLAN.md) — phased roadmap with completion checklists
-- [Architecture Decision Records](docs/adr/) — 9 planned ADRs (1 written: FastAPI choice)
-- [SLOs & Error Budgets](docs/slo.md) — availability, freshness, latency targets
-- [Tradeoffs](docs/tradeoffs.md) — planned summary of engineering tradeoffs
-- [Database Performance](docs/database-performance.md) — planned `EXPLAIN ANALYZE` report
-- [Incident Postmortems](docs/postmortems/) — planned postmortem & runbooks
+**Planning & decisions**
+- [Development Plan](docs/DEV_PLAN.md) — phased roadmap with completion checklists (Phases 0–8 ✅)
+- [Architecture Decision Records](docs/adr/) — **9 ADRs** (001–009)
+- [Tradeoffs](docs/tradeoffs.md) — every decision at a glance, linked to ADRs
+
+**Operational**
+- [SLOs & Error Budgets](docs/slo.md) — availability 99.5%, freshness, latency
+- [Database Performance](docs/database-performance.md) — real `EXPLAIN ANALYZE` results
+- [Search Evaluation](docs/elasticsearch-comparison.md) — PostgreSQL FTS vs OpenSearch
+- [Cost Estimate](docs/cost-estimate.md) · [Capacity Plan](docs/capacity-plan.md)
+- [Secrets Rotation](docs/secrets-rotation.md)
+- [C4 Architecture Diagram](docs/architecture-c4.puml)
+
+**Security & resilience**
+- [STRIDE Threat Model](docs/stride-threat-model.md)
+- [Runbooks](docs/runbooks/) — scraper failure, RabbitMQ backlog, data quality, database failover
+- [Postmortems](docs/postmortems/) — simulated scraper-outage incident
+- [Chaos Experiments](scripts/chaos/README.md) — failure-injection scripts
+
+## Demo Video
+
+A walkthrough script is outlined in [docs/DEV_PLAN.md](docs/DEV_PLAN.md) (Phase 8):
+scraping workflow → data quality dashboard → CV tailoring → alert notification →
+reprocessing. To record: start the stack, run `python scripts/chaos/break_scraper_html.py`
+to show resilience, then run the tailoring + alert flows described in the README.
 
 ## License
 
