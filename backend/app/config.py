@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
+    # CV tailoring / optional LLM enhancement
+    tailoring_llm_enabled: bool = False
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
+
     # Celery / workers
     celery_broker_url: str = "amqp://pudimjobs:pudimjobs_dev@localhost:5672/"
     celery_result_backend: str = "redis://localhost:6379/1"

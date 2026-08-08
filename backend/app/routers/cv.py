@@ -1,14 +1,17 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import log_audit
 from app.auth import get_current_user
 from app.database import get_db
+from app.models.generated_cv import GeneratedCV
+from app.models.job import Job
 from app.models.master_cv import MasterCV
 from app.models.user import User
+from app.schemas.generated_cv import GeneratedCVResponse
 from app.schemas.master_cv import MasterCVCreate, MasterCVResponse, MasterCVUpdate
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
@@ -90,6 +93,56 @@ async def create_version(
     )
     await db.commit()
     return cv
+
+
+@router.get("/generated", response_model=list[GeneratedCVResponse])
+async def list_generated(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List generated (tailored) CVs with their target job info."""
+    result = await db.execute(
+        select(GeneratedCV, Job)
+        .join(Job, GeneratedCV.job_id == Job.id)
+        .where(GeneratedCV.user_id == user.id)
+        .order_by(GeneratedCV.created_at.desc())
+    )
+    rows = result.all()
+    return [
+        GeneratedCVResponse(
+            id=generated.id,
+            master_cv_id=generated.master_cv_id,
+            job_id=generated.job_id,
+            job_title=job.title if job else None,
+            job_company=job.company if job else None,
+            created_at=generated.created_at,
+        )
+        for generated, job in rows
+    ]
+
+
+@router.get("/generated/{generated_id}/pdf")
+async def get_generated_pdf(
+    generated_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Download a generated tailored CV as PDF."""
+    result = await db.execute(
+        select(GeneratedCV).where(
+            GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id
+        )
+    )
+    generated = result.scalar_one_or_none()
+    if generated is None:
+        raise HTTPException(status_code=404, detail="Generated CV not found")
+    return Response(
+        content=generated.pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="tailored-cv-{generated.id}.pdf"'
+        },
+    )
 
 
 @router.put("/{cv_id}", response_model=MasterCVResponse)

@@ -45,6 +45,15 @@ export interface CVInput {
   label?: string;
 }
 
+export interface GeneratedCV {
+  id: string;
+  master_cv_id: string | null;
+  job_id: string | null;
+  job_title: string | null;
+  job_company: string | null;
+  created_at: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CvService {
   constructor(private http: HttpClient) {}
@@ -63,5 +72,13 @@ export class CvService {
 
   update(id: string, payload: Partial<CVInput>): Observable<MasterCV> {
     return this.http.put<MasterCV>(`/api/cv/${id}`, payload);
+  }
+
+  generated(): Observable<GeneratedCV[]> {
+    return this.http.get<GeneratedCV[]>('/api/cv/generated');
+  }
+
+  downloadPdf(id: string): Observable<Blob> {
+    return this.http.get(`/api/cv/generated/${id}/pdf`, { responseType: 'blob' });
   }
 }

@@ -22,6 +22,7 @@ class MasterCV(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     structured_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    annotations: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

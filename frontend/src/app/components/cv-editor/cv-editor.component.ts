@@ -2,7 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
-import { CVStructure, CvService, MasterCV } from '../../services/cv.service';
+import { CVStructure, CvService, GeneratedCV, MasterCV } from '../../services/cv.service';
 
 interface ExperienceFormItem {
   company: string;
@@ -34,6 +34,7 @@ interface ProjectFormItem {
 export class CvEditorComponent implements OnInit {
   cvForm;
   versions: MasterCV[] = [];
+  generated: GeneratedCV[] = [];
   error: string | null = null;
   message: string | null = null;
   saving = false;
@@ -58,6 +59,24 @@ export class CvEditorComponent implements OnInit {
         }
       },
       error: () => (this.error = 'Failed to load CV'),
+    });
+    this.service.generated().subscribe({
+      next: (generated) => (this.generated = generated),
+      error: () => undefined,
+    });
+  }
+
+  downloadPdf(id: string): void {
+    this.service.downloadPdf(id).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `tailored-cv-${id}.pdf`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => (this.error = 'Failed to download PDF'),
     });
   }
 

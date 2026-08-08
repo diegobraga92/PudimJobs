@@ -8,6 +8,7 @@ from app.database import Base
 from app.models.application import Application
 from app.models.audit_log import AuditLog
 from app.models.enums import ApplicationStatus, SourceHealth, SourceType
+from app.models.generated_cv import GeneratedCV
 from app.models.job import Job
 from app.models.master_cv import MasterCV
 from app.models.scrape_run import ScrapeRun
@@ -19,6 +20,7 @@ __all__ = [
     "ApplicationStatus",
     "AuditLog",
     "Base",
+    "GeneratedCV",
     "Job",
     "MasterCV",
     "ScrapeRun",

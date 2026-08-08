@@ -44,8 +44,31 @@
   font-weight: 600;
 }
 
+.tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-left: 0.4rem;
+}
+
+.tag {
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: #e3f0fa;
+  color: #1e3a5f;
+  font-size: 0.75rem;
+}
+
+.parsed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
 button.primary {
   margin-top: 0.75rem;
+  margin-right: 0.5rem;
   padding: 0.55rem 1rem;
   border: none;
   border-radius: 6px;
@@ -53,6 +76,10 @@ button.primary {
   color: #fff;
   font-weight: 600;
   cursor: pointer;
+
+  &.secondary {
+    background: #2d6a9f;
+  }
 
   &:disabled {
     opacity: 0.6;
@@ -67,6 +94,11 @@ button.ghost {
   background: #fff;
   color: #333;
   cursor: pointer;
+
+  &.small {
+    padding: 0.2rem 0.55rem;
+    font-size: 0.8rem;
+  }
 }
 
 .error {

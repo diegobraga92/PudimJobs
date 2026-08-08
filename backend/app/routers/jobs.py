@@ -7,10 +7,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
+from app.broker import enqueue_parse_jd, enqueue_tailor
 from app.database import get_db
 from app.models.job import Job
 from app.models.source import Source
 from app.models.user import User
+from app.schemas.generated_cv import TailorRequest
+from app.schemas.jd import ParsedJDResponse
 from app.schemas.job import JobCreate, JobResponse, JobSummary, JobUpdate
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -136,3 +139,40 @@ async def delete_job(
     job = await get_owned_job(job_id, user, db)
     await db.delete(job)
     await db.commit()
+
+
+@router.post("/{job_id}/parse", status_code=status.HTTP_202_ACCEPTED)
+async def parse_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Enqueue JD parsing for a job (extract skills, years, education)."""
+    await get_owned_job(job_id, user, db)
+    enqueue_parse_jd(str(job_id))
+    return {"enqueued": True, "job_id": str(job_id)}
+
+
+@router.post("/{job_id}/tailor", status_code=status.HTTP_202_ACCEPTED)
+async def tailor_for_job(
+    job_id: uuid.UUID,
+    payload: TailorRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Enqueue CV tailoring; ``cv_id=None`` uses the current master CV."""
+    await get_owned_job(job_id, user, db)
+    cv_id = str(payload.cv_id) if payload and payload.cv_id else None
+    enqueue_tailor(str(job_id), cv_id)
+    return {"enqueued": True, "job_id": str(job_id), "cv_id": cv_id}
+
+
+@router.get("/{job_id}/parsed", response_model=ParsedJDResponse | None)
+async def get_parsed_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return the parsed JD requirements for a job (null if not parsed yet)."""
+    job = await get_owned_job(job_id, user, db)
+    return job.parsed_jd

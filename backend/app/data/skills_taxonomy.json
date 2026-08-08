@@ -1,0 +1,40 @@
+{
+  "languages": [
+    "python", "java", "javascript", "typescript", "golang", "go", "rust",
+    "c++", "c#", "c", "ruby", "php", "swift", "kotlin", "scala", "r",
+    "bash", "powershell", "sql", "perl", "dart", "elixir", "haskell"
+  ],
+  "frameworks": [
+    "react", "angular", "vue", "svelte", "next.js", "node.js", "express",
+    "django", "flask", "fastapi", "spring", "spring boot", "rails", "laravel",
+    "asp.net", "graphql", "fastify", "tensorflow", "pytorch", "pandas",
+    "numpy", "scikit-learn", "spark", "kafka", "hadoop", "airflow",
+    "hibernate", "jquery", "bootstrap", "tailwind", "redux"
+  ],
+  "databases": [
+    "postgresql", "postgres", "mysql", "sqlite", "mongodb", "redis",
+    "elasticsearch", "dynamodb", "cassandra", "couchdb", "neo4j", "oracle",
+    "sql server", "mssql", "mariadb", "snowflake", "bigquery", "redshift"
+  ],
+  "cloud_devops": [
+    "aws", "gcp", "google cloud", "azure", "docker", "kubernetes", "k8s",
+    "terraform", "ansible", "jenkins", "gitlab ci", "github actions", "ci/cd",
+    "prometheus", "grafana", "datadog", "opentelemetry", "serverless", "lambda",
+    "ec2", "s3", "ecs", "eks", "cloudformation", "helm", "istio"
+  ],
+  "concepts": [
+    "microservices", "distributed systems", "rest", "restful", "rest api",
+    "machine learning", "deep learning", "nlp", "natural language processing",
+    "computer vision", "data engineering", "etl", "data pipelines",
+    "test driven development", "tdd", "pair programming", "agile", "scrum",
+    "kanban", "object oriented", "functional programming", "design patterns",
+    "high availability", "scalability", "performance", "security",
+    "event-driven", "message queues", "rabbitmq", "caching"
+  ],
+  "tools": [
+    "git", "github", "gitlab", "bitbucket", "jira", "confluence", "slack",
+    "vscode", "intellij", "pycharm", "vim", "emacs", "linux", "unix",
+    "macos", "windows", "postman", "swagger", "openapi", "docker compose",
+    "jupyter", "pytest", "jest", "mocha", "selenium", "cypress"
+  ]
+}

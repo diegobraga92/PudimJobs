@@ -121,8 +121,8 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 | 0 — Project skeleton, infra & CI/CD | ✅ Done |
 | 1 — Core data models & basic CRUD | ✅ Done |
 | 2 — Scraping engine & reprocessing | ✅ Done |
-| 3 — CV parsing & tailoring | 🔜 Next |
-| 4 — Matching alerts & notifications | ⏳ Planned |
+| 3 — JD parsing & CV tailoring | ✅ Done |
+| 4 — Matching alerts & notifications | 🔜 Next |
 | 5 — Observability, data quality & search | ⏳ Planned |
 | 6 — Security hardening | ⏳ Planned |
 | 7 — Chaos & incident postmortem | ⏳ Planned |
@@ -154,6 +154,22 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 - Versioned `job.new` events in `api/events/` (JSON on a topic exchange,
   `job.new.v1` routing key)
 - Admin dashboard in the frontend: stats, source health, DLQ with replay
+
+**JD parsing & CV tailoring**
+- JD parsing worker (spaCy): extracts skills, years of experience, education
+  level, keywords into `jobs.parsed_jd` (JSONB)
+- Curated skills taxonomy (`app/data/skills_taxonomy.json`) + word-boundary
+  matching with a `match_skills` relevance score
+- Rule-based tailoring engine (`cv_tailor.tailor_cv`): scores/reorders/selects
+  experience & project blocks, reorders skills (matched first), optional LLM
+  rephrasing of bullets behind a feature flag (`TAILORING_LLM_ENABLED`)
+- PDF generation: Jinja2 template + weasyprint; tailored CVs stored as new
+  (non-current) `master_cv` versions + `generated_cvs` rows
+- API: `POST /api/jobs/{id}/parse`, `POST /api/jobs/{id}/tailor`,
+  `GET /api/jobs/{id}/parsed`, `GET /api/cv/generated`,
+  `GET /api/cv/generated/{id}/pdf`
+- Frontend: "Tailor CV for this job" button + parsed-JD panel on the job
+  detail page; generated-CV list with PDF download on the CV editor
 
 **Frontend (Angular)**
 - Login page + auth guard + JWT interceptor

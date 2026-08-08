@@ -29,8 +29,33 @@
       {{ saving ? 'Adding…' : 'Add to applications' }}
     </button>
 
+    <button class="primary secondary" (click)="tailor()" [disabled]="tailoring">
+      {{ tailoring ? 'Tailoring…' : 'Tailor CV for this job' }}
+    </button>
+
     @if (message) {
       <p class="message">{{ message }}</p>
+    }
+
+    <h3>Parsed job requirements</h3>
+    @if (parsed) {
+      <div class="parsed">
+        <div><strong>Skills:</strong>
+          <span class="tags">
+            @for (skill of parsed.skills; track skill) {
+              <span class="tag">{{ skill }}</span>
+            }
+          </span>
+        </div>
+        @if (parsed.years_experience) {
+          <div><strong>Experience:</strong> {{ parsed.years_experience }}+ years</div>
+        }
+        @if (parsed.education_level) {
+          <div><strong>Education:</strong> {{ parsed.education_level }}</div>
+        }
+      </div>
+    } @else {
+      <p class="muted">Not parsed yet. <button class="ghost small" (click)="parseNow()">Parse now</button></p>
     }
 
     <h3>Description</h3>

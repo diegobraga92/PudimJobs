@@ -90,5 +90,22 @@
         }
       </ul>
     }
+
+    <h3>Tailored CVs</h3>
+    @if (generated.length === 0) {
+      <p class="muted">No tailored CVs yet — use "Tailor CV" on a job.</p>
+    } @else {
+      <ul>
+        @for (item of generated; track item.id) {
+          <li class="generated-item">
+            <div>
+              <strong>{{ item.job_title }}</strong>
+              <div class="muted small">{{ item.job_company }}</div>
+            </div>
+            <button class="ghost small" (click)="downloadPdf(item.id)">Download PDF</button>
+          </li>
+        }
+      </ul>
+    }
   </aside>
 </div>

@@ -122,6 +122,13 @@ button.primary {
   }
 }
 
+.generated-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 button.ghost {
   align-self: flex-start;
   padding: 0.4rem 0.8rem;

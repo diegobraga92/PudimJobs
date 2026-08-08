@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { ApplicationsService } from '../../services/applications.service';
-import { JobDetail, JobsService } from '../../services/jobs.service';
+import { JobDetail, JobsService, ParsedJD } from '../../services/jobs.service';
 
 @Component({
   selector: 'app-job-detail',
@@ -14,9 +14,11 @@ import { JobDetail, JobsService } from '../../services/jobs.service';
 })
 export class JobDetailComponent implements OnInit {
   job: JobDetail | null = null;
+  parsed: ParsedJD | null = null;
   error: string | null = null;
   message: string | null = null;
   saving = false;
+  tailoring = false;
 
   constructor(
     private route: ActivatedRoute,
@@ -32,8 +34,34 @@ export class JobDetailComponent implements OnInit {
       return;
     }
     this.jobs.get(id).subscribe({
-      next: (job) => (this.job = job),
+      next: (job) => {
+        this.job = job;
+        this.loadParsed();
+      },
       error: () => (this.error = 'Failed to load job'),
+    });
+  }
+
+  private loadParsed(): void {
+    if (!this.job) {
+      return;
+    }
+    this.jobs.getParsed(this.job.id).subscribe({
+      next: (parsed) => (this.parsed = parsed),
+      error: () => (this.parsed = null),
+    });
+  }
+
+  parseNow(): void {
+    if (!this.job) {
+      return;
+    }
+    this.jobs.parse(this.job.id).subscribe({
+      next: () => {
+        this.message = 'Parsing job description… refresh to see results.';
+        this.parsed = null;
+      },
+      error: () => (this.error = 'Failed to enqueue parsing'),
     });
   }
 
@@ -55,7 +83,26 @@ export class JobDetailComponent implements OnInit {
     });
   }
 
+  tailor(): void {
+    if (!this.job || this.tailoring) {
+      return;
+    }
+    this.tailoring = true;
+    this.message = null;
+    this.jobs.tailor(this.job.id).subscribe({
+      next: () => {
+        this.tailoring = false;
+        this.message = 'Tailoring started. Download the result from the CV page.';
+      },
+      error: () => {
+        this.tailoring = false;
+        this.error = 'Failed to start tailoring (is there a master CV yet?).';
+      },
+    });
+  }
+
   back(): void {
     this.router.navigate(['/jobs']);
   }
 }
+

@@ -17,6 +17,13 @@ export interface JobDetail extends JobSummary {
   source_id: string | null;
 }
 
+export interface ParsedJD {
+  skills: string[];
+  years_experience: number | null;
+  education_level: string | null;
+  keywords: string[];
+}
+
 export interface JobFilters {
   q?: string;
   company?: string;
@@ -56,4 +63,20 @@ export class JobsService {
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`/api/jobs/${id}`);
   }
+
+  parse(id: string): Observable<{ enqueued: boolean; job_id: string }> {
+    return this.http.post<{ enqueued: boolean; job_id: string }>(`/api/jobs/${id}/parse`, {});
+  }
+
+  tailor(id: string, cvId?: string): Observable<{ enqueued: boolean; job_id: string }> {
+    return this.http.post<{ enqueued: boolean; job_id: string }>(
+      `/api/jobs/${id}/tailor`,
+      cvId ? { cv_id: cvId } : {}
+    );
+  }
+
+  getParsed(id: string): Observable<ParsedJD | null> {
+    return this.http.get<ParsedJD | null>(`/api/jobs/${id}/parsed`);
+  }
 }
+

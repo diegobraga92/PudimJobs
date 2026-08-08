@@ -28,6 +28,7 @@ class Job(Base):
     url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     posted_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    parsed_jd: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     raw_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
