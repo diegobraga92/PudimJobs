@@ -1,0 +1,71 @@
+<div class="page-header">
+  <h2>Job Sources</h2>
+  <button class="primary" (click)="openCreate()">+ Add source</button>
+</div>
+
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
+
+@if (showForm) {
+  <form class="panel form" [formGroup]="sourceForm" (ngSubmit)="save()">
+    <h3>{{ editingId ? 'Edit source' : 'Add source' }}</h3>
+
+    <label>Name
+      <input formControlName="name" placeholder="Acme Careers" />
+    </label>
+
+    <label>URL
+      <input formControlName="url" placeholder="https://acme.example/careers" />
+    </label>
+
+    <label>Type
+      <select formControlName="type">
+        <option value="career_page">Career page</option>
+        <option value="aggregator">Aggregator</option>
+        <option value="rss">RSS feed</option>
+      </select>
+    </label>
+
+    <div class="actions">
+      <button type="button" class="ghost" (click)="cancelForm()">Cancel</button>
+      <button type="submit" class="primary" [disabled]="sourceForm.invalid">
+        {{ editingId ? 'Save changes' : 'Add source' }}
+      </button>
+    </div>
+  </form>
+}
+
+@if (loading) {
+  <p class="muted">Loading…</p>
+} @else if (sources.length === 0) {
+  <p class="muted">No sources yet. Add a career page, aggregator, or RSS feed.</p>
+} @else {
+  <table class="panel">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Health</th>
+        <th>Last scraped</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (source of sources; track source.id) {
+        <tr>
+          <td>
+            <a [href]="source.url" target="_blank" rel="noopener">{{ source.name }}</a>
+          </td>
+          <td>{{ source.type }}</td>
+          <td><span class="health" [class.healthy]="source.health === 'healthy'">{{ source.health }}</span></td>
+          <td>{{ source.last_scraped ? (source.last_scraped | date: 'short') : '—' }}</td>
+          <td class="row-actions">
+            <button class="ghost small" (click)="openEdit(source)">Edit</button>
+            <button class="danger small" (click)="remove(source)">Delete</button>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}

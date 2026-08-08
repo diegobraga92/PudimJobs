@@ -1,0 +1,25 @@
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <h1>PudimJobs</h1>
+    </div>
+
+    <nav>
+      <a routerLink="/jobs" routerLinkActive="active">Jobs</a>
+      <a routerLink="/sources" routerLinkActive="active">Sources</a>
+      <a routerLink="/cv" routerLinkActive="active">Master CV</a>
+      <a routerLink="/applications" routerLinkActive="active">Applications</a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="api-status" [class.degraded]="!health || health.status !== 'ok'">
+        {{ health ? 'API: ' + health.status : 'API: unreachable' }}
+      </span>
+      <button class="logout" (click)="logout()">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <router-outlet />
+  </main>
+</div>

@@ -85,6 +85,23 @@ pytest            # runs tests/ with asyncio mode auto
 ruff check .      # lint
 ```
 
+Integration tests need a PostgreSQL test database. They default to
+`postgresql+asyncpg://pudimjobs:pudimjobs_test@localhost:5433/pudimjobs_test`
+and are skipped automatically when no database is reachable. Override with:
+
+```bash
+TEST_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/db pytest
+```
+
+Local development helpers:
+
+```bash
+cd backend
+alembic upgrade head      # apply migrations
+python -m app.seed        # create the admin user (idempotent)
+uvicorn app.main:app --reload
+```
+
 Frontend:
 
 ```bash
@@ -102,14 +119,38 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 | Phase | Status |
 |-------|--------|
 | 0 — Project skeleton, infra & CI/CD | ✅ Done |
-| 1 — Core data models & basic CRUD | 🔜 Next |
-| 2 — Scraping engine & reprocessing | ⏳ Planned |
+| 1 — Core data models & basic CRUD | ✅ Done |
+| 2 — Scraping engine & reprocessing | 🔜 Next |
 | 3 — CV parsing & tailoring | ⏳ Planned |
 | 4 — Matching alerts & notifications | ⏳ Planned |
 | 5 — Observability, data quality & search | ⏳ Planned |
 | 6 — Security hardening | ⏳ Planned |
 | 7 — Chaos & incident postmortem | ⏳ Planned |
 | 8 — Cost analysis & portfolio polish | ⏳ Planned |
+
+### What's implemented so far
+
+**Backend (FastAPI + PostgreSQL)**
+- JWT authentication (`POST /api/auth/login`, `GET /api/auth/me`) with bcrypt hashing
+- User-scoped CRUD: sources, jobs (manual add + search/filter), master CV
+  (versioned), applications (pipeline status, notes)
+- Audit logging for CV modifications and application status changes
+- Alembic migrations (`alembic upgrade head`) and an idempotent seed
+  (`python -m app.seed`)
+- 30 unit + integration tests (integration tests run against
+  `TEST_DATABASE_URL`, default `...:5433/pudimjobs_test`)
+
+**Frontend (Angular)**
+- Login page + auth guard + JWT interceptor
+- Source management (add / edit / delete)
+- Job listing with keyword/company/tag/date search + manual add + detail view
+  with "add to applications"
+- Master CV editor (summary, experience, education, skills, projects) with
+  version history
+- Application pipeline (Kanban: saved → applied → interview → offer → rejected)
+
+**Demo credentials** (seeded by `python -m app.seed`, dev only):
+`admin@pudimjobs.dev` / `admin123`
 
 ## Documentation
 

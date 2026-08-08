@@ -1,0 +1,14 @@
+# Ruff configuration for the PudimJobs backend.
+# See https://docs.astral.sh/ruff/
+
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM"]
+ignore = [
+    # B008: `Depends()`/`Security()` in argument defaults is the idiomatic
+    # FastAPI dependency-injection pattern.
+    "B008",
+]
+

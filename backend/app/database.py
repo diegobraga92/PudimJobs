@@ -1,11 +1,18 @@
 from sqlalchemy.ext.asyncio import (
+    AsyncAttrs,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
+
+
+class Base(DeclarativeBase, AsyncAttrs):
+    """Declarative base for all PudimJobs ORM models."""
+
 
 engine = create_async_engine(
     settings.database_url,

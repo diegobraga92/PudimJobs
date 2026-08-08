@@ -1,25 +1,14 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { provideRouter } from '@angular/router';
 import { AppComponent } from './app.component';
-import { HealthCheckService, HealthResponse } from './health-check.service';
 
 describe('AppComponent', () => {
   let fixture: ComponentFixture<AppComponent>;
-  let healthServiceSpy: jasmine.SpyObj<HealthCheckService>;
-
-  const healthyResponse: HealthResponse = {
-    status: 'ok',
-    timestamp: '2026-01-06T08:00:00+00:00',
-    db: 'connected',
-  };
 
   beforeEach(async () => {
-    healthServiceSpy = jasmine.createSpyObj('HealthCheckService', ['check']);
-    // Default stub: healthy backend. Individual tests override where needed.
-    healthServiceSpy.check.and.returnValue(of(healthyResponse));
     await TestBed.configureTestingModule({
       imports: [AppComponent],
-      providers: [{ provide: HealthCheckService, useValue: healthServiceSpy }],
+      providers: [provideRouter([])],
     }).compileComponents();
   });
 
@@ -28,34 +17,11 @@ describe('AppComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('should render the app title', () => {
+  it('should render the router outlet shell', () => {
     fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('PudimJobs');
-  });
-
-  it('should display healthy status when the backend responds', () => {
-    fixture = TestBed.createComponent(AppComponent);
-    fixture.detectChanges();
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    const details = compiled.querySelector('.status.healthy');
-    expect(details).toBeTruthy();
-    expect(details?.textContent).toContain('ok');
-    expect(details?.textContent).toContain('connected');
-  });
-
-  it('should display an error message when the backend is unreachable', () => {
-    healthServiceSpy.check.and.returnValue(
-      throwError(() => new Error('connection refused'))
-    );
-    fixture = TestBed.createComponent(AppComponent);
-    fixture.detectChanges();
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    const degraded = compiled.querySelector('.status.degraded');
-    expect(degraded).toBeTruthy();
-    expect(degraded?.textContent).toContain('Failed to connect to backend');
+    expect(compiled.querySelector('router-outlet')).toBeTruthy();
   });
 });
+

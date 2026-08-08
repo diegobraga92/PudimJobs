@@ -1,0 +1,77 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  padding: 1.25rem 1rem;
+  background: #1e3a5f;
+  color: #fff;
+
+  .brand h1 {
+    margin: 0 0 1.5rem;
+    font-size: 1.3rem;
+  }
+
+  nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+
+    a {
+      padding: 0.55rem 0.75rem;
+      border-radius: 6px;
+      color: #cfd8e3;
+      text-decoration: none;
+      font-size: 0.95rem;
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      &.active {
+        background: #2d6a9f;
+        color: #fff;
+      }
+    }
+  }
+
+  .sidebar-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .api-status {
+    font-size: 0.8rem;
+    color: #9ccc65;
+    text-transform: capitalize;
+
+    &.degraded {
+      color: #ff8a80;
+    }
+  }
+
+  .logout {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+  }
+}
+
+.content {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  overflow-x: hidden;
+}

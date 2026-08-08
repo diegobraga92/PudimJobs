@@ -1,0 +1,156 @@
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+
+  h2 {
+    margin: 0;
+  }
+}
+
+.cv-layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #e2e5ea;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+
+  h3 {
+    margin: 0.75rem 0 0;
+    font-size: 0.95rem;
+    color: #1e3a5f;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #444;
+  }
+
+  input,
+  textarea {
+    padding: 0.45rem 0.6rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+}
+
+.sub-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed #c9ced6;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.sub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.history li {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #e2e5ea;
+  border-radius: 6px;
+  font-size: 0.9rem;
+
+  &.current {
+    border-color: #2d6a9f;
+    background: #eef5fb;
+  }
+}
+
+.badge {
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #2d6a9f;
+  color: #fff;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+button.primary {
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-radius: 6px;
+  background: #1e3a5f;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+button.ghost {
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+
+  &.small {
+    align-self: auto;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.8rem;
+  }
+}
+
+.error {
+  color: #c62828;
+}
+
+.message {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.muted {
+  color: #6b7280;
+
+  &.small {
+    font-size: 0.78rem;
+  }
+}

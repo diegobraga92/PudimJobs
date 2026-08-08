@@ -9,5 +9,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     log_level: str = "DEBUG"
 
+    # Auth / JWT
+    secret_key: str = "dev-secret-key-change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24  # 24 hours
+
 
 settings = Settings()

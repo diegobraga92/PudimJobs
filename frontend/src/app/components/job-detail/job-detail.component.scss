@@ -1,0 +1,78 @@
+.panel {
+  background: #fff;
+  border: 1px solid #e2e5ea;
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+  max-width: 760px;
+}
+
+.detail h2 {
+  margin: 0;
+}
+
+.company {
+  color: #555;
+  font-weight: 600;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.6rem 0;
+}
+
+.tag {
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: #e3f0fa;
+  color: #1e3a5f;
+  font-size: 0.75rem;
+}
+
+.description {
+  white-space: pre-wrap;
+  color: #333;
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.message {
+  margin-top: 0.75rem;
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+button.primary {
+  margin-top: 0.75rem;
+  padding: 0.55rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: #1e3a5f;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+button.ghost {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+
+.error {
+  color: #c62828;
+}
+
+.muted {
+  color: #6b7280;
+}

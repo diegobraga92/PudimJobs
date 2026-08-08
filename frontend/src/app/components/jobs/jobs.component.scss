@@ -1,0 +1,148 @@
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+
+  h2 {
+    margin: 0;
+  }
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #e2e5ea;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+
+  input {
+    flex: 1 1 160px;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 560px;
+
+  h3 {
+    margin: 0;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #444;
+  }
+
+  input,
+  textarea {
+    padding: 0.5rem 0.65rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 0.95rem;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.25rem;
+  }
+}
+
+.job-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.job-card {
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+  }
+}
+
+.job-title {
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: #1e3a5f;
+}
+
+.job-company {
+  margin-top: 0.2rem;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.job-date {
+  margin-top: 0.35rem;
+  color: #999;
+  font-size: 0.78rem;
+}
+
+.job-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.6rem;
+}
+
+.tag {
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: #e3f0fa;
+  color: #1e3a5f;
+  font-size: 0.75rem;
+}
+
+button.primary {
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-radius: 6px;
+  background: #1e3a5f;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+button.ghost {
+  padding: 0.5rem 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+
+.error {
+  color: #c62828;
+}
+
+.muted {
+  color: #6b7280;
+}

@@ -1,0 +1,137 @@
+.page-header {
+  margin-bottom: 1rem;
+
+  h2 {
+    margin: 0;
+  }
+}
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  gap: 0.9rem;
+  overflow-x: auto;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 300px;
+  padding: 0.75rem;
+  background: #e9edf2;
+  border-radius: 10px;
+}
+
+.column-title {
+  margin: 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4a5568;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #d7dce3;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease;
+
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.card-title {
+  font-weight: 600;
+  color: #1e3a5f;
+  font-size: 0.9rem;
+}
+
+.card-company {
+  color: #555;
+  font-size: 0.82rem;
+}
+
+.card-date {
+  color: #999;
+  font-size: 0.74rem;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(420px, 90vw);
+  padding: 1.5rem;
+  border-radius: 10px;
+  background: #fff;
+
+  h3 {
+    margin: 0;
+  }
+
+  select {
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+
+  label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #444;
+  }
+}
+
+.notes {
+  white-space: pre-wrap;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+}
+
+button.ghost {
+  padding: 0.45rem 0.85rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+
+button.danger {
+  padding: 0.45rem 0.85rem;
+  border: 1px solid #e57373;
+  border-radius: 6px;
+  background: #fff;
+  color: #c62828;
+  cursor: pointer;
+}
+
+.error {
+  color: #c62828;
+}
+
+.muted {
+  color: #6b7280;
+}

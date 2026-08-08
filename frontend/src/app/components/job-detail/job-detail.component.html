@@ -1,0 +1,41 @@
+@if (error) {
+  <p class="error">{{ error }}</p>
+} @else if (job) {
+  <button class="ghost" (click)="back()">← Back to jobs</button>
+
+  <div class="panel detail">
+    <h2>{{ job.title }}</h2>
+    <p class="company">{{ job.company }}</p>
+
+    @if (job.posted_date) {
+      <p class="muted">Posted {{ job.posted_date | date: 'mediumDate' }}</p>
+    }
+
+    @if (job.tags.length > 0) {
+      <div class="tags">
+        @for (tag of job.tags; track tag) {
+          <span class="tag">{{ tag }}</span>
+        }
+      </div>
+    }
+
+    @if (job.url) {
+      <p>
+        <a [href]="job.url" target="_blank" rel="noopener">View original posting</a>
+      </p>
+    }
+
+    <button class="primary" (click)="addApplication()" [disabled]="saving">
+      {{ saving ? 'Adding…' : 'Add to applications' }}
+    </button>
+
+    @if (message) {
+      <p class="message">{{ message }}</p>
+    }
+
+    <h3>Description</h3>
+    <div class="description">
+      {{ job.description || 'No description provided.' }}
+    </div>
+  </div>
+}

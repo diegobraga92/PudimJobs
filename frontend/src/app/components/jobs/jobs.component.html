@@ -1,0 +1,77 @@
+<div class="page-header">
+  <h2>Jobs</h2>
+  <button class="primary" (click)="openCreate()">+ Add job</button>
+</div>
+
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
+
+<form class="panel search-bar" [formGroup]="searchForm" (ngSubmit)="search()">
+  <input formControlName="q" placeholder="Keyword (title, company, description)" />
+  <input formControlName="company" placeholder="Company" />
+  <input formControlName="tags" placeholder="Tags (comma separated)" />
+  <input formControlName="date_from" type="date" title="Posted after" />
+  <input formControlName="date_to" type="date" title="Posted before" />
+  <button type="submit" class="primary">Search</button>
+</form>
+
+@if (showForm) {
+  <form class="panel form" [formGroup]="jobForm" (ngSubmit)="save()">
+    <h3>Add job manually</h3>
+
+    <label>Title
+      <input formControlName="title" placeholder="Senior Python Engineer" />
+    </label>
+
+    <label>Company
+      <input formControlName="company" placeholder="Acme" />
+    </label>
+
+    <label>URL
+      <input formControlName="url" placeholder="https://acme.example/jobs/1" />
+    </label>
+
+    <label>Posted date
+      <input formControlName="posted_date" type="date" />
+    </label>
+
+    <label>Tags
+      <input formControlName="tags" placeholder="python, fastapi" />
+    </label>
+
+    <label>Description
+      <textarea formControlName="description" rows="4" placeholder="Full job description…"></textarea>
+    </label>
+
+    <div class="actions">
+      <button type="button" class="ghost" (click)="cancelForm()">Cancel</button>
+      <button type="submit" class="primary" [disabled]="jobForm.invalid">Add job</button>
+    </div>
+  </form>
+}
+
+@if (loading) {
+  <p class="muted">Loading…</p>
+} @else if (jobs.length === 0) {
+  <p class="muted">No jobs found. Try adjusting your search or add one manually.</p>
+} @else {
+  <div class="job-grid">
+    @for (job of jobs; track job.id) {
+      <button class="panel job-card" (click)="open(job.id)">
+        <div class="job-title">{{ job.title }}</div>
+        <div class="job-company">{{ job.company }}</div>
+        @if (job.posted_date) {
+          <div class="job-date">Posted {{ job.posted_date | date: 'mediumDate' }}</div>
+        }
+        @if (job.tags.length > 0) {
+          <div class="job-tags">
+            @for (tag of job.tags; track tag) {
+              <span class="tag">{{ tag }}</span>
+            }
+          </div>
+        }
+      </button>
+    }
+  </div>
+}

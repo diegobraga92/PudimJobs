@@ -1,0 +1,94 @@
+<div class="page-header">
+  <h2>Master CV</h2>
+  <button class="primary" (click)="save()" [disabled]="saving">
+    {{ saving ? 'Saving…' : 'Save as new version' }}
+  </button>
+</div>
+
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
+@if (message) {
+  <p class="message">{{ message }}</p>
+}
+
+<div class="cv-layout">
+  <form class="panel editor" [formGroup]="cvForm">
+    <h3>Summary</h3>
+    <textarea formControlName="summary" rows="3" placeholder="Short professional summary"></textarea>
+
+    <h3>Skills</h3>
+    <input formControlName="skillsText" placeholder="python, fastapi, postgresql (comma separated)" />
+
+    <h3>Experience</h3>
+    @for (exp of experience.controls; track $index) {
+      <div class="sub-form" [formGroupName]="$index">
+        <div class="sub-header">
+          <strong>Experience {{ $index + 1 }}</strong>
+          <button type="button" class="ghost small" (click)="removeExperience($index)">Remove</button>
+        </div>
+        <div class="grid-2">
+          <label>Company<input formControlName="company" /></label>
+          <label>Title<input formControlName="title" /></label>
+        </div>
+        <div class="grid-2">
+          <label>Start<input formControlName="start_date" placeholder="2020-01" /></label>
+          <label>End<input formControlName="end_date" placeholder="2023-06" /></label>
+        </div>
+        <label>Bullet points (one per line)
+          <textarea formControlName="bulletsText" rows="3" placeholder="Built async pipelines"></textarea>
+        </label>
+      </div>
+    }
+    <button type="button" class="ghost" (click)="addExperience()">+ Add experience</button>
+
+    <h3>Education</h3>
+    @for (edu of education.controls; track $index) {
+      <div class="sub-form" [formGroupName]="$index">
+        <div class="sub-header">
+          <strong>Education {{ $index + 1 }}</strong>
+          <button type="button" class="ghost small" (click)="removeEducation($index)">Remove</button>
+        </div>
+        <label>Institution<input formControlName="institution" /></label>
+        <div class="grid-2">
+          <label>Degree<input formControlName="degree" /></label>
+          <label>Year<input formControlName="year" /></label>
+        </div>
+      </div>
+    }
+    <button type="button" class="ghost" (click)="addEducation()">+ Add education</button>
+
+    <h3>Projects</h3>
+    @for (proj of projects.controls; track $index) {
+      <div class="sub-form" [formGroupName]="$index">
+        <div class="sub-header">
+          <strong>Project {{ $index + 1 }}</strong>
+          <button type="button" class="ghost small" (click)="removeProject($index)">Remove</button>
+        </div>
+        <label>Name<input formControlName="name" /></label>
+        <label>Link<input formControlName="link" /></label>
+        <label>Description<textarea formControlName="description" rows="2"></textarea></label>
+      </div>
+    }
+    <button type="button" class="ghost" (click)="addProject()">+ Add project</button>
+  </form>
+
+  <aside class="panel history">
+    <h3>Version history</h3>
+    @if (versions.length === 0) {
+      <p class="muted">No versions saved yet.</p>
+    } @else {
+      <ul>
+        @for (version of versions; track version.id) {
+          <li [class.current]="version.is_current">
+            {{ version.label }}
+            @if (version.is_current) {
+              <span class="badge">current</span>
+            }
+            <div class="muted small">{{ version.updated_at | date: 'short' }}</div>
+          </li>
+        }
+      </ul>
+    }
+  </aside>
+</div>

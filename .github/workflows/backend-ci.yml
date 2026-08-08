@@ -16,6 +16,24 @@ jobs:
   lint-test-build:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pudimjobs_test
+          POSTGRES_USER: pudimjobs
+          POSTGRES_PASSWORD: pudimjobs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pudimjobs"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://pudimjobs:pudimjobs_test@localhost:5432/pudimjobs_test
+
     defaults:
       run:
         working-directory: ./backend

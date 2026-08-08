@@ -1,6 +1,6 @@
 import uuid
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import FastAPI, Request
@@ -11,6 +11,7 @@ from app.config import settings
 from app.database import check_db_health
 from app.logging_config import configure_logging
 from app.metrics import setup_metrics
+from app.routers import applications, auth, cv, jobs, sources
 
 # Context variable for trace_id propagation
 trace_id_var: ContextVar[str] = ContextVar("trace_id", default="")
@@ -56,6 +57,13 @@ async def trace_id_middleware(request: Request, call_next):
 # Attach Prometheus metrics
 setup_metrics(app)
 
+# API routers
+app.include_router(auth.router)
+app.include_router(sources.router)
+app.include_router(jobs.router)
+app.include_router(cv.router)
+app.include_router(applications.router)
+
 
 @app.get("/health")
 async def health():
@@ -72,7 +80,7 @@ async def health():
         status_code=status_code,
         content={
             "status": status,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "db": "connected" if db_healthy else "disconnected",
         },
     )
