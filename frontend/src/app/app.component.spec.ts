@@ -15,6 +15,8 @@ describe('AppComponent', () => {
 
   beforeEach(async () => {
     healthServiceSpy = jasmine.createSpyObj('HealthCheckService', ['check']);
+    // Default stub: healthy backend. Individual tests override where needed.
+    healthServiceSpy.check.and.returnValue(of(healthyResponse));
     await TestBed.configureTestingModule({
       imports: [AppComponent],
       providers: [{ provide: HealthCheckService, useValue: healthServiceSpy }],
@@ -34,7 +36,6 @@ describe('AppComponent', () => {
   });
 
   it('should display healthy status when the backend responds', () => {
-    healthServiceSpy.check.and.returnValue(of(healthyResponse));
     fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
