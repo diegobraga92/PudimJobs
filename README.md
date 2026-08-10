@@ -85,13 +85,102 @@ docker compose up
 # Or via the Makefile
 make up
 
-# Frontend:  http://localhost:4200
-# Backend:   http://localhost:8000  (/health, /docs, /metrics)
-# RabbitMQ:  http://localhost:15672 (pudimjobs / pudimjobs_dev)
+# Frontend:      http://localhost:9400   (UI; proxies /api → backend internally)
+# RabbitMQ UI:   http://localhost:9672   (pudimjobs / pudimjobs_dev)
+# Mailpit:       http://localhost:9025   (dev email inbox)
+# Grafana:       http://localhost:9300   (admin / admin)
+# Prometheus:    http://localhost:9409
+# Jaeger UI:     http://localhost:9668
 ```
 
 `docker compose up` launches the backend with hot reload, so Python changes
-apply immediately. The Angular dev server proxies `/api` → `backend:8000`.
+apply immediately. Only the frontend and the admin dashboards are bound to host
+ports (all configurable via `.env` — see [`.env.example`](.env.example));
+PostgreSQL, Redis, RabbitMQ AMQP and the FastAPI backend stay on Docker's
+internal network, where the Angular dev server proxies `/api` → `backend:8000`.
+
+## LAN Server Deployment
+
+PudimJobs is designed to run on a shared LAN server without colliding with the
+webservers already running there. All host port bindings are configurable via a
+`.env` file and default to a `9xxx` range that avoids the usual suspects
+(`80`, `3000`, `4200`, `5432`, `6379`, `8000`, `9090`, …). Services that only
+consume each other over Docker's internal network (PostgreSQL, Redis, RabbitMQ
+AMQP, FastAPI, Jaeger OTLP, Mailpit SMTP) are **not** exposed to the host at all.
+
+### 1. Configure `.env`
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`:
+
+1. **Check for port conflicts** on the server and adjust any value that is
+   already in use:
+
+   ```bash
+   ss -tlnp | grep -E ':(9400|9300|9409|9668|9672|9025)\b' || echo "all free"
+   # or, to see everything Docker has already bound:
+   docker ps --format '{{.Names}}\t{{.Ports}}'
+   ```
+
+2. **Add the server's LAN IP** to `PJ_CORS_ORIGINS` if you plan to open the
+   backend Swagger UI (`/docs`) or call the API directly from a browser on
+   another machine. The normal UI flow proxies `/api` through the frontend, so
+   it works without this:
+
+   ```env
+   PJ_CORS_ORIGINS=http://localhost:9400,http://127.0.0.1:9400,http://192.168.1.50:9400
+   ```
+
+### 2. Start the stack
+
+```bash
+docker compose up -d
+# or, if you keep the config in a non-default location:
+docker compose --env-file .env up -d
+```
+
+### 3. Access from the LAN
+
+Replace `SERVER_IP` with the server's LAN address (`hostname -I`):
+
+| What | URL |
+|------|-----|
+| **App UI** | `http://SERVER_IP:9400` |
+| Grafana dashboards | `http://SERVER_IP:9300` (admin / admin) |
+| RabbitMQ management | `http://SERVER_IP:9672` (pudimjobs / pudimjobs_dev) |
+| Mailpit (dev email) | `http://SERVER_IP:9025` |
+| Jaeger tracing UI | `http://SERVER_IP:9668` |
+| Prometheus | `http://SERVER_IP:9409` |
+
+### Port reference
+
+All host ports come from `.env` (see [`.env.example`](.env.example)):
+
+| Variable | Service | Default |
+|----------|---------|---------|
+| `PJ_FRONTEND_PORT` | Angular UI | `9400` |
+| `PJ_GRAFANA_PORT` | Grafana | `9300` |
+| `PJ_PROMETHEUS_PORT` | Prometheus | `9409` |
+| `PJ_JAEGER_UI_PORT` | Jaeger UI | `9668` |
+| `PJ_RABBITMQ_MGMT_PORT` | RabbitMQ management | `9672` |
+| `PJ_MAILPIT_PORT` | Mailpit UI | `9025` |
+| `PJ_CORS_ORIGINS` | Allowed browser origins (comma-separated) | `http://localhost:9400,…` |
+
+PostgreSQL, Redis, RabbitMQ AMQP and the FastAPI backend are **not** exposed to
+the host. To reach them from the server itself, use `docker compose exec`:
+
+```bash
+docker compose exec postgres psql -U pudimjobs -d pudimjobs
+docker compose exec backend python -c "import httpx; print(httpx.get('http://localhost:8000/health').json())"
+```
+
+> 💡 Need the API reachable from the LAN for tooling (e.g. the scripts in
+> `scripts/`)? Add a host binding to the `backend` service in
+> `docker-compose.yml` (`ports: - "${PJ_BACKEND_PORT:-8000}:8000"`) and set
+> `PJ_BACKEND_PORT` in `.env`.
 
 ## Development Commands
 

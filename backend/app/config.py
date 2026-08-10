@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     otlp_endpoint: str = ""  # e.g. http://jaeger:4318/v1/traces (empty = disabled)
     worker_metrics_port: int = 0  # 0 = worker /metrics server disabled
 
+    # CORS: comma-separated browser origins allowed to call the API directly.
+    # The Angular dev server proxies /api internally (same origin), so the UI
+    # does not depend on this — it matters for direct browser access to the API
+    # (e.g. Swagger UI at /docs) from other hosts. Set via CORS_ORIGINS.
+    cors_origins: str = (
+        "http://localhost:4200,http://127.0.0.1:4200,"
+        "http://localhost:9400,http://127.0.0.1:9400"
+    )
+
     # Rate limiting (slowapi)
     rate_limit_login: str = "5/minute"
     rate_limit_api: str = "120/minute"

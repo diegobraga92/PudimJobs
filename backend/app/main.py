@@ -41,13 +41,14 @@ app = FastAPI(
     description="Job Application Tracker Backend",
 )
 
-# CORS: allow frontend to call backend in development
+# CORS: allow the origins configured via CORS_ORIGINS (comma-separated env var).
+# The Angular dev server proxies /api internally, so the browser normally talks
+# to a single origin; direct API access (e.g. Swagger UI at /docs) still needs
+# these entries, so keep the frontend host/port here when deploying on a LAN.
+allow_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:4200",
-        "http://127.0.0.1:4200",
-    ],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

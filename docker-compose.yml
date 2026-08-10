@@ -5,8 +5,8 @@ services:
       POSTGRES_DB: pudimjobs
       POSTGRES_USER: pudimjobs
       POSTGRES_PASSWORD: pudimjobs_dev
-    ports:
-      - "5432:5432"
+    # Internal only — no host port. Reach it from the host with:
+    #   docker compose exec postgres psql -U pudimjobs -d pudimjobs
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,9 +17,10 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    # AMQP (5672) stays internal to the Docker network; only the management
+    # console is exposed on a configurable host port.
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${PJ_RABBITMQ_MGMT_PORT:-9672}:15672"
     environment:
       RABBITMQ_DEFAULT_USER: pudimjobs
       RABBITMQ_DEFAULT_PASS: pudimjobs_dev
@@ -31,8 +32,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # Internal only — no host port.
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -43,8 +43,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    ports:
-      - "8000:8000"
+    # Internal only — the frontend proxies /api to it over the Docker network.
     volumes:
       - ./backend:/app
       - ./api:/app/api
@@ -58,6 +57,8 @@ services:
       PYTHONPATH: /app
       LOG_LEVEL: DEBUG
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      # Comma-separated browser origins allowed to call the API directly.
+      CORS_ORIGINS: "${PJ_CORS_ORIGINS:-http://localhost:9400,http://127.0.0.1:9400}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -147,14 +148,14 @@ services:
 
   mailpit:
     image: axllent/mailpit:latest
+    # SMTP (1025) stays internal; only the web UI is exposed.
     ports:
-      - "8025:8025"
-      - "1025:1025"
+      - "${PJ_MAILPIT_PORT:-9025}:8025"
 
   prometheus:
     image: prom/prometheus:latest
     ports:
-      - "9090:9090"
+      - "${PJ_PROMETHEUS_PORT:-9409}:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
@@ -163,7 +164,7 @@ services:
   grafana:
     image: grafana/grafana-oss:latest
     ports:
-      - "3000:3000"
+      - "${PJ_GRAFANA_PORT:-9300}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
@@ -176,16 +177,16 @@ services:
 
   jaeger:
     image: jaegertracing/all-in-one:latest
+    # OTLP ingest (4318) stays internal; only the tracing UI is exposed.
     ports:
-      - "16686:16686"
-      - "4318:4318"
+      - "${PJ_JAEGER_UI_PORT:-9668}:16686"
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "4200:4200"
+      - "${PJ_FRONTEND_PORT:-9400}:4200"
     volumes:
       - ./frontend:/app
       - /app/node_modules
