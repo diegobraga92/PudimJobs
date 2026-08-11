@@ -33,7 +33,7 @@
 
   &.active {
     background: var(--color-primary);
-    color: #fff;
+    color: var(--color-on-primary);
     box-shadow: var(--shadow-sm);
   }
 }

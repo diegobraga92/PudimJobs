@@ -40,7 +40,7 @@
 <div
   role="tabpanel"
   [id]="'admin-panel-' + activeTab"
-  [attr.aria-label]="activeTab"
+  [attr.aria-label]="activeTabLabel()"
 >
 
 @if (activeTab === 'overview') {

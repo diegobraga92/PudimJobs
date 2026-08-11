@@ -1,4 +1,19 @@
-@if (error) {
+@if (loading) {
+  <button type="button" class="btn btn-ghost btn-sm" (click)="back()">
+    <app-icon name="arrow-left" [size]="16" />
+    Back to jobs
+  </button>
+
+  <div class="panel detail" aria-hidden="true">
+    <div class="skeleton" style="height: 1.6rem; width: 55%"></div>
+    <div class="skeleton mt-2" style="height: 1rem; width: 30%"></div>
+    <div class="skeleton mt-3" style="height: 0.9rem; width: 40%"></div>
+    <div class="skeleton mt-4" style="height: 2.2rem; width: 65%"></div>
+    <div class="skeleton mt-4" style="height: 0.9rem; width: 90%"></div>
+    <div class="skeleton mt-2" style="height: 0.9rem; width: 85%"></div>
+    <div class="skeleton mt-2" style="height: 0.9rem; width: 70%"></div>
+  </div>
+} @else if (error) {
   <div class="alert alert-error" role="alert">
     <app-icon class="alert-icon" name="circle-alert" [size]="18" />
     <span>{{ error }}</span>

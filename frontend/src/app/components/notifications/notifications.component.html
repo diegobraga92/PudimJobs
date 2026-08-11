@@ -19,7 +19,9 @@
 }
 
 <div class="summary">
-  <span class="badge badge-info">{{ unread }} unread</span>
+  @if (unread > 0) {
+    <span class="badge badge-info">{{ unread }} unread</span>
+  }
   <span class="muted">{{ total }} total</span>
 </div>
 

@@ -201,6 +201,7 @@ export class JobsComponent implements OnInit {
         this.showForm = false;
         this.toast.success('Job added successfully.');
         this.search();
+        this.loadPipeline();
       },
       error: () => {
         this.error = 'Failed to create job';

@@ -21,6 +21,8 @@ export class JobDetailComponent implements OnInit {
   message: string | null = null;
   saving = false;
   tailoring = false;
+  /** Starts true so the loading skeleton shows before the first fetch completes. */
+  loading = true;
 
   constructor(
     private route: ActivatedRoute,
@@ -39,9 +41,13 @@ export class JobDetailComponent implements OnInit {
     this.jobs.get(id).subscribe({
       next: (job) => {
         this.job = job;
+        this.loading = false;
         this.loadParsed();
       },
-      error: () => (this.error = 'Failed to load job'),
+      error: () => {
+        this.loading = false;
+        this.error = 'Failed to load job';
+      },
     });
   }
 

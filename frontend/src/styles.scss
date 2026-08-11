@@ -28,12 +28,15 @@
 
   --color-success: #2e7d32;
   --color-success-soft: #e8f5e9;
+  --color-success-soft-hover: #d9efdb;
   --color-warning: #b45309;
   --color-warning-soft: #fef3c7;
   --color-danger: #c62828;
   --color-danger-soft: #ffebee;
   --color-info: #1e56a0;
   --color-info-soft: #e3f0fa;
+
+  --color-on-primary: #ffffff;
 
   --color-sidebar-bg: #14263d;
   --color-sidebar-text: #c6d2e0;
@@ -251,7 +254,7 @@ hr {
 
 .btn-primary {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 
   &:hover:not(:disabled) {
     background: var(--color-primary-hover);
@@ -264,7 +267,7 @@ hr {
 
 .btn-accent {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-primary);
 
   &:hover:not(:disabled) {
     background: var(--color-accent-hover);
@@ -295,7 +298,7 @@ hr {
 
 .btn-danger-solid {
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-on-primary);
 
   &:hover:not(:disabled) {
     background: #a81f1f;
@@ -544,6 +547,7 @@ input[type='radio'] {
   justify-content: flex-end;
 }
 
+/* ---- Shared: alerts / messages ---------------------------------------------- */
 .alert {
   display: flex;
   align-items: flex-start;
@@ -578,8 +582,6 @@ input[type='radio'] {
     color: var(--color-info);
   }
 }
-
-/* ---- Shared: alerts / messages ---------------------------------------------- */
 
 /* ---- Shared: empty & loading states ------------------------------------------ */
 .empty-state {
@@ -679,14 +681,6 @@ input[type='radio'] {
   &.xs {
     font-size: var(--text-xs);
   }
-}
-
-.error {
-  color: var(--color-danger);
-}
-
-.success-text {
-  color: var(--color-success);
 }
 
 .text-sm {
@@ -803,7 +797,7 @@ input[type='radio'] {
   z-index: var(--z-toast);
   padding: var(--space-2) var(--space-4);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   border-radius: var(--radius-sm);
   transition: top var(--transition-base);
 
@@ -937,6 +931,7 @@ input[type='radio'] {
 
   --color-success: #7bd88b;
   --color-success-soft: #14301c;
+  --color-success-soft-hover: #1d3f26;
   --color-warning: #ffca7a;
   --color-warning-soft: #3a2e12;
   --color-danger: #ff8a80;

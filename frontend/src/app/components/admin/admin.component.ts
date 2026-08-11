@@ -87,6 +87,11 @@ export class AdminComponent implements OnInit {
     }
   }
 
+  /** Human-readable label for the active tab (used as the tabpanel's aria-label). */
+  activeTabLabel(): string {
+    return this.tabs.find((tab) => tab.id === this.activeTab)?.label ?? this.activeTab;
+  }
+
   refresh(): void {
     this.loading = true;
     this.error = null;

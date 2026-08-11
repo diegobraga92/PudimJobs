@@ -24,7 +24,7 @@
   border-color: transparent;
 
   &:hover:not(:disabled) {
-    background: #d9efdb;
+    background: var(--color-success-soft-hover);
   }
 }
 
