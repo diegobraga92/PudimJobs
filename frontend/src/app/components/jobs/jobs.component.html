@@ -166,7 +166,14 @@
   <div class="job-grid">
     @for (job of pagedJobs; track job.id) {
       <button class="card job-card" (click)="open(job.id)">
-        <div class="job-title">{{ job.title }}</div>
+        <div class="job-title">
+          {{ job.title }}
+          @if (pipeline[job.id]) {
+            <span class="badge pipeline-badge" [class]="pipelineBadge(pipeline[job.id])">
+              {{ pipelineLabel(pipeline[job.id]) }}
+            </span>
+          }
+        </div>
         <div class="job-company">
           <app-icon name="home" [size]="13" />
           {{ job.company }}

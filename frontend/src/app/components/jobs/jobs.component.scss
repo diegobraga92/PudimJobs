@@ -59,10 +59,6 @@
   background: var(--color-surface);
   color: inherit;
   font-family: inherit;
-  transition:
-    box-shadow var(--transition-base),
-    transform var(--transition-base),
-    border-color var(--transition-base);
 
   &:hover {
     box-shadow: var(--shadow-card-hover);
@@ -76,10 +72,21 @@
 }
 
 .job-title {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   font-size: var(--text-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-primary);
   line-height: 1.35;
+
+  .pipeline-badge {
+    font-size: 0.65rem;
+    text-transform: capitalize;
+    letter-spacing: 0;
+    margin-top: 0.2rem;
+  }
 }
 
 .job-company {

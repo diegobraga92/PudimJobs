@@ -10,6 +10,7 @@ export interface Source {
   health: string;
   last_scraped: string | null;
   created_at: string;
+  jobs_count?: number;
 }
 
 export type SourceInput = Pick<Source, 'name' | 'url' | 'type'> &

@@ -29,3 +29,4 @@ class SourceResponse(SourceBase):
     health: SourceHealth
     last_scraped: datetime | None
     created_at: datetime
+    jobs_count: int = 0

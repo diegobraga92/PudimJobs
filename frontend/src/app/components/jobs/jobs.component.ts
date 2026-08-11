@@ -4,11 +4,29 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { JobFilters, JobInput, JobSummary, JobsService } from '../../services/jobs.service';
+import { ApplicationsService } from '../../services/applications.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { OnboardingComponent } from '../../shared/onboarding/onboarding.component';
 import { ToastService } from '../../shared/toast/toast.service';
 
 const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
+
+/** Status label shown on a job card that is already in the application pipeline. */
+const PIPELINE_LABELS: Record<string, string> = {
+  saved: 'Saved',
+  applied: 'Applied',
+  interview: 'Interview',
+  offer: 'Offer',
+  rejected: 'Rejected',
+};
+
+const PIPELINE_BADGES: Record<string, string> = {
+  saved: 'badge-info',
+  applied: 'badge-warning',
+  interview: 'badge-warning',
+  offer: 'badge-success',
+  rejected: 'badge-danger',
+};
 
 @Component({
   selector: 'app-jobs',
@@ -29,6 +47,9 @@ export class JobsComponent implements OnInit {
 
   onboardingDismissed = localStorage.getItem(ONBOARDING_KEY) === '1';
 
+  /** Maps job id → pipeline status for jobs already in the application pipeline. */
+  pipeline: Record<string, string> = {};
+
   showForm = false;
   searchForm;
   jobForm;
@@ -36,6 +57,7 @@ export class JobsComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private service: JobsService,
+    private applications: ApplicationsService,
     private router: Router,
     private toast: ToastService
   ) {
@@ -58,6 +80,29 @@ export class JobsComponent implements OnInit {
 
   ngOnInit(): void {
     this.search();
+    this.loadPipeline();
+  }
+
+  /** Loads the pipeline status map so job cards can show "Applied / Interview / …". */
+  private loadPipeline(): void {
+    this.applications.list().subscribe({
+      next: (applications) => {
+        const map: Record<string, string> = {};
+        for (const application of applications) {
+          map[application.job_id] = application.status;
+        }
+        this.pipeline = map;
+      },
+      error: () => undefined,
+    });
+  }
+
+  pipelineLabel(status: string): string {
+    return PIPELINE_LABELS[status] ?? 'In pipeline';
+  }
+
+  pipelineBadge(status: string): string {
+    return PIPELINE_BADGES[status] ?? 'badge-info';
   }
 
   search(): void {

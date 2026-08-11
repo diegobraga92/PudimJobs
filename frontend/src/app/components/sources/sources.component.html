@@ -82,6 +82,7 @@
         <tr>
           <th>Name</th>
           <th>Type</th>
+          <th>Jobs</th>
           <th>Health</th>
           <th>Last scraped</th>
           <th class="row-actions">Actions</th>
@@ -96,6 +97,9 @@
               </a>
             </td>
             <td>{{ source.type }}</td>
+            <td>
+              <span class="source-count">{{ source.jobs_count ?? '—' }}</span>
+            </td>
             <td>
               <span
                 class="badge"
