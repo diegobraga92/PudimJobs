@@ -20,6 +20,7 @@
   </div>
 }
 
+@if (total > 0) {
 <div class="kanban" cdkDropListGroup>
   @for (status of statuses; track status) {
     <div class="column">
@@ -57,6 +58,7 @@
     </div>
   }
 </div>
+}
 
 @if (selected) {
   <div

@@ -32,7 +32,7 @@ interface OnboardingStep {
         </div>
       </header>
 
-      <ol class="onboarding-steps">
+      <ol class="onboarding-steps" role="list">
         @for (step of steps; track step.route) {
           <li class="onboarding-step">
             <span class="step-icon" aria-hidden="true">

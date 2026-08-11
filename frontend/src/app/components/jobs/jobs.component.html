@@ -60,9 +60,13 @@
       aria-label="Posted before date"
     />
   </div>
-  <button type="submit" class="btn btn-primary search-submit">
-    <app-icon name="search" [size]="16" />
-    <span class="search-label">Search</span>
+  <button type="submit" class="btn btn-primary search-submit" [disabled]="loading">
+    @if (loading) {
+      <app-icon class="spinner" name="loader" [size]="16" />
+    } @else {
+      <app-icon name="search" [size]="16" />
+    }
+    <span class="search-label">{{ loading ? 'Searching…' : 'Search' }}</span>
   </button>
 </form>
 

@@ -2,16 +2,8 @@ import { Routes } from '@angular/router';
 
 import { adminGuard } from './guards/admin.guard';
 import { authGuard } from './guards/auth.guard';
-import { AdminComponent } from './components/admin/admin.component';
-import { AlertsComponent } from './components/alerts/alerts.component';
-import { ApplicationsComponent } from './components/applications/applications.component';
-import { CvEditorComponent } from './components/cv-editor/cv-editor.component';
-import { JobDetailComponent } from './components/job-detail/job-detail.component';
-import { JobsComponent } from './components/jobs/jobs.component';
 import { LayoutComponent } from './components/layout/layout.component';
 import { LoginComponent } from './components/login/login.component';
-import { NotificationsComponent } from './components/notifications/notifications.component';
-import { SourcesComponent } from './components/sources/sources.component';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
@@ -21,14 +13,55 @@ export const routes: Routes = [
     canActivate: [authGuard],
     children: [
       { path: '', redirectTo: 'jobs', pathMatch: 'full' },
-      { path: 'jobs', component: JobsComponent },
-      { path: 'jobs/:id', component: JobDetailComponent },
-      { path: 'sources', component: SourcesComponent },
-      { path: 'cv', component: CvEditorComponent },
-      { path: 'applications', component: ApplicationsComponent },
-      { path: 'alerts', component: AlertsComponent },
-      { path: 'notifications', component: NotificationsComponent },
-      { path: 'admin', component: AdminComponent, canActivate: [adminGuard] },
+      {
+        path: 'jobs',
+        loadComponent: () =>
+          import('./components/jobs/jobs.component').then((m) => m.JobsComponent),
+      },
+      {
+        path: 'jobs/:id',
+        loadComponent: () =>
+          import('./components/job-detail/job-detail.component').then(
+            (m) => m.JobDetailComponent
+          ),
+      },
+      {
+        path: 'sources',
+        loadComponent: () =>
+          import('./components/sources/sources.component').then((m) => m.SourcesComponent),
+      },
+      {
+        path: 'cv',
+        loadComponent: () =>
+          import('./components/cv-editor/cv-editor.component').then(
+            (m) => m.CvEditorComponent
+          ),
+      },
+      {
+        path: 'applications',
+        loadComponent: () =>
+          import('./components/applications/applications.component').then(
+            (m) => m.ApplicationsComponent
+          ),
+      },
+      {
+        path: 'alerts',
+        loadComponent: () =>
+          import('./components/alerts/alerts.component').then((m) => m.AlertsComponent),
+      },
+      {
+        path: 'notifications',
+        loadComponent: () =>
+          import('./components/notifications/notifications.component').then(
+            (m) => m.NotificationsComponent
+          ),
+      },
+      {
+        path: 'admin',
+        canActivate: [adminGuard],
+        loadComponent: () =>
+          import('./components/admin/admin.component').then((m) => m.AdminComponent),
+      },
     ],
   },
   { path: '**', redirectTo: 'jobs' },

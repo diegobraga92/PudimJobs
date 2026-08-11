@@ -1,4 +1,5 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
@@ -29,6 +30,8 @@ export class LayoutComponent implements OnInit {
   unread = 0;
   sidebarOpen = false;
 
+  private readonly destroyRef = inject(DestroyRef);
+
   readonly navItems: NavItem[] = [
     { label: 'Jobs', route: '/jobs', icon: 'briefcase' },
     { label: 'Sources', route: '/sources', icon: 'globe' },
@@ -48,22 +51,31 @@ export class LayoutComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
-    this.healthCheck.check().subscribe({
-      next: (health) => (this.health = health),
-      error: () => (this.health = null),
-    });
-    this.auth.me().subscribe({
-      next: (user) => (this.user = user),
-      error: () => undefined,
-    });
+    this.healthCheck
+      .check()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (health) => (this.health = health),
+        error: () => (this.health = null),
+      });
+    this.auth
+      .me()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (user) => (this.user = user),
+        error: () => undefined,
+      });
     this.loadUnread();
   }
 
   private loadUnread(): void {
-    this.notifications.list().subscribe({
-      next: (result) => (this.unread = result.unread),
-      error: () => undefined,
-    });
+    this.notifications
+      .list()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => (this.unread = result.unread),
+        error: () => undefined,
+      });
   }
 
   logout(): void {

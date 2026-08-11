@@ -5,8 +5,10 @@
       <button
         type="button"
         role="tab"
+        class="segmented-tab"
         [class.active]="mode === 'edit'"
         [attr.aria-selected]="mode === 'edit'"
+        [attr.aria-controls]="'cv-panel-edit'"
         (click)="mode = 'edit'"
       >
         <app-icon name="pencil" [size]="15" />
@@ -15,8 +17,10 @@
       <button
         type="button"
         role="tab"
+        class="segmented-tab"
         [class.active]="mode === 'preview'"
         [attr.aria-selected]="mode === 'preview'"
+        [attr.aria-controls]="'cv-panel-preview'"
         (click)="mode = 'preview'"
       >
         <app-icon name="eye" [size]="15" />
@@ -48,7 +52,14 @@
 
 <div class="cv-layout">
   @if (mode === 'edit') {
-    <form class="panel editor" [formGroup]="cvForm" (ngSubmit)="save()" aria-label="Master CV editor">
+    <form
+      id="cv-panel-edit"
+      role="tabpanel"
+      class="panel editor"
+      [formGroup]="cvForm"
+      (ngSubmit)="save()"
+      aria-label="Master CV editor"
+    >
     <h3>Summary</h3>
     <div class="form-field">
       <textarea
@@ -187,7 +198,9 @@
     </button>
     </form>
   } @else {
-    <app-cv-preview [cv]="previewCv" />
+    <div id="cv-panel-preview" role="tabpanel">
+      <app-cv-preview [cv]="previewCv" [name]="cvName" />
+    </div>
   }
 
   <aside class="panel history">

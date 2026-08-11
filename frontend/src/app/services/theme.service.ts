@@ -34,6 +34,11 @@ export class ThemeService {
 
   private apply(theme: Theme): void {
     document.documentElement.dataset['theme'] = theme;
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (meta) {
+      // Keep the mobile browser chrome (status bar / address bar) in sync.
+      meta.content = theme === 'dark' ? '#0a111c' : '#1e3a5f';
+    }
   }
 
   private loadInitial(): Theme {

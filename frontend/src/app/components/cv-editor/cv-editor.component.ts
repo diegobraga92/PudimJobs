@@ -2,6 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
+import { AuthService } from '../../services/auth.service';
 import { CVStructure, CvService, GeneratedCV, MasterCV } from '../../services/cv.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
@@ -42,6 +43,7 @@ export class CvEditorComponent implements OnInit {
   message: string | null = null;
   saving = false;
   mode: 'edit' | 'preview' = 'edit';
+  cvName = 'Your Name';
 
   /** Live CV structure derived from the form — drives the preview pane. */
   get previewCv(): CVStructure {
@@ -51,6 +53,7 @@ export class CvEditorComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private service: CvService,
+    private auth: AuthService,
     private toast: ToastService
   ) {
     this.cvForm = this.fb.group({
@@ -59,6 +62,19 @@ export class CvEditorComponent implements OnInit {
       experience: this.fb.array([]),
       education: this.fb.array([]),
       projects: this.fb.array([]),
+    });
+
+    // Derive a display name from the signed-in user's email (e.g. "Jane Doe").
+    this.auth.me().subscribe({
+      next: (user) => {
+        const local = user.email.split('@')[0] || '';
+        this.cvName = local
+          .split(/[._-]/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(' ');
+      },
+      error: () => undefined,
     });
   }
 

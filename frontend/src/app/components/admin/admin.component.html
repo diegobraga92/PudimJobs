@@ -13,13 +13,15 @@
   </div>
 }
 
-<nav class="admin-tabs" aria-label="Admin sections">
+<nav class="admin-tabs" role="tablist" aria-label="Admin sections">
   @for (tab of tabs; track tab.id) {
     <button
       type="button"
+      role="tab"
       class="admin-tab"
       [class.active]="activeTab === tab.id"
       [attr.aria-selected]="activeTab === tab.id"
+      [attr.aria-controls]="'admin-panel-' + tab.id"
       (click)="selectTab(tab.id)"
     >
       <app-icon [name]="tab.icon" [size]="16" />
@@ -27,6 +29,19 @@
     </button>
   }
 </nav>
+
+@if (loading) {
+  <div class="loading-text pulse" role="status" aria-live="polite">
+    <app-icon name="loader" [size]="16" />
+    Refreshing data…
+  </div>
+}
+
+<div
+  role="tabpanel"
+  [id]="'admin-panel-' + activeTab"
+  [attr.aria-label]="activeTab"
+>
 
 @if (activeTab === 'overview') {
 @if (stats) {
@@ -300,5 +315,7 @@
   </div>
 }
 }
+</div>
+
 
 

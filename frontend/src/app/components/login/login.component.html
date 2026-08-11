@@ -44,6 +44,7 @@
             type="button"
             class="password-toggle"
             [attr.aria-label]="showPassword ? 'Hide password' : 'Show password'"
+            [attr.aria-pressed]="showPassword"
             (click)="showPassword = !showPassword"
           >
             <app-icon [name]="showPassword ? 'eye-off' : 'eye'" [size]="17" />

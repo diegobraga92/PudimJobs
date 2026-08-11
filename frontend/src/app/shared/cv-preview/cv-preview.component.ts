@@ -12,7 +12,7 @@ import { CVStructure } from '../../services/cv.service';
   template: `
     <div class="cv-preview-sheet">
       <header class="cv-head">
-        <h2>Alex Johnson</h2>
+        <h2>{{ name }}</h2>
         <p class="cv-contact">
           @if (cv.summary) {
             <span>{{ cv.summary }}</span>
@@ -211,6 +211,8 @@ import { CVStructure } from '../../services/cv.service';
 })
 export class CvPreviewComponent {
   @Input({ required: true }) cv!: CVStructure;
+  /** Display name for the resume header. */
+  @Input() name = 'Your Name';
 
   formatDates(start: string | null, end: string | null): string {
     if (!start && !end) {

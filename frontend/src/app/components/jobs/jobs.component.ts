@@ -19,7 +19,8 @@ const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
 })
 export class JobsComponent implements OnInit {
   jobs: JobSummary[] = [];
-  loading = false;
+  /** Starts true so the loading skeleton shows before the first search completes. */
+  loading = true;
   error: string | null = null;
 
   /** Client-side pagination (the API returns the full per-user list). */
