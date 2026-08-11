@@ -3,11 +3,14 @@ import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { AlertRule, AlertRuleInput, AlertsService } from '../../services/alerts.service';
+import { AppIconComponent } from '../../shared/icons/icon.component';
+import { ConfirmService } from '../../shared/confirm/confirm.service';
+import { ToastService } from '../../shared/toast/toast.service';
 
 @Component({
   selector: 'app-alerts',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, AppIconComponent],
   templateUrl: './alerts.component.html',
   styleUrl: './alerts.component.scss',
 })
@@ -21,7 +24,12 @@ export class AlertsComponent implements OnInit {
   alertForm;
   channelsText = 'in_app';
 
-  constructor(private fb: FormBuilder, private service: AlertsService) {
+  constructor(
+    private fb: FormBuilder,
+    private service: AlertsService,
+    private confirm: ConfirmService,
+    private toast: ToastService
+  ) {
     this.alertForm = this.fb.group({
       name: ['', Validators.required],
       keywordsText: [''],
@@ -101,28 +109,52 @@ export class AlertsComponent implements OnInit {
       : this.service.create(payload);
     request.subscribe({
       next: () => {
+        const wasEditing = !!this.editingId;
         this.showForm = false;
         this.editingId = null;
+        this.toast.success(wasEditing ? 'Alert updated.' : 'Alert created.');
         this.refresh();
       },
-      error: () => (this.error = 'Failed to save alert rule'),
+      error: () => {
+        this.error = 'Failed to save alert rule';
+        this.toast.error('Failed to save alert rule.');
+      },
     });
   }
 
   toggleActive(rule: AlertRule): void {
     this.service.update(rule.id, { active: !rule.active }).subscribe({
-      next: () => this.refresh(),
-      error: () => (this.error = 'Failed to update rule'),
+      next: () => {
+        this.toast.success(rule.active ? 'Alert paused.' : 'Alert activated.');
+        this.refresh();
+      },
+      error: () => {
+        this.error = 'Failed to update rule';
+        this.toast.error('Failed to update rule.');
+      },
     });
   }
 
-  remove(rule: AlertRule): void {
-    if (!window.confirm(`Delete alert "${rule.name}"?`)) {
+  async remove(rule: AlertRule): Promise<void> {
+    const confirmed = await this.confirm.confirm({
+      title: 'Delete alert?',
+      message: `Delete alert "${rule.name}"? You will stop receiving matching job notifications.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Keep alert',
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
     this.service.delete(rule.id).subscribe({
-      next: () => this.refresh(),
-      error: () => (this.error = 'Failed to delete alert rule'),
+      next: () => {
+        this.toast.success('Alert deleted.');
+        this.refresh();
+      },
+      error: () => {
+        this.error = 'Failed to delete alert rule';
+        this.toast.error('Failed to delete alert rule.');
+      },
     });
   }
 

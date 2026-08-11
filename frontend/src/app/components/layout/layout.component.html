@@ -1,28 +1,101 @@
-<div class="layout">
-  <aside class="sidebar">
+<div class="layout" [class.sidebar-open]="sidebarOpen">
+  @if (sidebarOpen) {
+    <button
+      type="button"
+      class="sidebar-backdrop"
+      aria-label="Close navigation menu"
+      (click)="sidebarOpen = false"
+    ></button>
+  }
+
+  <aside class="sidebar" aria-label="Main navigation">
     <div class="brand">
-      <h1>PudimJobs</h1>
+      <span class="brand-mark" aria-hidden="true">
+        <app-icon name="briefcase" [size]="22" />
+      </span>
+      <span class="brand-name">PudimJobs</span>
+      <button
+        type="button"
+        class="sidebar-close"
+        aria-label="Close navigation menu"
+        (click)="sidebarOpen = false"
+      >
+        <app-icon name="x" [size]="18" />
+      </button>
     </div>
 
     <nav>
-      <a routerLink="/jobs" routerLinkActive="active">Jobs</a>
-      <a routerLink="/sources" routerLinkActive="active">Sources</a>
-      <a routerLink="/cv" routerLinkActive="active">Master CV</a>
-      <a routerLink="/applications" routerLinkActive="active">Applications</a>
-      <a routerLink="/alerts" routerLinkActive="active">Alerts</a>
-      <a routerLink="/notifications" routerLinkActive="active">Notifications</a>
-      <a routerLink="/admin" routerLinkActive="active">Admin</a>
+      @for (item of navItems; track item.route) {
+        @if (!item.adminOnly || user?.role === 'admin') {
+          <a
+            class="nav-item"
+            [routerLink]="item.route"
+            routerLinkActive="active"
+            #rla="routerLinkActive"
+            [attr.aria-current]="rla.isActive ? 'page' : null"
+            (click)="sidebarOpen = false"
+          >
+            <app-icon [name]="item.icon" [size]="19" />
+            <span>{{ item.label }}</span>
+            @if (item.route === '/notifications' && unread > 0) {
+              <span class="nav-badge">{{ unread > 99 ? '99+' : unread }}</span>
+            }
+          </a>
+        }
+      }
     </nav>
 
     <div class="sidebar-footer">
-      <span class="api-status" [class.degraded]="!health || health.status !== 'ok'">
-        {{ health ? 'API: ' + health.status : 'API: unreachable' }}
-      </span>
-      <button class="logout" (click)="logout()">Sign out</button>
+      @if (user) {
+        <div class="user-chip">
+          <span class="avatar" aria-hidden="true">
+            {{ user.email.charAt(0).toUpperCase() }}
+          </span>
+          <span class="user-email">{{ user.email }}</span>
+        </div>
+      }
+
+      <div class="api-status-row">
+        <span
+          class="status-dot"
+          [class.online]="health?.status === 'ok'"
+          aria-hidden="true"
+        ></span>
+        <span class="api-status" [class.degraded]="!health || health.status !== 'ok'">
+          {{ health?.status === 'ok' ? 'API online' : 'API unreachable' }}
+        </span>
+      </div>
+
+      <div class="sidebar-actions">
+        <button
+          type="button"
+          class="btn btn-ghost logout"
+          [attr.aria-label]="theme.isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+          (click)="theme.toggle()"
+        >
+          <app-icon [name]="theme.isDark ? 'sun' : 'moon'" [size]="16" />
+          {{ theme.isDark ? 'Light mode' : 'Dark mode' }}
+        </button>
+
+        <button type="button" class="btn btn-ghost logout" (click)="logout()">
+          <app-icon name="log-out" [size]="16" />
+          Sign out
+        </button>
+      </div>
     </div>
   </aside>
 
-  <main class="content">
+  <main class="content" id="main-content">
+    <button
+      type="button"
+      class="sidebar-toggle"
+      aria-label="Open navigation menu"
+      (click)="sidebarOpen = true"
+    >
+      <app-icon name="menu" [size]="20" />
+    </button>
+
     <router-outlet />
   </main>
 </div>
+

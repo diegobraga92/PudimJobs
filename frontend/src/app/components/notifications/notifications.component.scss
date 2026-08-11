@@ -1,81 +1,66 @@
-.page-header {
+.summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-
-  h2 {
-    margin: 0;
-  }
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 .list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  max-width: 720px;
-}
-
-.panel {
-  background: #fff;
-  border: 1px solid #e2e5ea;
-  border-radius: 10px;
-  padding: 1rem 1.25rem;
+  gap: var(--space-3);
+  max-width: 760px;
 }
 
 .item {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: var(--space-3);
+  position: relative;
+
+  .unread-dot {
+    display: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
 
   &.unread {
-    border-left: 4px solid #2d6a9f;
+    border-left: 4px solid var(--color-accent);
+    background: var(--color-unread-bg);
+
+    .unread-dot {
+      display: inline-block;
+    }
   }
+}
+
+.item-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .item-title {
-  font-weight: 600;
-  color: #1e3a5f;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
 }
 
 .item-message {
-  margin-top: 0.2rem;
-  color: #555;
-  font-size: 0.9rem;
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
 }
 
 .item-meta {
-  margin-top: 0.35rem;
-  color: #999;
-  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
   text-transform: capitalize;
 }
 
-button.ghost {
-  padding: 0.35rem 0.7rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: #fff;
-  color: #333;
-  cursor: pointer;
-  white-space: nowrap;
-
-  &.small {
-    padding: 0.22rem 0.55rem;
-    font-size: 0.8rem;
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-}
-
-.error {
-  color: #c62828;
-}
-
-.muted {
-  color: #6b7280;
-}

@@ -3,6 +3,9 @@ import { CommonModule } from '@angular/common';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { CVStructure, CvService, GeneratedCV, MasterCV } from '../../services/cv.service';
+import { AppIconComponent } from '../../shared/icons/icon.component';
+import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
+import { ToastService } from '../../shared/toast/toast.service';
 
 interface ExperienceFormItem {
   company: string;
@@ -27,7 +30,7 @@ interface ProjectFormItem {
 @Component({
   selector: 'app-cv-editor',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, AppIconComponent, CvPreviewComponent],
   templateUrl: './cv-editor.component.html',
   styleUrl: './cv-editor.component.scss',
 })
@@ -38,8 +41,18 @@ export class CvEditorComponent implements OnInit {
   error: string | null = null;
   message: string | null = null;
   saving = false;
+  mode: 'edit' | 'preview' = 'edit';
 
-  constructor(private fb: FormBuilder, private service: CvService) {
+  /** Live CV structure derived from the form — drives the preview pane. */
+  get previewCv(): CVStructure {
+    return this.buildStructure();
+  }
+
+  constructor(
+    private fb: FormBuilder,
+    private service: CvService,
+    private toast: ToastService
+  ) {
     this.cvForm = this.fb.group({
       summary: [''],
       skillsText: [''],
@@ -146,11 +159,13 @@ export class CvEditorComponent implements OnInit {
       next: (saved) => {
         this.saving = false;
         this.message = `Saved as ${saved.label}.`;
+        this.toast.success(`Master CV saved as ${saved.label}.`);
         this.ngOnInit();
       },
       error: () => {
         this.saving = false;
         this.error = 'Failed to save CV';
+        this.toast.error('Failed to save CV.');
       },
     });
   }

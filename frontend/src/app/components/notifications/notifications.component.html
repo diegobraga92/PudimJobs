@@ -1,33 +1,58 @@
 <div class="page-header">
   <h2>Notifications</h2>
-  <button class="ghost" (click)="markAllRead()" [disabled]="unread === 0">Mark all read</button>
+  <button
+    type="button"
+    class="btn btn-ghost"
+    (click)="markAllRead()"
+    [disabled]="unread === 0"
+  >
+    <app-icon name="check" [size]="15" />
+    Mark all read
+  </button>
 </div>
 
 @if (error) {
-  <p class="error">{{ error }}</p>
+  <div class="alert alert-error" role="alert">
+    <app-icon class="alert-icon" name="circle-alert" [size]="18" />
+    <span>{{ error }}</span>
+  </div>
 }
 
-<p class="muted">{{ total }} total · {{ unread }} unread</p>
+<div class="summary">
+  <span class="badge badge-info">{{ unread }} unread</span>
+  <span class="muted">{{ total }} total</span>
+</div>
 
 @if (notifications.length === 0) {
-  <p class="muted">No notifications yet. New matching jobs will appear here.</p>
+  <div class="empty-state panel">
+    <span class="empty-icon">
+      <app-icon name="inbox" [size]="26" />
+    </span>
+    <h3>You're all caught up</h3>
+    <p>New matching jobs will appear here as soon as they're scraped.</p>
+  </div>
 } @else {
   <div class="list">
     @for (item of notifications; track item.id) {
       <div class="panel item" [class.unread]="!item.read">
+        <span class="unread-dot" aria-hidden="true"></span>
         <div class="item-main">
           <div class="item-title">{{ item.title }}</div>
           @if (item.message) {
             <div class="item-message">{{ item.message }}</div>
           }
           <div class="item-meta">
+            <app-icon name="bell" [size]="12" />
             {{ item.channel }} · {{ item.created_at | date: 'short' }} · {{ item.status }}
           </div>
         </div>
         @if (!item.read) {
-          <button class="ghost small" (click)="markRead(item)">Mark read</button>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="markRead(item)">
+            Mark read
+          </button>
         }
       </div>
     }
   </div>
 }
+

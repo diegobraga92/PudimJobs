@@ -1,36 +1,80 @@
 <div class="login-page">
   <div class="login-card">
-    <h1>PudimJobs</h1>
-    <p class="tagline">Job Application Tracker</p>
+    <div class="login-brand">
+      <span class="brand-mark" aria-hidden="true">
+        <app-icon name="briefcase" [size]="24" />
+      </span>
+      <h1>PudimJobs</h1>
+      <p class="tagline">Job Application Tracker</p>
+    </div>
 
-    <form [formGroup]="loginForm" (ngSubmit)="submit()">
-      <label for="email">Email</label>
-      <input
-        id="email"
-        type="email"
-        formControlName="email"
-        autocomplete="username"
-        placeholder="you@example.com"
-      />
+    <form [formGroup]="loginForm" (ngSubmit)="submit()" novalidate>
+      <div class="form-field">
+        <label for="email">Email</label>
+        <input
+          id="email"
+          class="input"
+          type="email"
+          formControlName="email"
+          autocomplete="username"
+          placeholder="you@example.com"
+          [attr.aria-invalid]="submitted && loginForm.controls.email.invalid"
+        />
+        @if (submitted && loginForm.controls.email.errors?.['required']) {
+          <span class="field-error">Email is required.</span>
+        }
+        @if (submitted && loginForm.controls.email.errors?.['email']) {
+          <span class="field-error">Enter a valid email address.</span>
+        }
+      </div>
 
-      <label for="password">Password</label>
-      <input
-        id="password"
-        type="password"
-        formControlName="password"
-        autocomplete="current-password"
-        placeholder="••••••••"
-      />
+      <div class="form-field">
+        <label for="password">Password</label>
+        <div class="password-wrap">
+          <input
+            id="password"
+            class="input"
+            [type]="showPassword ? 'text' : 'password'"
+            formControlName="password"
+            autocomplete="current-password"
+            placeholder="••••••••"
+            [attr.aria-invalid]="submitted && loginForm.controls.password.invalid"
+          />
+          <button
+            type="button"
+            class="password-toggle"
+            [attr.aria-label]="showPassword ? 'Hide password' : 'Show password'"
+            (click)="showPassword = !showPassword"
+          >
+            <app-icon [name]="showPassword ? 'eye-off' : 'eye'" [size]="17" />
+          </button>
+        </div>
+        @if (submitted && loginForm.controls.password.errors?.['required']) {
+          <span class="field-error">Password is required.</span>
+        }
+        @if (submitted && loginForm.controls.password.errors?.['minlength']) {
+          <span class="field-error">Password must be at least 6 characters.</span>
+        }
+      </div>
 
       @if (error) {
-        <p class="error">{{ error }}</p>
+        <div class="alert alert-error" role="alert">
+          <app-icon class="alert-icon" name="circle-alert" [size]="17" />
+          <span>{{ error }}</span>
+        </div>
       }
 
-      <button type="submit" [disabled]="loginForm.invalid || loading">
+      <button
+        type="submit"
+        class="btn btn-primary btn-lg sign-in"
+        [disabled]="loading"
+      >
+        @if (loading) {
+          <app-icon class="spinner" name="loader" [size]="17" />
+        }
         {{ loading ? 'Signing in…' : 'Sign in' }}
       </button>
     </form>
-
-    <p class="hint">Demo: admin&#64;pudimjobs.dev / admin123</p>
   </div>
 </div>
+

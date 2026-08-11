@@ -4,11 +4,13 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { ApplicationsService } from '../../services/applications.service';
 import { JobDetail, JobsService, ParsedJD } from '../../services/jobs.service';
+import { AppIconComponent } from '../../shared/icons/icon.component';
+import { ToastService } from '../../shared/toast/toast.service';
 
 @Component({
   selector: 'app-job-detail',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AppIconComponent],
   templateUrl: './job-detail.component.html',
   styleUrl: './job-detail.component.scss',
 })
@@ -24,7 +26,8 @@ export class JobDetailComponent implements OnInit {
     private route: ActivatedRoute,
     private router: Router,
     private jobs: JobsService,
-    private applications: ApplicationsService
+    private applications: ApplicationsService,
+    private toast: ToastService
   ) {}
 
   ngOnInit(): void {
@@ -60,8 +63,12 @@ export class JobDetailComponent implements OnInit {
       next: () => {
         this.message = 'Parsing job description… refresh to see results.';
         this.parsed = null;
+        this.toast.info('Job parsing has been queued.');
       },
-      error: () => (this.error = 'Failed to enqueue parsing'),
+      error: () => {
+        this.error = 'Failed to enqueue parsing';
+        this.toast.error('Failed to enqueue parsing.');
+      },
     });
   }
 
@@ -75,10 +82,12 @@ export class JobDetailComponent implements OnInit {
       next: () => {
         this.saving = false;
         this.message = 'Added to your application pipeline.';
+        this.toast.success('Added to your application pipeline.');
       },
       error: () => {
         this.saving = false;
         this.message = 'Could not add the application.';
+        this.toast.error('Could not add the application.');
       },
     });
   }
@@ -93,10 +102,12 @@ export class JobDetailComponent implements OnInit {
       next: () => {
         this.tailoring = false;
         this.message = 'Tailoring started. Download the result from the CV page.';
+        this.toast.success('Tailoring started — see the CV page for your PDF.');
       },
       error: () => {
         this.tailoring = false;
         this.error = 'Failed to start tailoring (is there a master CV yet?).';
+        this.toast.error('Failed to start tailoring — is there a master CV yet?');
       },
     });
   }
@@ -105,4 +116,5 @@ export class JobDetailComponent implements OnInit {
     this.router.navigate(['/jobs']);
   }
 }
+
 

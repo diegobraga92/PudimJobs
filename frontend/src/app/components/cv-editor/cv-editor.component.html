@@ -1,91 +1,208 @@
 <div class="page-header">
   <h2>Master CV</h2>
-  <button class="primary" (click)="save()" [disabled]="saving">
-    {{ saving ? 'Saving…' : 'Save as new version' }}
-  </button>
+  <div class="header-actions">
+    <div class="segmented" role="tablist" aria-label="CV editor mode">
+      <button
+        type="button"
+        role="tab"
+        [class.active]="mode === 'edit'"
+        [attr.aria-selected]="mode === 'edit'"
+        (click)="mode = 'edit'"
+      >
+        <app-icon name="pencil" [size]="15" />
+        Edit
+      </button>
+      <button
+        type="button"
+        role="tab"
+        [class.active]="mode === 'preview'"
+        [attr.aria-selected]="mode === 'preview'"
+        (click)="mode = 'preview'"
+      >
+        <app-icon name="eye" [size]="15" />
+        Preview
+      </button>
+    </div>
+    <button type="button" class="btn btn-primary" (click)="save()" [disabled]="saving || mode !== 'edit'">
+      @if (saving) {
+        <app-icon class="spinner" name="loader" [size]="16" />
+      }
+      <app-icon name="check" [size]="16" />
+      {{ saving ? 'Saving…' : 'Save as new version' }}
+    </button>
+  </div>
 </div>
 
 @if (error) {
-  <p class="error">{{ error }}</p>
+  <div class="alert alert-error" role="alert">
+    <app-icon class="alert-icon" name="circle-alert" [size]="18" />
+    <span>{{ error }}</span>
+  </div>
 }
 @if (message) {
-  <p class="message">{{ message }}</p>
+  <div class="alert alert-success" role="status">
+    <app-icon class="alert-icon" name="circle-check" [size]="18" />
+    <span>{{ message }}</span>
+  </div>
 }
 
 <div class="cv-layout">
-  <form class="panel editor" [formGroup]="cvForm">
+  @if (mode === 'edit') {
+    <form class="panel editor" [formGroup]="cvForm" (ngSubmit)="save()" aria-label="Master CV editor">
     <h3>Summary</h3>
-    <textarea formControlName="summary" rows="3" placeholder="Short professional summary"></textarea>
+    <div class="form-field">
+      <textarea
+        class="textarea"
+        formControlName="summary"
+        rows="3"
+        placeholder="Short professional summary"
+        aria-label="Professional summary"
+      ></textarea>
+    </div>
 
     <h3>Skills</h3>
-    <input formControlName="skillsText" placeholder="python, fastapi, postgresql (comma separated)" />
+    <div class="form-field">
+      <input
+        class="input"
+        formControlName="skillsText"
+        placeholder="python, fastapi, postgresql (comma separated)"
+        aria-label="Skills, comma separated"
+      />
+    </div>
 
     <h3>Experience</h3>
     @for (exp of experience.controls; track $index) {
       <div class="sub-form" [formGroupName]="$index">
         <div class="sub-header">
-          <strong>Experience {{ $index + 1 }}</strong>
-          <button type="button" class="ghost small" (click)="removeExperience($index)">Remove</button>
+          <strong>
+            <app-icon name="briefcase" [size]="14" />
+            Experience {{ $index + 1 }}
+          </strong>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="removeExperience($index)">
+            <app-icon name="trash" [size]="13" />
+            Remove
+          </button>
         </div>
         <div class="grid-2">
-          <label>Company<input formControlName="company" /></label>
-          <label>Title<input formControlName="title" /></label>
+          <div class="form-field">
+            <label>Company</label>
+            <input class="input" formControlName="company" />
+          </div>
+          <div class="form-field">
+            <label>Title</label>
+            <input class="input" formControlName="title" />
+          </div>
         </div>
         <div class="grid-2">
-          <label>Start<input formControlName="start_date" placeholder="2020-01" /></label>
-          <label>End<input formControlName="end_date" placeholder="2023-06" /></label>
+          <div class="form-field">
+            <label>Start</label>
+            <input class="input" formControlName="start_date" placeholder="2020-01" />
+          </div>
+          <div class="form-field">
+            <label>End</label>
+            <input class="input" formControlName="end_date" placeholder="2023-06" />
+          </div>
         </div>
-        <label>Bullet points (one per line)
-          <textarea formControlName="bulletsText" rows="3" placeholder="Built async pipelines"></textarea>
-        </label>
+        <div class="form-field">
+          <label>Bullet points (one per line)</label>
+          <textarea
+            class="textarea"
+            formControlName="bulletsText"
+            rows="3"
+            placeholder="Built async pipelines"
+          ></textarea>
+        </div>
       </div>
     }
-    <button type="button" class="ghost" (click)="addExperience()">+ Add experience</button>
+    <button type="button" class="btn btn-ghost" (click)="addExperience()">
+      <app-icon name="plus" [size]="15" />
+      Add experience
+    </button>
+
 
     <h3>Education</h3>
     @for (edu of education.controls; track $index) {
       <div class="sub-form" [formGroupName]="$index">
         <div class="sub-header">
-          <strong>Education {{ $index + 1 }}</strong>
-          <button type="button" class="ghost small" (click)="removeEducation($index)">Remove</button>
+          <strong>
+            <app-icon name="globe" [size]="14" />
+            Education {{ $index + 1 }}
+          </strong>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="removeEducation($index)">
+            <app-icon name="trash" [size]="13" />
+            Remove
+          </button>
         </div>
-        <label>Institution<input formControlName="institution" /></label>
+        <div class="form-field">
+          <label>Institution</label>
+          <input class="input" formControlName="institution" />
+        </div>
         <div class="grid-2">
-          <label>Degree<input formControlName="degree" /></label>
-          <label>Year<input formControlName="year" /></label>
+          <div class="form-field">
+            <label>Degree</label>
+            <input class="input" formControlName="degree" />
+          </div>
+          <div class="form-field">
+            <label>Year</label>
+            <input class="input" formControlName="year" />
+          </div>
         </div>
       </div>
     }
-    <button type="button" class="ghost" (click)="addEducation()">+ Add education</button>
+    <button type="button" class="btn btn-ghost" (click)="addEducation()">
+      <app-icon name="plus" [size]="15" />
+      Add education
+    </button>
 
     <h3>Projects</h3>
     @for (proj of projects.controls; track $index) {
       <div class="sub-form" [formGroupName]="$index">
         <div class="sub-header">
-          <strong>Project {{ $index + 1 }}</strong>
-          <button type="button" class="ghost small" (click)="removeProject($index)">Remove</button>
+          <strong>
+            <app-icon name="star" [size]="14" />
+            Project {{ $index + 1 }}
+          </strong>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="removeProject($index)">
+            <app-icon name="trash" [size]="13" />
+            Remove
+          </button>
         </div>
-        <label>Name<input formControlName="name" /></label>
-        <label>Link<input formControlName="link" /></label>
-        <label>Description<textarea formControlName="description" rows="2"></textarea></label>
+        <div class="form-field">
+          <label>Name</label>
+          <input class="input" formControlName="name" />
+        </div>
+        <div class="form-field">
+          <label>Link</label>
+          <input class="input" formControlName="link" />
+        </div>
+        <div class="form-field">
+          <label>Description</label>
+          <textarea class="textarea" formControlName="description" rows="2"></textarea>
+        </div>
       </div>
     }
-    <button type="button" class="ghost" (click)="addProject()">+ Add project</button>
-  </form>
+    <button type="button" class="btn btn-ghost" (click)="addProject()">
+      <app-icon name="plus" [size]="15" />
+      Add project
+    </button>
+    </form>
+  } @else {
+    <app-cv-preview [cv]="previewCv" />
+  }
 
   <aside class="panel history">
     <h3>Version history</h3>
     @if (versions.length === 0) {
-      <p class="muted">No versions saved yet.</p>
+      <p class="muted small">No versions saved yet.</p>
     } @else {
       <ul>
         @for (version of versions; track version.id) {
           <li [class.current]="version.is_current">
             {{ version.label }}
             @if (version.is_current) {
-              <span class="badge">current</span>
+              <span class="badge badge-info">current</span>
             }
-            <div class="muted small">{{ version.updated_at | date: 'short' }}</div>
+            <div class="muted xs">{{ version.updated_at | date: 'short' }}</div>
           </li>
         }
       </ul>
@@ -93,19 +210,23 @@
 
     <h3>Tailored CVs</h3>
     @if (generated.length === 0) {
-      <p class="muted">No tailored CVs yet — use "Tailor CV" on a job.</p>
+      <p class="muted small">No tailored CVs yet — use "Tailor CV" on a job.</p>
     } @else {
       <ul>
         @for (item of generated; track item.id) {
           <li class="generated-item">
-            <div>
+            <div class="generated-info">
               <strong>{{ item.job_title }}</strong>
-              <div class="muted small">{{ item.job_company }}</div>
+              <div class="muted xs">{{ item.job_company }}</div>
             </div>
-            <button class="ghost small" (click)="downloadPdf(item.id)">Download PDF</button>
+            <button type="button" class="btn btn-ghost btn-sm" (click)="downloadPdf(item.id)">
+              <app-icon name="download" [size]="14" />
+              PDF
+            </button>
           </li>
         }
       </ul>
     }
   </aside>
 </div>
+

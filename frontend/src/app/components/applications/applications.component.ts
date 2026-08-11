@@ -1,18 +1,30 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 
 import {
   Application,
   ApplicationStatus,
   ApplicationsService,
 } from '../../services/applications.service';
+import { AppIconComponent } from '../../shared/icons/icon.component';
+import { ConfirmService } from '../../shared/confirm/confirm.service';
+import { ToastService } from '../../shared/toast/toast.service';
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
+
+const STATUS_LABELS: Record<ApplicationStatus, string> = {
+  saved: 'Saved',
+  applied: 'Applied',
+  interview: 'Interview',
+  offer: 'Offer',
+  rejected: 'Rejected',
+};
 
 @Component({
   selector: 'app-applications',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, DragDropModule, AppIconComponent],
   templateUrl: './applications.component.html',
   styleUrl: './applications.component.scss',
 })
@@ -27,11 +39,42 @@ export class ApplicationsComponent implements OnInit {
   statuses = STATUSES;
   selected: Application | null = null;
   error: string | null = null;
+  total = 0;
 
-  constructor(private service: ApplicationsService) {}
+  constructor(
+    private service: ApplicationsService,
+    private confirm: ConfirmService,
+    private toast: ToastService
+  ) {}
 
   ngOnInit(): void {
     this.refresh();
+  }
+
+  statusLabel(status: ApplicationStatus): string {
+    return STATUS_LABELS[status];
+  }
+
+  /**
+   * Handles a drag-and-drop between columns. CDK already moved the item between
+   * the column data arrays; here we persist the new status and revert on error.
+   */
+  onDrop(event: CdkDragDrop<Application[]>): void {
+    if (event.previousContainer === event.container) {
+      // Intra-column reorder — not persisted.
+      return;
+    }
+    const application = event.item.data as Application;
+    const targetStatus = event.container.id as ApplicationStatus;
+    this.service.update(application.id, { status: targetStatus }).subscribe({
+      next: () => {
+        this.toast.success(`Moved to ${STATUS_LABELS[targetStatus]}.`);
+      },
+      error: () => {
+        this.toast.error('Failed to move application.');
+        this.refresh();
+      },
+    });
   }
 
   refresh(): void {
@@ -41,11 +84,15 @@ export class ApplicationsComponent implements OnInit {
         for (const status of STATUSES) {
           this.columns[status] = [];
         }
+        this.total = applications.length;
         for (const application of applications) {
           this.columns[application.status].push(application);
         }
       },
-      error: () => (this.error = 'Failed to load applications'),
+      error: () => {
+        this.error = 'Failed to load applications';
+        this.toast.error('Failed to load applications.');
+      },
     });
   }
 
@@ -61,25 +108,41 @@ export class ApplicationsComponent implements OnInit {
     if (!this.selected) {
       return;
     }
-    this.service.update(this.selected.id, { status }).subscribe({
+    const app = this.selected;
+    this.service.update(app.id, { status }).subscribe({
       next: () => {
         this.selected = null;
+        this.toast.success(`Moved to ${STATUS_LABELS[status]}.`);
         this.refresh();
       },
-      error: () => (this.error = 'Failed to update status'),
+      error: () => {
+        this.error = 'Failed to update status';
+        this.toast.error('Failed to update status.');
+      },
     });
   }
 
-  remove(application: Application): void {
-    if (!window.confirm(`Remove application for "${application.job_title}"?`)) {
+  async remove(application: Application): Promise<void> {
+    const confirmed = await this.confirm.confirm({
+      title: 'Remove application?',
+      message: `Remove "${application.job_title}" from your pipeline? This cannot be undone.`,
+      confirmLabel: 'Remove',
+      cancelLabel: 'Keep it',
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
     this.service.delete(application.id).subscribe({
       next: () => {
         this.selected = null;
+        this.toast.success('Application removed.');
         this.refresh();
       },
-      error: () => (this.error = 'Failed to delete application'),
+      error: () => {
+        this.error = 'Failed to delete application';
+        this.toast.error('Failed to delete application.');
+      },
     });
   }
 }

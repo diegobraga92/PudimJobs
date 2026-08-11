@@ -1,14 +1,26 @@
 @if (error) {
-  <p class="error">{{ error }}</p>
+  <div class="alert alert-error" role="alert">
+    <app-icon class="alert-icon" name="circle-alert" [size]="18" />
+    <span>{{ error }}</span>
+  </div>
 } @else if (job) {
-  <button class="ghost" (click)="back()">← Back to jobs</button>
+  <button type="button" class="btn btn-ghost btn-sm" (click)="back()">
+    <app-icon name="arrow-left" [size]="16" />
+    Back to jobs
+  </button>
 
   <div class="panel detail">
     <h2>{{ job.title }}</h2>
-    <p class="company">{{ job.company }}</p>
+    <p class="company">
+      <app-icon name="home" [size]="14" />
+      {{ job.company }}
+    </p>
 
     @if (job.posted_date) {
-      <p class="muted">Posted {{ job.posted_date | date: 'mediumDate' }}</p>
+      <p class="muted">
+        <app-icon name="calendar" [size]="13" />
+        Posted {{ job.posted_date | date: 'mediumDate' }}
+      </p>
     }
 
     @if (job.tags.length > 0) {
@@ -21,26 +33,42 @@
 
     @if (job.url) {
       <p>
-        <a [href]="job.url" target="_blank" rel="noopener">View original posting</a>
+        <a [href]="job.url" target="_blank" rel="noopener noreferrer">
+          View original posting
+          <app-icon name="external-link" [size]="13" />
+        </a>
       </p>
     }
 
-    <button class="primary" (click)="addApplication()" [disabled]="saving">
-      {{ saving ? 'Adding…' : 'Add to applications' }}
-    </button>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" (click)="addApplication()" [disabled]="saving">
+        @if (saving) {
+          <app-icon class="spinner" name="loader" [size]="16" />
+        }
+        {{ saving ? 'Adding…' : 'Add to applications' }}
+      </button>
 
-    <button class="primary secondary" (click)="tailor()" [disabled]="tailoring">
-      {{ tailoring ? 'Tailoring…' : 'Tailor CV for this job' }}
-    </button>
+      <button type="button" class="btn btn-accent" (click)="tailor()" [disabled]="tailoring">
+        @if (tailoring) {
+          <app-icon class="spinner" name="loader" [size]="16" />
+        }
+        <app-icon name="wand" [size]="16" />
+        {{ tailoring ? 'Tailoring…' : 'Tailor CV for this job' }}
+      </button>
+    </div>
 
     @if (message) {
-      <p class="message">{{ message }}</p>
+      <div class="alert alert-success" role="status">
+        <app-icon class="alert-icon" name="circle-check" [size]="18" />
+        <span>{{ message }}</span>
+      </div>
     }
 
     <h3>Parsed job requirements</h3>
     @if (parsed) {
       <div class="parsed">
-        <div><strong>Skills:</strong>
+        <div class="parsed-row">
+          <strong>Skills:</strong>
           <span class="tags">
             @for (skill of parsed.skills; track skill) {
               <span class="tag">{{ skill }}</span>
@@ -48,14 +76,25 @@
           </span>
         </div>
         @if (parsed.years_experience) {
-          <div><strong>Experience:</strong> {{ parsed.years_experience }}+ years</div>
+          <div class="parsed-row">
+            <strong>Experience:</strong>
+            <span>{{ parsed.years_experience }}+ years</span>
+          </div>
         }
         @if (parsed.education_level) {
-          <div><strong>Education:</strong> {{ parsed.education_level }}</div>
+          <div class="parsed-row">
+            <strong>Education:</strong>
+            <span>{{ parsed.education_level }}</span>
+          </div>
         }
       </div>
     } @else {
-      <p class="muted">Not parsed yet. <button class="ghost small" (click)="parseNow()">Parse now</button></p>
+      <p class="muted">
+        Not parsed yet.
+        <button type="button" class="btn btn-ghost btn-sm" (click)="parseNow()">
+          Parse now
+        </button>
+      </p>
     }
 
     <h3>Description</h3>
@@ -64,3 +103,4 @@
     </div>
   </div>
 }
+

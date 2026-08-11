@@ -1,53 +1,114 @@
 <div class="page-header">
   <h2>Application Pipeline</h2>
+  <span class="muted pipeline-count">{{ total }} total</span>
 </div>
 
 @if (error) {
-  <p class="error">{{ error }}</p>
+  <div class="alert alert-error" role="alert">
+    <app-icon class="alert-icon" name="circle-alert" [size]="18" />
+    <span>{{ error }}</span>
+  </div>
 }
 
-<div class="kanban">
+@if (total === 0) {
+  <div class="empty-state panel">
+    <span class="empty-icon">
+      <app-icon name="kanban" [size]="26" />
+    </span>
+    <h3>Your pipeline is empty</h3>
+    <p>Open a job and press "Add to applications" to start tracking it here.</p>
+  </div>
+}
+
+<div class="kanban" cdkDropListGroup>
   @for (status of statuses; track status) {
     <div class="column">
-      <h3 class="column-title">{{ status }}</h3>
-      @for (application of columns[status]; track application.id) {
-        <button class="card" (click)="select(application)">
-          <span class="card-title">{{ application.job_title }}</span>
-          <span class="card-company">{{ application.job_company }}</span>
-          @if (application.applied_date) {
-            <span class="card-date">Applied {{ application.applied_date | date: 'mediumDate' }}</span>
-          }
-        </button>
-      }
+      <h3 class="column-title">
+        <span class="status-dot" [class]="'dot-' + status" aria-hidden="true"></span>
+        <span>{{ statusLabel(status) }}</span>
+        <span class="column-count">{{ columns[status].length }}</span>
+      </h3>
+      <div
+        class="drop-list"
+        [id]="status"
+        cdkDropList
+        [cdkDropListData]="columns[status]"
+        (cdkDropListDropped)="onDrop($event)"
+      >
+        @for (application of columns[status]; track application.id) {
+          <button class="card" cdkDrag [cdkDragData]="application" (click)="select(application)">
+            <span class="card-title">{{ application.job_title }}</span>
+            <span class="card-company">{{ application.job_company }}</span>
+            @if (application.applied_date) {
+              <span class="card-date">
+                <app-icon name="calendar" [size]="12" />
+                Applied {{ application.applied_date | date: 'mediumDate' }}
+              </span>
+            }
+          </button>
+        }
+        @if (columns[status].length === 0) {
+          <div class="drop-hint">
+            <app-icon name="kanban" [size]="14" />
+            Drop here
+          </div>
+        }
+      </div>
     </div>
   }
 </div>
 
 @if (selected) {
-  <div class="modal-backdrop" (click)="closeDetail()">
-    <div class="modal" (click)="$event.stopPropagation()">
-      <h3>{{ selected.job_title }}</h3>
+  <div
+    class="modal-backdrop"
+    (click)="closeDetail()"
+    (keydown.escape)="closeDetail()"
+  >
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="app-modal-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="app-modal-title">{{ selected.job_title }}</h3>
       <p class="muted">{{ selected.job_company }}</p>
 
       @if (selected.job_url) {
-        <p><a [href]="selected.job_url" target="_blank" rel="noopener">View posting</a></p>
+        <p>
+          <a [href]="selected.job_url" target="_blank" rel="noopener noreferrer">
+            View posting
+            <app-icon name="external-link" [size]="13" />
+          </a>
+        </p>
       }
 
       @if (selected.notes) {
         <p class="notes">{{ selected.notes }}</p>
       }
 
-      <label>Move to status</label>
-      <select [value]="selected.status" (change)="changeStatus($any($event.target).value)">
-        @for (status of statuses; track status) {
-          <option [value]="status">{{ status }}</option>
-        }
-      </select>
+      <div class="form-field">
+        <label for="app-status">Move to status</label>
+        <select
+          id="app-status"
+          class="select"
+          [value]="selected.status"
+          (change)="changeStatus($any($event.target).value)"
+        >
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ statusLabel(status) }}</option>
+          }
+        </select>
+      </div>
 
       <div class="modal-actions">
-        <button class="ghost" (click)="closeDetail()">Close</button>
-        <button class="danger" (click)="remove(selected)">Delete</button>
+        <button type="button" class="btn btn-danger" (click)="remove(selected)">
+          <app-icon name="trash" [size]="15" />
+          Delete
+        </button>
+        <button type="button" class="btn btn-ghost" (click)="closeDetail()">Close</button>
       </div>
     </div>
   </div>
 }
+

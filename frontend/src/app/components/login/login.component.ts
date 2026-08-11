@@ -4,11 +4,12 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { AuthService } from '../../services/auth.service';
+import { AppIconComponent } from '../../shared/icons/icon.component';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, AppIconComponent],
   templateUrl: './login.component.html',
   styleUrl: './login.component.scss',
 })
@@ -16,6 +17,8 @@ export class LoginComponent {
   loginForm;
   error: string | null = null;
   loading = false;
+  submitted = false;
+  showPassword = false;
 
   constructor(
     private fb: FormBuilder,
@@ -29,6 +32,7 @@ export class LoginComponent {
   }
 
   submit(): void {
+    this.submitted = true;
     if (this.loginForm.invalid || this.loading) {
       return;
     }
@@ -51,3 +55,4 @@ export class LoginComponent {
     });
   }
 }
+

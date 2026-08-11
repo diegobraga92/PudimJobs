@@ -1,68 +1,177 @@
 <div class="page-header">
   <h2>Jobs</h2>
-  <button class="primary" (click)="openCreate()">+ Add job</button>
+  <button type="button" class="btn btn-primary" (click)="openCreate()">
+    <app-icon name="plus" [size]="16" />
+    Add job
+  </button>
 </div>
 
 @if (error) {
-  <p class="error">{{ error }}</p>
+  <div class="alert alert-error" role="alert">
+    <app-icon class="alert-icon" name="circle-alert" [size]="18" />
+    <span>{{ error }}</span>
+  </div>
 }
 
-<form class="panel search-bar" [formGroup]="searchForm" (ngSubmit)="search()">
-  <input formControlName="q" placeholder="Keyword (title, company, description)" />
-  <input formControlName="company" placeholder="Company" />
-  <input formControlName="tags" placeholder="Tags (comma separated)" />
-  <input formControlName="date_from" type="date" title="Posted after" />
-  <input formControlName="date_to" type="date" title="Posted before" />
-  <button type="submit" class="primary">Search</button>
+<form
+  class="panel search-bar"
+  [formGroup]="searchForm"
+  (ngSubmit)="search()"
+  role="search"
+>
+  <div class="search-field">
+    <app-icon class="search-icon" name="search" [size]="17" />
+    <input
+      formControlName="q"
+      class="input"
+      placeholder="Keywords (title, company, description)"
+      aria-label="Search keywords"
+    />
+  </div>
+  <div class="search-field">
+    <input
+      formControlName="company"
+      class="input"
+      placeholder="Company"
+      aria-label="Filter by company"
+    />
+  </div>
+  <div class="search-field">
+    <input
+      formControlName="tags"
+      class="input"
+      placeholder="Tags (comma separated)"
+      aria-label="Filter by tags"
+    />
+  </div>
+  <div class="search-field">
+    <input
+      formControlName="date_from"
+      class="input"
+      type="date"
+      aria-label="Posted after date"
+    />
+  </div>
+  <div class="search-field">
+    <input
+      formControlName="date_to"
+      class="input"
+      type="date"
+      aria-label="Posted before date"
+    />
+  </div>
+  <button type="submit" class="btn btn-primary search-submit">
+    <app-icon name="search" [size]="16" />
+    <span class="search-label">Search</span>
+  </button>
 </form>
 
 @if (showForm) {
-  <form class="panel form" [formGroup]="jobForm" (ngSubmit)="save()">
+  <form
+    class="panel form"
+    [formGroup]="jobForm"
+    (ngSubmit)="save()"
+    [attr.aria-label]="'Add job manually'"
+  >
     <h3>Add job manually</h3>
 
-    <label>Title
-      <input formControlName="title" placeholder="Senior Python Engineer" />
-    </label>
+    <div class="form-field">
+      <label for="job-title">Title</label>
+      <input
+        id="job-title"
+        class="input"
+        formControlName="title"
+        placeholder="Senior Python Engineer"
+      />
+    </div>
 
-    <label>Company
-      <input formControlName="company" placeholder="Acme" />
-    </label>
+    <div class="form-field">
+      <label for="job-company">Company</label>
+      <input id="job-company" class="input" formControlName="company" placeholder="Acme" />
+    </div>
 
-    <label>URL
-      <input formControlName="url" placeholder="https://acme.example/jobs/1" />
-    </label>
+    <div class="form-field">
+      <label for="job-url">URL</label>
+      <input
+        id="job-url"
+        class="input"
+        formControlName="url"
+        placeholder="https://acme.example/jobs/1"
+      />
+    </div>
 
-    <label>Posted date
-      <input formControlName="posted_date" type="date" />
-    </label>
+    <div class="grid-2">
+      <div class="form-field">
+        <label for="job-posted-date">Posted date</label>
+        <input id="job-posted-date" class="input" formControlName="posted_date" type="date" />
+      </div>
 
-    <label>Tags
-      <input formControlName="tags" placeholder="python, fastapi" />
-    </label>
+      <div class="form-field">
+        <label for="job-tags">Tags</label>
+        <input id="job-tags" class="input" formControlName="tags" placeholder="python, fastapi" />
+      </div>
+    </div>
 
-    <label>Description
-      <textarea formControlName="description" rows="4" placeholder="Full job description…"></textarea>
-    </label>
+    <div class="form-field">
+      <label for="job-description">Description</label>
+      <textarea
+        id="job-description"
+        class="textarea"
+        formControlName="description"
+        rows="4"
+        placeholder="Full job description…"
+      ></textarea>
+    </div>
 
-    <div class="actions">
-      <button type="button" class="ghost" (click)="cancelForm()">Cancel</button>
-      <button type="submit" class="primary" [disabled]="jobForm.invalid">Add job</button>
+    <div class="form-actions">
+      <button type="button" class="btn btn-ghost" (click)="cancelForm()">Cancel</button>
+      <button type="submit" class="btn btn-primary" [disabled]="jobForm.invalid">
+        Add job
+      </button>
     </div>
   </form>
 }
 
+@if (!onboardingDismissed && !loading && jobs.length === 0) {
+  <app-onboarding (dismissed)="dismissOnboarding()" />
+}
+
 @if (loading) {
-  <p class="muted">Loading…</p>
+  <div class="job-grid" aria-hidden="true">
+    @for (placeholder of [1, 2, 3, 4, 5, 6]; track placeholder) {
+      <div class="card job-card">
+        <div class="skeleton" style="height: 1.1rem; width: 70%"></div>
+        <div class="skeleton mt-2" style="height: 0.9rem; width: 45%"></div>
+        <div class="skeleton mt-3" style="height: 0.8rem; width: 90%"></div>
+      </div>
+    }
+  </div>
 } @else if (jobs.length === 0) {
-  <p class="muted">No jobs found. Try adjusting your search or add one manually.</p>
+  <div class="empty-state panel">
+    <span class="empty-icon">
+      <app-icon name="briefcase" [size]="26" />
+    </span>
+    <h3>No jobs found</h3>
+    <p>Try adjusting your search filters, or add a job manually to get started.</p>
+    <button type="button" class="btn btn-primary" (click)="openCreate()">
+      <app-icon name="plus" [size]="16" />
+      Add your first job
+    </button>
+  </div>
 } @else {
   <div class="job-grid">
-    @for (job of jobs; track job.id) {
-      <button class="panel job-card" (click)="open(job.id)">
+    @for (job of pagedJobs; track job.id) {
+      <button class="card job-card" (click)="open(job.id)">
         <div class="job-title">{{ job.title }}</div>
-        <div class="job-company">{{ job.company }}</div>
+        <div class="job-company">
+          <app-icon name="home" [size]="13" />
+          {{ job.company }}
+        </div>
         @if (job.posted_date) {
-          <div class="job-date">Posted {{ job.posted_date | date: 'mediumDate' }}</div>
+          <div class="job-date">
+            <app-icon name="calendar" [size]="12" />
+            Posted {{ job.posted_date | date: 'mediumDate' }}
+          </div>
         }
         @if (job.tags.length > 0) {
           <div class="job-tags">
@@ -74,4 +183,29 @@
       </button>
     }
   </div>
+
+  @if (pageCount > 1) {
+    <nav class="pagination" aria-label="Jobs pagination">
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm"
+        [disabled]="page <= 1"
+        (click)="goToPage(page - 1)"
+      >
+        <app-icon name="chevron-left" [size]="15" />
+        Previous
+      </button>
+      <span class="pagination-info">{{ rangeLabel }}</span>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm"
+        [disabled]="page >= pageCount"
+        (click)="goToPage(page + 1)"
+      >
+        Next
+        <app-icon name="chevron-right" [size]="15" />
+      </button>
+    </nav>
+  }
 }
+

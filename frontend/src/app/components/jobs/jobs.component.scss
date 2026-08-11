@@ -1,148 +1,128 @@
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-
-  h2 {
-    margin: 0;
-  }
-}
-
-.panel {
-  background: #fff;
-  border: 1px solid #e2e5ea;
-  border-radius: 10px;
-  padding: 1.25rem;
-  margin-bottom: 1.25rem;
-}
-
 .search-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
 
-  input {
+  .search-field {
+    position: relative;
     flex: 1 1 160px;
-    padding: 0.5rem 0.65rem;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    font-size: 0.9rem;
+
+    .search-icon {
+      position: absolute;
+      top: 50%;
+      left: var(--space-3);
+      transform: translateY(-50%);
+      color: var(--color-text-faint);
+      pointer-events: none;
+    }
+
+    .search-icon + .input {
+      padding-left: 2.25rem;
+    }
+  }
+
+  .search-submit {
+    align-self: flex-start;
   }
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  max-width: 560px;
+  gap: var(--space-3);
+  max-width: 620px;
+  margin-bottom: var(--space-5);
 
   h3 {
-    margin: 0;
-  }
-
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #444;
-  }
-
-  input,
-  textarea {
-    padding: 0.5rem 0.65rem;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    font-size: 0.95rem;
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.6rem;
-    margin-top: 0.25rem;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-lg);
   }
 }
 
 .job-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .job-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
   text-align: left;
+  padding: var(--space-5);
   cursor: pointer;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: inherit;
+  font-family: inherit;
+  transition:
+    box-shadow var(--transition-base),
+    transform var(--transition-base),
+    border-color var(--transition-base);
 
   &:hover {
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-card-hover);
     transform: translateY(-2px);
+    border-color: var(--color-border-strong);
+  }
+
+  &:focus-visible {
+    outline-offset: 2px;
   }
 }
 
 .job-title {
-  font-size: 1.02rem;
-  font-weight: 600;
-  color: #1e3a5f;
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+  line-height: 1.35;
 }
 
 .job-company {
-  margin-top: 0.2rem;
-  color: #555;
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
 }
 
 .job-date {
-  margin-top: 0.35rem;
-  color: #999;
-  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
 }
 
 .job-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.6rem;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
-.tag {
-  padding: 0.12rem 0.5rem;
-  border-radius: 999px;
-  background: #e3f0fa;
-  color: #1e3a5f;
-  font-size: 0.75rem;
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
 }
 
-button.primary {
-  padding: 0.5rem 0.9rem;
-  border: none;
-  border-radius: 6px;
-  background: #1e3a5f;
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
+.pagination-info {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
 
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+@media (max-width: 640px) {
+  .search-submit {
+    flex: 1;
   }
 }
 
-button.ghost {
-  padding: 0.5rem 0.9rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: #fff;
-  color: #333;
-  cursor: pointer;
-}
-
-.error {
-  color: #c62828;
-}
-
-.muted {
-  color: #6b7280;
-}
