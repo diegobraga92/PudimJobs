@@ -92,13 +92,8 @@ if settings.otlp_endpoint:
     FastAPIInstrumentor.instrument_app(app)
 
 
-@app.get("/health")
-async def health():
-    """Health check endpoint.
-
-    Returns 200 if the service is healthy (DB connected),
-    or 503 if the database is unavailable.
-    """
+async def _health_response() -> JSONResponse:
+    """Build the health check response (200/ok or 503/degraded)."""
     db_healthy = await check_db_health()
     status = "ok" if db_healthy else "degraded"
     status_code = 200 if db_healthy else 503
@@ -111,3 +106,24 @@ async def health():
             "db": "connected" if db_healthy else "disconnected",
         },
     )
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint.
+
+    Returns 200 if the service is healthy (DB connected),
+    or 503 if the database is unavailable.
+    """
+    return await _health_response()
+
+
+@app.get("/api/health")
+async def api_health():
+    """Frontend-facing health check.
+
+    The Angular dev-server proxy forwards /api/* unchanged to the backend,
+    so the frontend's /api/health request is served here (and /health remains
+    available for infra probes, README, and tests).
+    """
+    return await _health_response()
