@@ -23,7 +23,8 @@ COPY backend/ ./backend/
 COPY api/ ./api/
 COPY scrapers/ ./scrapers/
 
-ENV PYTHONPATH=/app/backend
+# /app covers the shared top-level packages (scrapers, api) copied alongside backend
+ENV PYTHONPATH=/app/backend:/app
 
 # Migrate + seed on startup
 RUN chmod +x /app/backend/start.sh

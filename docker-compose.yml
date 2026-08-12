@@ -56,7 +56,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
       CELERY_RESULT_BACKEND: redis://redis:6379/1
-      PYTHONPATH: /app/backend
+      # /app covers the shared top-level packages mounted next to backend
+      # (scrapers at /app/scrapers, api at /app/api).
+      PYTHONPATH: /app/backend:/app
       LOG_LEVEL: DEBUG
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       # Comma-separated browser origins allowed to call the API directly.
