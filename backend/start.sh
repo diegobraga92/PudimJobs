@@ -2,7 +2,7 @@
 set -e
 
 # Run from this script's directory so alembic.ini and the app package resolve
-# both in docker-compose (mounted at /app) and the standalone image (/app/backend).
+# both in docker-compose (mounted at /app/backend) and the standalone image (/app/backend).
 cd "$(dirname "$0")"
 
 echo "Running database migrations..."

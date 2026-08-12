@@ -44,8 +44,10 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     # Internal only — the frontend proxies /api to it over the Docker network.
+    # Mounted at /app/backend so the layout matches the Dockerfile's
+    # COPY backend/ ./backend/ (same as the worker services).
     volumes:
-      - ./backend:/app
+      - ./backend:/app/backend
       - ./api:/app/api
       - ./scrapers:/app/scrapers
     environment:
@@ -54,7 +56,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: amqp://pudimjobs:pudimjobs_dev@rabbitmq:5672/
       CELERY_RESULT_BACKEND: redis://redis:6379/1
-      PYTHONPATH: /app
+      PYTHONPATH: /app/backend
       LOG_LEVEL: DEBUG
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       # Comma-separated browser origins allowed to call the API directly.
