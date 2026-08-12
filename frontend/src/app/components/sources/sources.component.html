@@ -41,10 +41,136 @@
       </select>
     </div>
 
+    @if (sourceForm.get('type')?.value === 'aggregator') {
+      <div class="form-field">
+        <label for="source-adapter">Adapter</label>
+        <select
+          id="source-adapter"
+          class="select"
+          [(ngModel)]="adapter"
+          [ngModelOptions]="{ standalone: true }"
+        >
+          <option value="generic_html_list">Generic HTML list</option>
+        </select>
+      </div>
+
+      <div class="form-field">
+        <label for="source-config">Adapter config (JSON)</label>
+        <textarea
+          id="source-config"
+          class="textarea"
+          [(ngModel)]="configJson"
+          [ngModelOptions]="{ standalone: true }"
+          rows="6"
+          placeholder='{ "item_selector": "li.job", "title_selector": "h2", "url_selector": "a", "next_page_selector": "a.next", "max_pages": 3 }'
+        ></textarea>
+        <p class="muted xs">
+          CSS selectors used by the generic HTML-list adapter. Optionally set
+          <code>max_pages</code> to paginate through listing pages.
+        </p>
+      </div>
+    }
+
     <div class="form-actions">
       <button type="button" class="btn btn-ghost" (click)="cancelForm()">Cancel</button>
       <button type="submit" class="btn btn-primary" [disabled]="sourceForm.invalid">
         {{ editingId ? 'Save changes' : 'Add source' }}
+      </button>
+    </div>
+  </form>
+}
+
+@if (authSource) {
+  <form class="panel form" (ngSubmit)="saveAuth()">
+    <div style="display: flex; justify-content: space-between; align-items: center">
+      <h3>Authentication — {{ authSource.name }}</h3>
+      <button type="button" class="btn btn-ghost btn-sm" (click)="closeAuth()">
+        <app-icon name="x" [size]="14" />
+        Close
+      </button>
+    </div>
+
+    <p class="muted">
+      For login-required job boards, paste a session cookie string or an API
+      token. Credentials are encrypted at rest and never returned by the API.
+      Note: automated access may violate the target site's terms of service.
+    </p>
+
+    <div class="form-field">
+      <label for="auth-type">Auth type</label>
+      <select id="auth-type" class="select" [(ngModel)]="authType" name="authType">
+        <option value="none">None (public)</option>
+        <option value="cookies">Cookies</option>
+        <option value="token">Bearer token</option>
+      </select>
+    </div>
+
+    @if (authType === 'cookies') {
+      <div class="form-field">
+        <label for="auth-cookies">Cookies (Cookie header, e.g. session=abc; csrf=xyz)</label>
+        <textarea
+          id="auth-cookies"
+          class="textarea"
+          [(ngModel)]="authCookies"
+          name="authCookies"
+          rows="3"
+          placeholder="session=abc123; csrf=xyz"
+        ></textarea>
+      </div>
+    }
+
+    @if (authType === 'token') {
+      <div class="form-field">
+        <label for="auth-token">Bearer token</label>
+        <input
+          id="auth-token"
+          class="input"
+          type="password"
+          [(ngModel)]="authToken"
+          name="authToken"
+          autocomplete="off"
+          placeholder="tok-…"
+        />
+      </div>
+    }
+
+    @if (authCurrent?.has_auth && authType !== 'none') {
+      <p class="muted xs">
+        Stored credentials: {{ authCurrent?.auth_type }} (set
+        {{ authCurrent?.updated_at | date: 'short' }}). Re-enter the value to
+        replace them.
+      </p>
+    }
+
+    @if (authTestResult) {
+      <div
+        class="alert"
+        [class.alert-success]="authTestResult.ok"
+        [class.alert-error]="!authTestResult.ok"
+      >
+        @if (authTestResult.ok) {
+          Connection OK — the site responded with HTTP {{ authTestResult.status_code }}.
+        } @else {
+          {{ authTestResult.error || 'Connection failed.' }}
+        }
+      </div>
+    }
+
+    <div class="form-actions">
+      @if (authCurrent?.has_auth) {
+        <button type="button" class="btn btn-danger" (click)="clearAuth()">Clear auth</button>
+      }
+      <button
+        type="button"
+        class="btn btn-ghost"
+        (click)="testAuth()"
+        [disabled]="authTesting || !authCurrent?.has_auth"
+      >
+        <app-icon name="activity" [size]="14" />
+        {{ authTesting ? 'Testing…' : 'Test connection' }}
+      </button>
+      <button type="submit" class="btn btn-primary" [disabled]="authSaving">
+        {{ authSaving ? 'Saving…' : 'Save' }}
       </button>
     </div>
   </form>
@@ -112,6 +238,10 @@
             </td>
             <td>{{ source.last_scraped ? (source.last_scraped | date: 'short') : '—' }}</td>
             <td class="row-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="openAuth(source)">
+                <app-icon name="settings" [size]="14" />
+                Auth
+              </button>
               <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(source)">
                 <app-icon name="pencil" [size]="14" />
                 Edit

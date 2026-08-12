@@ -14,6 +14,12 @@ class SourceType(enum.StrEnum):
     rss = "rss"
 
 
+class SourceAuthType(enum.StrEnum):
+    none = "none"
+    cookies = "cookies"
+    token = "token"
+
+
 class SourceHealth(enum.StrEnum):
     healthy = "healthy"
     degraded = "degraded"

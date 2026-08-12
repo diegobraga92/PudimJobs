@@ -27,7 +27,7 @@ class FakeScraper:
         self.jobs = jobs
         self.fail = fail
 
-    async def fetch(self, url: str) -> ScrapedPage:
+    async def fetch(self, url: str, **kwargs) -> ScrapedPage:
         return ScrapedPage(html_content="<html></html>", status_code=200, final_url=url)
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
@@ -71,7 +71,7 @@ async def _make_source(db_session, user) -> Source:
 async def _install_fake_scraper(monkeypatch, jobs, *, fail=False):
     """Replace the scrape task's scraper lookup + event publisher."""
     fake = FakeScraper(jobs, fail=fail)
-    monkeypatch.setattr(scrape_module, "get_scraper", lambda source_type: fake)
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
     return fake
 

@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -20,6 +21,8 @@ class Source(Base):
     type: Mapped[SourceType] = mapped_column(
         Enum(SourceType, native_enum=False, values_callable=enum_values), nullable=False
     )
+    # Adapter-specific settings (e.g. aggregator selectors/pagination).
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     rate_limit_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     last_scraped: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     health: Mapped[SourceHealth] = mapped_column(

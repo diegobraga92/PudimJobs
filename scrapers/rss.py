@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import feedparser
 
 from scrapers.base import AbstractScraper
-from scrapers.types import RawJob, ScrapedPage
+from scrapers.types import FetchAuth, RawJob, ScrapedPage
 from scrapers.utils import fetch_html
 
 
@@ -23,8 +23,10 @@ def _entry_date(entry) -> None | object:
 class RSSScraper(AbstractScraper):
     """Scraper for RSS/Atom job feeds (e.g. Greenhouse, Lever, custom feeds)."""
 
-    async def fetch(self, url: str) -> ScrapedPage:
-        return await fetch_html(url, timeout=30.0)
+    async def fetch(
+        self, url: str, *, auth: FetchAuth | None = None
+    ) -> ScrapedPage:
+        return await fetch_html(url, timeout=30.0, auth=auth)
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         parsed = feedparser.parse(page.html_content)

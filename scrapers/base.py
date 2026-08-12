@@ -2,18 +2,21 @@
 
 from abc import ABC, abstractmethod
 
-from scrapers.types import RawJob, ScrapedPage
+from scrapers.types import FetchAuth, RawJob, ScrapedPage
 
 
 class AbstractScraper(ABC):
     """Contract every scraper must implement.
 
     ``fetch`` is async (network I/O); ``parse`` and ``normalize`` are sync
-    (CPU-bound parsing with BeautifulSoup/feedparser).
+    (CPU-bound parsing with BeautifulSoup/feedparser). ``fetch`` accepts an
+    optional ``FetchAuth`` for login-required sources.
     """
 
     @abstractmethod
-    async def fetch(self, url: str) -> ScrapedPage:
+    async def fetch(
+        self, url: str, *, auth: FetchAuth | None = None
+    ) -> ScrapedPage:
         """Fetch the source URL and return the raw page."""
 
     @abstractmethod

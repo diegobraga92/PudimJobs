@@ -79,6 +79,28 @@ export interface AuditActions {
   actions: string[];
 }
 
+export interface LlmConfig {
+  id: string;
+  enabled: boolean;
+  base_url: string;
+  model: string;
+  api_key_masked: string | null;
+  updated_at: string;
+}
+
+export interface LlmConfigInput {
+  enabled: boolean;
+  base_url: string;
+  model: string;
+  api_key?: string;
+}
+
+export interface LlmTestResult {
+  ok: boolean;
+  status_code: number | null;
+  error?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AdminService {
   constructor(private http: HttpClient) {}
@@ -135,5 +157,17 @@ export class AdminService {
 
   auditActions(): Observable<AuditActions> {
     return this.http.get<AuditActions>('/api/admin/audit/actions');
+  }
+
+  getLlmConfig(): Observable<LlmConfig> {
+    return this.http.get<LlmConfig>('/api/admin/settings/llm');
+  }
+
+  updateLlmConfig(payload: LlmConfigInput): Observable<LlmConfig> {
+    return this.http.put<LlmConfig>('/api/admin/settings/llm', payload);
+  }
+
+  testLlmConfig(): Observable<LlmTestResult> {
+    return this.http.post<LlmTestResult>('/api/admin/settings/llm/test', {});
   }
 }

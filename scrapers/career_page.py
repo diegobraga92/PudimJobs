@@ -13,7 +13,7 @@ from datetime import date
 from bs4 import BeautifulSoup
 
 from scrapers.base import AbstractScraper
-from scrapers.types import RawJob, ScrapedPage
+from scrapers.types import FetchAuth, RawJob, ScrapedPage
 from scrapers.utils import fetch_html
 
 _TITLE_SELECTORS = ["h1[class*='job']", "h2[class*='job']", "h1", "h2", "[data-job-title]"]
@@ -53,8 +53,10 @@ def _parse_date(value: str | None) -> date | None:
 class CareerPageScraper(AbstractScraper):
     """Generic scraper for static company career pages."""
 
-    async def fetch(self, url: str) -> ScrapedPage:
-        return await fetch_html(url)
+    async def fetch(
+        self, url: str, *, auth: FetchAuth | None = None
+    ) -> ScrapedPage:
+        return await fetch_html(url, auth=auth)
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         soup = BeautifulSoup(page.html_content, "lxml")

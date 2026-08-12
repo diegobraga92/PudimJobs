@@ -7,6 +7,7 @@ export interface Source {
   name: string;
   url: string;
   type: string;
+  config?: Record<string, unknown> | null;
   health: string;
   last_scraped: string | null;
   created_at: string;
@@ -14,7 +15,27 @@ export interface Source {
 }
 
 export type SourceInput = Pick<Source, 'name' | 'url' | 'type'> &
-  Partial<Pick<Source, 'id' | 'health'>>;
+  Partial<Pick<Source, 'id' | 'health' | 'config'>>;
+
+export type SourceAuthType = 'none' | 'cookies' | 'token';
+
+export interface SourceAuth {
+  auth_type: SourceAuthType;
+  has_auth: boolean;
+  updated_at: string | null;
+}
+
+export interface SourceAuthInput {
+  auth_type: SourceAuthType;
+  cookies?: string;
+  token?: string;
+}
+
+export interface AuthTestResult {
+  ok: boolean;
+  status_code: number | null;
+  error?: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class SourcesService {
@@ -34,5 +55,21 @@ export class SourcesService {
 
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`/api/sources/${id}`);
+  }
+
+  getAuth(id: string): Observable<SourceAuth> {
+    return this.http.get<SourceAuth>(`/api/sources/${id}/auth`);
+  }
+
+  updateAuth(id: string, payload: SourceAuthInput): Observable<SourceAuth> {
+    return this.http.put<SourceAuth>(`/api/sources/${id}/auth`, payload);
+  }
+
+  deleteAuth(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/sources/${id}/auth`);
+  }
+
+  testAuth(id: string): Observable<AuthTestResult> {
+    return this.http.post<AuthTestResult>(`/api/sources/${id}/auth/test`, {});
   }
 }

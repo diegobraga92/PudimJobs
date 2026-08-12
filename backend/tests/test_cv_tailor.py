@@ -1,6 +1,7 @@
 """Tests for the rule-based CV tailoring engine."""
 
-from app.services.cv_tailor import tailor_cv
+from app.services.cv_tailor import enhance_with_llm, tailor_cv
+from app.services.llm_config import LlmRuntimeConfig
 
 CV = {
     "summary": "Backend engineer",
@@ -58,3 +59,19 @@ def test_tailor_uses_annotations_to_score():
     annotations = {"experience": [["python"], ["java"]]}
     tailored = tailor_cv(CV, ["java", "spring"], annotations=annotations)
     assert tailored.experience[0]["title"] == "Java Developer"
+
+
+async def test_enhance_with_llm_disabled_returns_bullets_unchanged():
+    config = LlmRuntimeConfig(
+        enabled=False, api_key="sk-x", base_url="https://api.openai.com/v1", model="gpt-4o-mini"
+    )
+    bullets = ["Built FastAPI services"]
+    assert await enhance_with_llm(bullets, ["python", "fastapi"], config=config) == bullets
+
+
+async def test_enhance_with_llm_missing_key_returns_bullets_unchanged():
+    config = LlmRuntimeConfig(
+        enabled=True, api_key="", base_url="https://api.openai.com/v1", model="gpt-4o-mini"
+    )
+    bullets = ["Built FastAPI services"]
+    assert await enhance_with_llm(bullets, ["python"], config=config) == bullets

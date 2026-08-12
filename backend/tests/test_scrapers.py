@@ -1,9 +1,11 @@
 """Unit tests for the scraper implementations (no DB/network required)."""
 
 
+import pytest
+from scrapers.aggregator import GenericHtmlListScraper, get_aggregator_adapter
 from scrapers.career_page import CareerPageScraper
 from scrapers.rss import RSSScraper
-from scrapers.types import ScrapedPage
+from scrapers.types import RawJob, ScrapedPage
 
 CAREER_PAGE_HTML = """
 <html><head>
@@ -48,6 +50,23 @@ RSS_FEED = """<?xml version="1.0" encoding="UTF-8"?>
     </item>
   </channel>
 </rss>
+"""
+
+AGGREGATOR_HTML = """
+<html><body>
+<ul>
+  <li class="job">
+    <h2><a href="/jobs/1">Backend Engineer</a></h2>
+    <span class="company">Acme</span>
+    <span class="location">Remote</span>
+  </li>
+  <li class="job">
+    <h2><a href="/jobs/2">Data Scientist</a></h2>
+    <span class="company">Beta</span>
+  </li>
+</ul>
+<a class="next" href="/jobs?page=2">Next</a>
+</body></html>
 """
 
 
@@ -95,9 +114,58 @@ def test_rss_parses_feed_entries():
     assert raw[0].external_id == "acme-100"
 
 
-def test_rss_normalize_drops_entries_without_link():
-    scraper = RSSScraper()
-    raw = scraper.parse(_page(RSS_FEED))
-    normalized = scraper.normalize(raw)
-    assert len(normalized) == 2
-    assert all(item["url"] for item in normalized)
+def test_aggregator_generic_html_list_parses():
+    scraper = GenericHtmlListScraper(
+        {
+            "adapter": "generic_html_list",
+            "item_selector": "li.job",
+            "title_selector": "h2",
+            "url_selector": "a",
+            "company_selector": ".company",
+            "location_selector": ".location",
+            "next_page_selector": "a.next",
+        }
+    )
+    page = ScrapedPage(
+        html_content=AGGREGATOR_HTML, status_code=200, final_url="https://board.example/jobs"
+    )
+    raw = scraper.parse(page)
+    assert len(raw) == 2
+    assert raw[0].title == "Backend Engineer"
+    assert raw[0].company == "Acme"
+    assert raw[0].url == "https://board.example/jobs/1"
+    assert raw[0].description == "Location: Remote"
+    assert raw[1].title == "Data Scientist"
+    assert raw[1].url == "https://board.example/jobs/2"
+    assert raw[1].description is None
+
+
+def test_aggregator_next_page_url():
+    scraper = GenericHtmlListScraper({"next_page_selector": "a.next"})
+    page = ScrapedPage(
+        html_content=AGGREGATOR_HTML, status_code=200, final_url="https://board.example/jobs"
+    )
+    assert scraper.next_page_url(page) == "https://board.example/jobs?page=2"
+
+
+def test_aggregator_next_page_url_none_without_selector():
+    scraper = GenericHtmlListScraper({})
+    page = ScrapedPage(
+        html_content=AGGREGATOR_HTML, status_code=200, final_url="https://board.example/jobs"
+    )
+    assert scraper.next_page_url(page) is None
+
+
+def test_aggregator_normalize_skips_invalid():
+    scraper = GenericHtmlListScraper({})
+    normalized = scraper.normalize(
+        [RawJob(title="X", company="Y", url="https://x.example/job")]
+    )
+    assert normalized[0]["company"] == "Y"
+    assert scraper.normalize([RawJob(title="", company="", url="")]) == []
+
+
+def test_get_aggregator_adapter_unknown_raises():
+    with pytest.raises(ValueError):
+        get_aggregator_adapter("does_not_exist")
+

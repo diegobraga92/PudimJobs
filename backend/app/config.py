@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
+    # Encryption of secrets at rest (source credentials, LLM API keys).
+    # Set FERNET_KEY to a Fernet key in production; a deterministic dev key is
+    # derived from `secret_key` when this is empty (see app/services/secrets.py).
+    fernet_key: str = ""
+
     # CV tailoring / optional LLM enhancement
     tailoring_llm_enabled: bool = False
     openai_api_key: str = ""
@@ -57,6 +62,9 @@ class Settings(BaseSettings):
     circuit_breaker_ttl_seconds: int = 3600  # pause for 1h when open
     scrape_sweep_interval_minutes: int = 15
     scrape_freshness_minutes: int = 60  # sources fresher than this are skipped
+    # Allow scraping private/loopback targets (e.g. a LAN-hosted careers site).
+    # Off by default to keep shared deployments SSRF-safe.
+    scraper_allow_private_networks: bool = False
     user_agents: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/125.0 Safari/537.36,"

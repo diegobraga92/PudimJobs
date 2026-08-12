@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from app.config import settings
+from app.services.llm_config import LlmRuntimeConfig
 from app.services.skill_matcher import match_skills
 
 logger = logging.getLogger(__name__)
@@ -123,14 +124,26 @@ def tailor_cv(
     )
 
 
-async def enhance_with_llm(bullets: list[str], jd_skills: list[str]) -> list[str]:
+async def enhance_with_llm(
+    bullets: list[str],
+    jd_skills: list[str],
+    *,
+    config: LlmRuntimeConfig | None = None,
+) -> list[str]:
     """Rephrase bullets using JD language via an OpenAI-compatible API.
 
-    Feature-flagged: returns bullets unchanged unless
-    ``TAILORING_LLM_ENABLED`` is true and an API key is configured. Any API
-    failure degrades gracefully to the original bullets.
+    Feature-flagged: returns bullets unchanged unless the effective config has
+    ``enabled`` set and an API key configured. Any API failure degrades
+    gracefully to the original bullets.
     """
-    if not settings.tailoring_llm_enabled or not settings.openai_api_key:
+    if config is None:
+        config = LlmRuntimeConfig(
+            enabled=settings.tailoring_llm_enabled,
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            model=settings.openai_model,
+        )
+    if not config.enabled or not config.api_key:
         return bullets
     prompt = (
         "Rephrase the following CV bullet points to emphasize these skills: "
@@ -141,10 +154,10 @@ async def enhance_with_llm(bullets: list[str], jd_skills: list[str]) -> list[str
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
-                f"{settings.openai_base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                f"{config.base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {config.api_key}"},
                 json={
-                    "model": settings.openai_model,
+                    "model": config.model,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.4,
                 },

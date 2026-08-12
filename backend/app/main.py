@@ -18,6 +18,7 @@ from app.ratelimit import limiter
 from app.routers import (
     admin,
     alert_rules,
+    app_settings,
     applications,
     auth,
     cv,
@@ -81,6 +82,7 @@ app.include_router(applications.router)
 app.include_router(admin.router)
 app.include_router(alert_rules.router)
 app.include_router(notifications.router)
+app.include_router(app_settings.router)
 
 # Rate limiting: expose the limiter to the app and handle 429 responses.
 app.state.limiter = limiter

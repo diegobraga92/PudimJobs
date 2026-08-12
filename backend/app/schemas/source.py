@@ -10,6 +10,7 @@ class SourceBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     url: str = Field(min_length=1, max_length=1024)
     type: SourceType
+    config: dict | None = Field(default=None)
 
 
 class SourceCreate(SourceBase):
@@ -20,6 +21,7 @@ class SourceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     url: str | None = Field(default=None, min_length=1, max_length=1024)
     type: SourceType | None = None
+    config: dict | None = None
 
 
 class SourceResponse(SourceBase):

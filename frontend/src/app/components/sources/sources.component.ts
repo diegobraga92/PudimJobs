@@ -1,8 +1,16 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 
-import { Source, SourceInput, SourcesService } from '../../services/sources.service';
+import {
+  AuthTestResult,
+  Source,
+  SourceAuth,
+  SourceAuthInput,
+  SourceInput,
+  SourcesService,
+} from '../../services/sources.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
@@ -10,7 +18,7 @@ import { ToastService } from '../../shared/toast/toast.service';
 @Component({
   selector: 'app-sources',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, AppIconComponent],
+  imports: [CommonModule, ReactiveFormsModule, FormsModule, AppIconComponent],
   templateUrl: './sources.component.html',
   styleUrl: './sources.component.scss',
 })
@@ -22,6 +30,20 @@ export class SourcesComponent implements OnInit {
   showForm = false;
   editingId: string | null = null;
   sourceForm;
+
+  /** Aggregator adapter + JSON config (shown when type === 'aggregator'). */
+  adapter = 'generic_html_list';
+  configJson = '';
+
+  /** Per-source authentication panel state. */
+  authSource: Source | null = null;
+  authCurrent: SourceAuth | null = null;
+  authType: SourceAuthInput['auth_type'] = 'none';
+  authCookies = '';
+  authToken = '';
+  authTestResult: AuthTestResult | null = null;
+  authSaving = false;
+  authTesting = false;
 
   constructor(
     private fb: FormBuilder,
@@ -58,12 +80,16 @@ export class SourcesComponent implements OnInit {
   openCreate(): void {
     this.editingId = null;
     this.sourceForm.reset({ name: '', url: '', type: 'career_page' });
+    this.adapter = 'generic_html_list';
+    this.configJson = '';
     this.showForm = true;
   }
 
   openEdit(source: Source): void {
     this.editingId = source.id;
     this.sourceForm.setValue({ name: source.name, url: source.url, type: source.type });
+    this.adapter = (source.config?.['adapter'] as string) ?? 'generic_html_list';
+    this.configJson = source.config ? JSON.stringify(source.config, null, 2) : '';
     this.showForm = true;
   }
 
@@ -78,6 +104,20 @@ export class SourcesComponent implements OnInit {
     }
     const raw = this.sourceForm.value as { name: string; url: string; type: string };
     const payload: SourceInput = { name: raw.name, url: raw.url, type: raw.type };
+    if (raw.type === 'aggregator') {
+      const config: Record<string, unknown> = { adapter: this.adapter };
+      if (this.configJson.trim()) {
+        try {
+          Object.assign(config, JSON.parse(this.configJson.trim()));
+        } catch {
+          this.error = 'Invalid aggregator config JSON';
+          this.toast.error('Invalid aggregator config JSON.');
+          return;
+        }
+      }
+      config['adapter'] = this.adapter;
+      payload.config = config;
+    }
     const request = this.editingId
       ? this.service.update(this.editingId, payload)
       : this.service.create(payload);
@@ -116,6 +156,106 @@ export class SourcesComponent implements OnInit {
       error: () => {
         this.error = 'Failed to delete source';
         this.toast.error('Failed to delete source.');
+      },
+    });
+  }
+
+  /** Opens the authentication panel for a source (login-required boards). */
+  openAuth(source: Source): void {
+    this.authSource = source;
+    this.authType = 'none';
+    this.authCookies = '';
+    this.authToken = '';
+    this.authTestResult = null;
+    this.authSaving = false;
+    this.authTesting = false;
+    this.service.getAuth(source.id).subscribe({
+      next: (auth) => {
+        this.authCurrent = auth;
+        this.authType = auth.auth_type;
+      },
+      error: () => {
+        this.authCurrent = { auth_type: 'none', has_auth: false, updated_at: null };
+      },
+    });
+  }
+
+  closeAuth(): void {
+    this.authSource = null;
+    this.authCurrent = null;
+    this.authTestResult = null;
+  }
+
+  saveAuth(): void {
+    if (!this.authSource || this.authSaving) {
+      return;
+    }
+    const payload: SourceAuthInput = { auth_type: this.authType };
+    if (this.authType === 'cookies') {
+      payload.cookies = this.authCookies;
+    }
+    if (this.authType === 'token') {
+      payload.token = this.authToken;
+    }
+    this.authSaving = true;
+    this.service.updateAuth(this.authSource.id, payload).subscribe({
+      next: (auth) => {
+        this.authSaving = false;
+        this.authCurrent = auth;
+        this.authType = auth.auth_type;
+        this.authCookies = '';
+        this.authToken = '';
+        this.authTestResult = null;
+        this.toast.success('Source authentication saved.');
+      },
+      error: () => {
+        this.authSaving = false;
+        this.error = 'Failed to save source authentication';
+        this.toast.error('Failed to save source authentication.');
+      },
+    });
+  }
+
+  testAuth(): void {
+    if (!this.authSource || this.authTesting) {
+      return;
+    }
+    this.authTesting = true;
+    this.authTestResult = null;
+    this.service.testAuth(this.authSource.id).subscribe({
+      next: (result) => {
+        this.authTesting = false;
+        this.authTestResult = result;
+        if (result.ok) {
+          this.toast.success('Auth connection OK.');
+        } else {
+          this.toast.error(result.error ? `Auth test failed: ${result.error}` : 'Auth test failed.');
+        }
+      },
+      error: () => {
+        this.authTesting = false;
+        this.error = 'Failed to run auth test';
+        this.toast.error('Failed to run auth test.');
+      },
+    });
+  }
+
+  clearAuth(): void {
+    if (!this.authSource) {
+      return;
+    }
+    this.service.deleteAuth(this.authSource.id).subscribe({
+      next: () => {
+        this.authCurrent = { auth_type: 'none', has_auth: false, updated_at: null };
+        this.authType = 'none';
+        this.authCookies = '';
+        this.authToken = '';
+        this.authTestResult = null;
+        this.toast.success('Source authentication cleared.');
+      },
+      error: () => {
+        this.error = 'Failed to clear source authentication';
+        this.toast.error('Failed to clear source authentication.');
       },
     });
   }

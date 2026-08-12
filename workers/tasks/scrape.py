@@ -11,10 +11,13 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 import structlog
 from app.database import async_session_factory
 from app.models import Job, ScrapeRun, Source
 from app.models.enums import SourceHealth
+from app.models.source_auth import SourceAuth
+from app.services.source_auth import build_fetch_auth
 from celery import Task
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -124,15 +127,41 @@ async def _run_scrape(source_id: str) -> dict:
             raise CircuitBreakerOpenError(f"Circuit breaker open for source {source_id}")
 
     try:
-        scraper = get_scraper(source.type)
+        scraper = get_scraper(source)
+
+        # Optional per-source authentication (cookies / bearer token).
+        auth = None
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(SourceAuth).where(SourceAuth.source_id == source_uuid)
+            )
+            auth = build_fetch_auth(result.scalar_one_or_none())
 
         wait = rate_limit_wait(source.url, source.rate_limit_seconds)
         if wait > 0:
             await asyncio.sleep(wait)
         rate_limit_mark(source.url, source.rate_limit_seconds)
 
-        page = await scraper.fetch(source.url)
-        raw_jobs = scraper.parse(page)
+        # Aggregators can paginate through several listing pages.
+        max_pages = int((source.config or {}).get("max_pages", 1))
+        pages_fetched = 0
+        current_url = source.url
+        raw_jobs: list = []
+        while True:
+            page = await scraper.fetch(current_url, auth=auth)
+            raw_jobs.extend(scraper.parse(page))
+            pages_fetched += 1
+            if pages_fetched >= max_pages:
+                break
+            next_url = getattr(scraper, "next_page_url", lambda _page: None)(page)
+            if not next_url or next_url == current_url:
+                break
+            current_url = next_url
+            wait = rate_limit_wait(current_url, source.rate_limit_seconds)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            rate_limit_mark(current_url, source.rate_limit_seconds)
+
         normalized = scraper.normalize(raw_jobs)
 
         async with async_session_factory() as session:
@@ -154,14 +183,25 @@ async def _run_scrape(source_id: str) -> dict:
         return {"source_id": source_id, "new": new_count, "skipped": skip_count}
     except Exception as exc:
         circuit_breaker_record_failure(source_id)
+        # A 401/403 from the target usually means the stored credentials are
+        # stale or wrong — surface it as "degraded" instead of "failing".
+        auth_failed = (
+            isinstance(exc, httpx.HTTPStatusError)
+            and exc.response.status_code in (401, 403)
+        )
+        error = (
+            f"authentication failed (HTTP {exc.response.status_code})"
+            if auth_failed
+            else str(exc)[:1024]
+        )
         async with async_session_factory() as session:
             source_row = await session.get(Source, source_uuid)
             if source_row is not None:
-                source_row.health = SourceHealth.failing
+                source_row.health = SourceHealth.degraded if auth_failed else SourceHealth.failing
             run_row = await session.get(ScrapeRun, run.id)
             if run_row is not None:
                 await _finalize_run(
-                    session, run_row, status="failed", new_jobs=0, error=str(exc)[:1024]
+                    session, run_row, status="failed", new_jobs=0, error=error
                 )
             else:
                 await session.commit()

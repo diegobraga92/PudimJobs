@@ -13,6 +13,7 @@ from app.database import async_session_factory
 from app.models import GeneratedCV, Job, MasterCV, User
 from app.services.cv_tailor import enhance_with_llm, tailor_cv
 from app.services.jd_parser import parse_jd, parsed_jd_to_dict
+from app.services.llm_config import get_llm_config
 from app.services.pdf_generator import generate_pdf
 from sqlalchemy import func, select
 
@@ -50,11 +51,14 @@ async def _run_tailor(job_id: str, cv_id: str | None) -> dict:
         # Rule-based tailoring (sync).
         tailored = tailor_cv(cv.structured_json, jd_skills, annotations=cv.annotations)
 
-        # Optional LLM rephrasing of selected bullet points.
-        if tailored.experience:
+        # Optional LLM rephrasing of selected bullet points (DB config, env fallback).
+        llm_config = await get_llm_config(session)
+        if tailored.experience and llm_config.enabled and llm_config.api_key:
             for block in tailored.experience:
                 if block.get("bullets"):
-                    block["bullets"] = await enhance_with_llm(block["bullets"], jd_skills)
+                    block["bullets"] = await enhance_with_llm(
+                        block["bullets"], jd_skills, config=llm_config
+                    )
 
         # New CV version (not auto-promoted; the user reviews before saving).
         result = await session.execute(

@@ -112,7 +112,7 @@ async def reparse_source(
         select(Job).where(Job.source_id == source.id, Job.raw_html.is_not(None))
     )
     jobs = result.scalars().all()
-    scraper = get_scraper(source.type)
+    scraper = get_scraper(source)
 
     updated = 0
     for job in jobs:

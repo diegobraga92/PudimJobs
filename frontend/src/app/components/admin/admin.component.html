@@ -315,6 +315,96 @@
   </div>
 }
 }
+
+@if (activeTab === 'llm') {
+<h3>LLM (CV tailoring)</h3>
+<p class="muted">
+  Configure an OpenAI-compatible API used to rephrase CV bullet points during
+  tailoring. Leave the API key blank to keep the currently stored key.
+</p>
+
+<div class="panel form">
+  <div class="form-field">
+    <label class="checkbox-row">
+      <input type="checkbox" [(ngModel)]="llmEnabled" />
+      Enable LLM rephrasing
+    </label>
+  </div>
+
+  <div class="form-field">
+    <label for="llm-base-url">Base URL</label>
+    <input
+      id="llm-base-url"
+      class="input"
+      [(ngModel)]="llmBaseUrl"
+      placeholder="https://api.openai.com/v1"
+    />
+  </div>
+
+  <div class="form-field">
+    <label for="llm-model">Model</label>
+    <input
+      id="llm-model"
+      class="input"
+      [(ngModel)]="llmModel"
+      placeholder="gpt-4o-mini"
+    />
+  </div>
+
+  <div class="form-field">
+    <label for="llm-api-key">
+      API key
+      @if (llmConfig) {
+        @if (llmConfig.api_key_masked) {
+          <span class="muted">(stored: {{ llmConfig.api_key_masked }})</span>
+        } @else {
+          <span class="muted">(not set)</span>
+        }
+      }
+    </label>
+    <input
+      id="llm-api-key"
+      class="input"
+      type="password"
+      [(ngModel)]="llmApiKey"
+      placeholder="sk-…"
+      autocomplete="off"
+    />
+  </div>
+
+  @if (llmTestResult) {
+    <div
+      class="alert"
+      [class.alert-success]="llmTestResult.ok"
+      [class.alert-error]="!llmTestResult.ok"
+    >
+      @if (llmTestResult.ok) {
+        Connected successfully.
+      } @else {
+        {{ llmTestResult.error || 'Connection failed.' }}
+      }
+    </div>
+  }
+
+  <div class="form-actions">
+    <button type="button" class="btn btn-ghost" (click)="loadLlm()" [disabled]="llmSaving">
+      Reset
+    </button>
+    <button
+      type="button"
+      class="btn btn-ghost"
+      (click)="testLlm()"
+      [disabled]="llmTesting || !llmConfig?.enabled"
+    >
+      <app-icon name="activity" [size]="14" />
+      {{ llmTesting ? 'Testing…' : 'Test connection' }}
+    </button>
+    <button type="button" class="btn btn-primary" (click)="saveLlm()" [disabled]="llmSaving">
+      {{ llmSaving ? 'Saving…' : 'Save' }}
+    </button>
+  </div>
+</div>
+}
 </div>
 
 

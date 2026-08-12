@@ -8,6 +8,9 @@ import {
   AuditActions,
   AuditEntry,
   AuditFilters,
+  LlmConfig,
+  LlmConfigInput,
+  LlmTestResult,
   QualityBySource,
   QualityJob,
   QualityOverview,
@@ -18,7 +21,7 @@ import { AppIconComponent } from '../../shared/icons/icon.component';
 import { AppIconName } from '../../shared/icons/icon-name';
 import { ToastService } from '../../shared/toast/toast.service';
 
-type AdminTab = 'overview' | 'sources' | 'quality' | 'dlq' | 'audit';
+type AdminTab = 'overview' | 'sources' | 'quality' | 'dlq' | 'audit' | 'llm';
 
 interface AdminTabDef {
   id: AdminTab;
@@ -40,6 +43,7 @@ export class AdminComponent implements OnInit {
     { id: 'quality', label: 'Quality', icon: 'chart' },
     { id: 'dlq', label: 'Dead-Letter Queue', icon: 'circle-alert' },
     { id: 'audit', label: 'Audit Log', icon: 'history' },
+    { id: 'llm', label: 'LLM', icon: 'sparkle' },
   ];
   activeTab: AdminTab = 'overview';
 
@@ -59,6 +63,16 @@ export class AdminComponent implements OnInit {
   expandedAuditId: string | null = null;
   error: string | null = null;
   loading = false;
+
+  /** LLM configuration tab state. */
+  llmConfig: LlmConfig | null = null;
+  llmEnabled = false;
+  llmBaseUrl = 'https://api.openai.com/v1';
+  llmModel = 'gpt-4o-mini';
+  llmApiKey = '';
+  llmTestResult: LlmTestResult | null = null;
+  llmSaving = false;
+  llmTesting = false;
 
   constructor(
     private service: AdminService,
@@ -85,6 +99,9 @@ export class AdminComponent implements OnInit {
       this.loadAudit();
       this.loadAuditActions();
     }
+    if (tab === 'llm' && this.llmConfig === null) {
+      this.loadLlm();
+    }
   }
 
   /** Human-readable label for the active tab (used as the tabpanel's aria-label). */
@@ -108,6 +125,79 @@ export class AdminComponent implements OnInit {
     this.loadQualityJobs();
     this.loadAudit();
     this.loadAuditActions();
+    this.loadLlm();
+  }
+
+  loadLlm(): void {
+    this.service.getLlmConfig().subscribe({
+      next: (config) => {
+        this.llmConfig = config;
+        this.llmEnabled = config.enabled;
+        this.llmBaseUrl = config.base_url;
+        this.llmModel = config.model;
+        this.llmApiKey = '';
+      },
+      error: () => {
+        this.error = 'Failed to load LLM settings';
+        this.toast.error('Failed to load LLM settings.');
+      },
+    });
+  }
+
+  saveLlm(): void {
+    if (this.llmSaving) {
+      return;
+    }
+    const payload: LlmConfigInput = {
+      enabled: this.llmEnabled,
+      base_url: this.llmBaseUrl.trim(),
+      model: this.llmModel.trim(),
+    };
+    if (this.llmApiKey.trim()) {
+      payload.api_key = this.llmApiKey.trim();
+    }
+    this.llmSaving = true;
+    this.service.updateLlmConfig(payload).subscribe({
+      next: (config) => {
+        this.llmSaving = false;
+        this.llmConfig = config;
+        this.llmEnabled = config.enabled;
+        this.llmBaseUrl = config.base_url;
+        this.llmModel = config.model;
+        this.llmApiKey = '';
+        this.llmTestResult = null;
+        this.toast.success('LLM settings saved.');
+      },
+      error: () => {
+        this.llmSaving = false;
+        this.error = 'Failed to save LLM settings';
+        this.toast.error('Failed to save LLM settings.');
+      },
+    });
+  }
+
+  testLlm(): void {
+    if (this.llmTesting) {
+      return;
+    }
+    this.llmTesting = true;
+    this.llmTestResult = null;
+    this.service.testLlmConfig().subscribe({
+      next: (result) => {
+        this.llmTesting = false;
+        this.llmTestResult = result;
+        if (result.ok) {
+          this.toast.success('LLM connection OK.');
+        } else {
+          this.toast.error(result.error ? `LLM test failed: ${result.error}` : 'LLM test failed.');
+        }
+      },
+      error: () => {
+        this.llmTesting = false;
+        this.error = 'Failed to run LLM test';
+        this.toast.error('Failed to run LLM test.');
+      },
+    });
   }
 
   private loadSourceHealth(): void {

@@ -25,3 +25,16 @@ class RawJob:
     description: str | None = None
     tags: list[str] = field(default_factory=list)
     external_id: str | None = None
+
+
+@dataclass
+class FetchAuth:
+    """Optional authentication context for an outbound scraper fetch.
+
+    Either ``cookies`` (a raw ``Cookie`` header string, e.g. ``"session=abc"``)
+    or ``headers`` (e.g. ``{"Authorization": "Bearer ..."}``) can be set.
+    """
+
+    cookies: str | None = None
+    headers: dict[str, str] | None = None
+
