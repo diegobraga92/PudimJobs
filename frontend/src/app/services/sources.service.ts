@@ -22,7 +22,7 @@ export type SourceInput = Pick<
   'name' | 'url' | 'type' | 'rate_limit_seconds' | 'respect_robots_txt'
 > & Partial<Pick<Source, 'id' | 'health' | 'config'>>;
 
-export type SourceAuthType = 'none' | 'cookies' | 'token';
+export type SourceAuthType = 'none' | 'token' | 'api_key';
 
 export interface SourceAuth {
   auth_type: SourceAuthType;
@@ -32,8 +32,14 @@ export interface SourceAuth {
 
 export interface SourceAuthInput {
   auth_type: SourceAuthType;
-  cookies?: string;
   token?: string;
+  api_key?: string;
+}
+
+export interface DiscoveryProvider {
+  name: string;
+  family: string;
+  requires_key: boolean;
 }
 
 export interface AuthTestResult {
@@ -76,5 +82,10 @@ export class SourcesService {
 
   testAuth(id: string): Observable<AuthTestResult> {
     return this.http.post<AuthTestResult>(`/api/sources/${id}/auth/test`, {});
+  }
+
+  /** Discovery provider metadata (drives the source form's provider dropdown). */
+  listProviders(): Observable<DiscoveryProvider[]> {
+    return this.http.get<DiscoveryProvider[]>('/api/sources/providers');
   }
 }

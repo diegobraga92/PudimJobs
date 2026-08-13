@@ -2,14 +2,18 @@
 compliance, and a per-domain rate limiter backed by Redis."""
 
 import ipaddress
+import json
 import random
+import re
 import socket
+from datetime import date
 from urllib.parse import urlparse
 
 import httpx
-from app.config import settings
+from bs4 import BeautifulSoup
 
-from scrapers.types import FetchAuth, ScrapedPage
+from app.config import settings
+from scrapers.types import FetchAuth, RawJob, ScrapedPage
 
 USER_AGENTS = [ua.strip() for ua in settings.user_agents.split(",") if ua.strip()]
 
@@ -102,17 +106,6 @@ def rate_limit_key(url: str, cooldown_seconds: int = 30) -> tuple[str, int]:
     return f"rate:{domain_of(url)}", cooldown_seconds
 
 
-def _cookies_dict(raw: str) -> dict[str, str]:
-    """Parse a ``Cookie`` header string like ``"session=abc; csrf=xyz"``."""
-    cookies: dict[str, str] = {}
-    for part in raw.split(";"):
-        if "=" in part:
-            key, _, value = part.strip().partition("=")
-            if key:
-                cookies[key] = value
-    return cookies
-
-
 async def fetch_html(
     url: str,
     *,
@@ -121,20 +114,15 @@ async def fetch_html(
 ) -> ScrapedPage:
     """Fetch a URL and return a ``ScrapedPage`` with the response HTML.
 
-    ``auth`` optionally provides cookies/headers for login-required sources.
-    The target is validated against an SSRF blocklist first.
+    ``auth`` optionally provides extra headers (e.g. a bearer token) for
+    authenticated sources. The target is validated against an SSRF blocklist
+    first.
     """
     assert_safe_url(url)
     headers = {"User-Agent": random_user_agent(), "Accept-Language": "en-US,en;q=0.9"}
-    cookies: dict[str, str] | None = None
-    if auth:
-        if auth.cookies:
-            cookies = _cookies_dict(auth.cookies)
-        if auth.headers:
-            headers.update(auth.headers)
-    async with httpx.AsyncClient(
-        timeout=timeout, follow_redirects=True, cookies=cookies
-    ) as client:
+    if auth and auth.headers:
+        headers.update(auth.headers)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         resp = await client.get(url, headers=headers)
         resp.raise_for_status()
         return ScrapedPage(
@@ -142,3 +130,132 @@ async def fetch_html(
             status_code=resp.status_code,
             final_url=str(resp.url),
         )
+
+
+# --- Shared parsing helpers ---------------------------------------------------
+
+
+_TITLE_SELECTORS = ["h1[class*='job']", "h2[class*='job']", "h1", "h2", "[data-job-title]"]
+_COMPANY_SELECTORS = ["[data-company]", ".company", ".employer", "meta[name='company']"]
+_LOCATION_SELECTORS = ["[data-location]", ".location", ".job-location"]
+_DESCRIPTION_SELECTORS = [
+    "[data-job-description]",
+    ".description",
+    ".job-description",
+    "#job-description",
+]
+_DATE_SELECTORS = ["[data-posted-date]", "time[datetime]", ".date", ".posted-date"]
+
+
+def _first_text(soup: BeautifulSoup, selectors: list[str]) -> str | None:
+    """Return the first non-empty text matched by ``selectors`` (or ``None``)."""
+    for selector in selectors:
+        node = soup.select_one(selector)
+        if node:
+            if node.name == "meta":
+                return node.get("content")
+            text = node.get_text(" ", strip=True)
+            if text:
+                return text
+    return None
+
+
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    iso = re.search(r"\d{4}-\d{2}-\d{2}", value)
+    if iso:
+        try:
+            return date.fromisoformat(iso.group())
+        except ValueError:
+            return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def _split_selectors(value: object) -> list[str] | None:
+    """Normalize a ``str`` (comma-separated) or ``list`` of CSS selectors."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [str(s) for s in value if str(s).strip()]
+    if isinstance(value, str):
+        return [s.strip() for s in value.split(",") if s.strip()]
+    return None
+
+
+def parse_json_ld_jobs(html_content: str) -> list[RawJob]:
+    """Extract schema.org ``JobPosting`` records from JSON-LD script blocks.
+
+    Returns an empty list when the page has no ``JobPosting`` JSON-LD. This is
+    the primary strategy for career pages and for job *detail* pages discovered
+    by search providers.
+    """
+    soup = BeautifulSoup(html_content, "lxml")
+    jobs: list[RawJob] = []
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            data = json.loads(script.string or "")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict) or item.get("@type") != "JobPosting":
+                continue
+            company_obj = item.get("hiringOrganization") or {}
+            company = company_obj.get("name") if isinstance(company_obj, dict) else ""
+            jobs.append(
+                RawJob(
+                    title=item.get("title") or "",
+                    company=company or "",
+                    url=item.get("url") or item.get("@id"),
+                    posted_date=_parse_date(item.get("datePosted")),
+                    description=item.get("description"),
+                    tags=[tag for tag in (item.get("skills") or []) if isinstance(tag, str)],
+                    external_id=item.get("identifier"),
+                )
+            )
+    return jobs
+
+
+def parse_job_detail(page: ScrapedPage, selectors: dict | None = None) -> list[RawJob]:
+    """Best-effort single-listing parser for a job detail page (CSS selectors).
+
+    ``selectors`` optionally overrides the default selector lists with
+    comma-separated strings (``title_selectors``, ``company_selectors``,
+    ``location_selectors``, ``description_selectors``, ``date_selectors``).
+    Returns ``[]`` when the page does not look like a job listing.
+    """
+    selectors = selectors or {}
+    title_sel = _split_selectors(selectors.get("title_selectors")) or _TITLE_SELECTORS
+    company_sel = _split_selectors(selectors.get("company_selectors")) or _COMPANY_SELECTORS
+    location_sel = _split_selectors(selectors.get("location_selectors")) or _LOCATION_SELECTORS
+    description_sel = (
+        _split_selectors(selectors.get("description_selectors")) or _DESCRIPTION_SELECTORS
+    )
+    date_sel = _split_selectors(selectors.get("date_selectors")) or _DATE_SELECTORS
+
+    soup = BeautifulSoup(page.html_content, "lxml")
+    title = _first_text(soup, title_sel)
+    company = _first_text(soup, company_sel)
+    if company is None and soup.find("meta", attrs={"name": "company"}):
+        company = soup.find("meta", attrs={"name": "company"}).get("content")
+    if not title or not company:
+        return []
+    description = _first_text(soup, description_sel)
+    location = _first_text(soup, location_sel)
+    if location:
+        description = (
+            f"{description} • Location: {location}" if description else f"Location: {location}"
+        )
+    return [
+        RawJob(
+            title=title,
+            company=company,
+            url=page.final_url,
+            posted_date=_parse_date(_first_text(soup, date_sel)),
+            description=description,
+        )
+    ]

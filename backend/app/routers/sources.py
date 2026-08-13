@@ -69,6 +69,23 @@ async def list_sources(
     return _attach_counts(list(sources), counts)
 
 
+@router.get("/providers")
+async def list_providers(
+    user: User = Depends(get_current_user),
+):
+    """Discovery provider metadata, driving the source form's provider dropdown."""
+    from scrapers.discovery import DISCOVERY_PROVIDERS
+
+    return [
+        {
+            "name": cls.provider_name,
+            "family": cls.family,
+            "requires_key": cls.requires_key,
+        }
+        for cls in DISCOVERY_PROVIDERS.values()
+    ]
+
+
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
 async def create_source(
     payload: SourceCreate,
@@ -148,11 +165,14 @@ async def update_source_auth(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Store encrypted auth credentials (cookies or bearer token) for a source."""
+    """Store encrypted auth credentials (bearer token or API key)."""
     await get_owned_source(source_id, user, db)
 
-    if payload.auth_type in (SourceAuthType.cookies, SourceAuthType.token):
-        secret = payload.cookies if payload.auth_type == SourceAuthType.cookies else payload.token
+    if payload.auth_type in (SourceAuthType.token, SourceAuthType.api_key):
+        secret = {
+            SourceAuthType.token: payload.token,
+            SourceAuthType.api_key: payload.api_key,
+        }[payload.auth_type]
         if not secret or not secret.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -168,7 +188,10 @@ async def update_source_auth(
     if payload.auth_type == SourceAuthType.none:
         record.credentials_encrypted = None
     else:
-        secret = payload.cookies if payload.auth_type == SourceAuthType.cookies else payload.token
+        secret = {
+            SourceAuthType.token: payload.token,
+            SourceAuthType.api_key: payload.api_key,
+        }[payload.auth_type]
         record.credentials_encrypted = encrypt_secret(secret.strip())
 
     await db.commit()

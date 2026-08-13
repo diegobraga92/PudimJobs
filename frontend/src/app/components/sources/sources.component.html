@@ -38,6 +38,7 @@
         <option value="career_page">Career page</option>
         <option value="aggregator">Aggregator</option>
         <option value="rss">RSS feed</option>
+        <option value="discovery">Discovery (search / ATS)</option>
       </select>
     </div>
 
@@ -67,6 +68,65 @@
         <p class="muted xs">
           CSS selectors used by the generic HTML-list adapter. Optionally set
           <code>max_pages</code> to paginate through listing pages.
+        </p>
+      </div>
+    }
+
+    @if (sourceForm.get('type')?.value === 'discovery') {
+      <div class="form-field">
+        <label for="source-provider">Provider</label>
+        @if (providersLoading) {
+          <span class="muted">Loading providers…</span>
+        } @else {
+          <select
+            id="source-provider"
+            class="select"
+            [(ngModel)]="discoveryProvider"
+            [ngModelOptions]="{ standalone: true }"
+          >
+            <option value="" disabled>Choose a provider…</option>
+            @for (provider of providers; track provider.name) {
+              <option [value]="provider.name">
+                {{ provider.name }}@if (provider.requires_key) { · API key }
+              </option>
+            }
+          </select>
+        }
+        <p class="muted xs">
+          ATS providers (ashby, greenhouse, lever, workable) fetch a board's
+          public JSON feed. Search providers (google_cse, bing, brave, serpapi,
+          brightdata) query a search API and then fetch each result page —
+          serpapi/brightdata cover LinkedIn Jobs and Indeed via a paid,
+          third-party key.
+        </p>
+      </div>
+
+      @if (selectedProvider?.requires_key) {
+        <p class="muted xs">
+          This provider needs an API key: save the source, then open its
+          <strong>Auth</strong> panel and choose <em>API key</em> to store it
+          encrypted.
+        </p>
+      }
+
+      <div class="form-field">
+        <label for="source-discovery-config">Provider config (JSON)</label>
+        <textarea
+          id="source-discovery-config"
+          class="textarea"
+          [(ngModel)]="configJson"
+          [ngModelOptions]="{ standalone: true }"
+          rows="6"
+          placeholder='{ "query": "site:ashby.com Python Remote Brazil", "cx": "your-cse-id", "max_results": 20 }'
+        ></textarea>
+        <p class="muted xs">
+          Provider-specific settings. Search providers take <code>query</code>
+          (and <code>cx</code> for Google, <code>count</code> for Bing/Brave),
+          <code>max_results</code> and an optional <code>detail_strategy</code>
+          (<code>json_ld</code> default, or <code>selectors</code>). ATS
+          providers take the board identifier (<code>org</code>,
+          <code>board_token</code>, <code>company</code>) and an optional
+          <code>company</code> display name.
         </p>
       </div>
     }
@@ -126,33 +186,20 @@
     </div>
 
     <p class="muted">
-      For login-required job boards, paste a session cookie string or an API
-      token. Credentials are encrypted at rest and never returned by the API.
-      Note: automated access may violate the target site's terms of service.
+      For authenticated sources, paste a bearer token (Authorization header) or
+      an API key (used by discovery providers). Credentials are encrypted at
+      rest and never returned by the API. Note: automated access may violate
+      the target site's terms of service.
     </p>
 
     <div class="form-field">
       <label for="auth-type">Auth type</label>
       <select id="auth-type" class="select" [(ngModel)]="authType" name="authType">
         <option value="none">None (public)</option>
-        <option value="cookies">Cookies</option>
         <option value="token">Bearer token</option>
+        <option value="api_key">API key</option>
       </select>
     </div>
-
-    @if (authType === 'cookies') {
-      <div class="form-field">
-        <label for="auth-cookies">Cookies (Cookie header, e.g. session=abc; csrf=xyz)</label>
-        <textarea
-          id="auth-cookies"
-          class="textarea"
-          [(ngModel)]="authCookies"
-          name="authCookies"
-          rows="3"
-          placeholder="session=abc123; csrf=xyz"
-        ></textarea>
-      </div>
-    }
 
     @if (authType === 'token') {
       <div class="form-field">
@@ -166,6 +213,25 @@
           autocomplete="off"
           placeholder="tok-…"
         />
+      </div>
+    }
+
+    @if (authType === 'api_key') {
+      <div class="form-field">
+        <label for="auth-api-key">API key</label>
+        <input
+          id="auth-api-key"
+          class="input"
+          type="password"
+          [(ngModel)]="authApiKey"
+          name="authApiKey"
+          autocomplete="off"
+          placeholder="search/ATS API key"
+        />
+        <p class="muted xs">
+          Used by discovery providers (Google CSE, Bing, Brave). Stored
+          encrypted and never returned by the API.
+        </p>
       </div>
     }
 

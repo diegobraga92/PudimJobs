@@ -24,13 +24,13 @@ async def test_set_auth_encrypts_and_masks_secret(auth_client):
     client, source_id = await _make_source(auth_client)
     response = await client.put(
         f"/api/sources/{source_id}/auth",
-        json={"auth_type": "cookies", "cookies": "session=abc123; csrf=xyz"},
+        json={"auth_type": "token", "token": "tok-abc123"},
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["auth_type"] == "cookies"
+    assert body["auth_type"] == "token"
     assert body["has_auth"] is True
-    assert "abc123" not in response.text
+    assert "tok-abc123" not in response.text
 
 
 async def test_get_auth_returns_type_without_secret(auth_client):
@@ -51,7 +51,7 @@ async def test_clear_auth(auth_client):
     client, source_id = await _make_source(auth_client)
     await client.put(
         f"/api/sources/{source_id}/auth",
-        json={"auth_type": "cookies", "cookies": "session=abc"},
+        json={"auth_type": "token", "token": "tok-abc"},
     )
     deleted = await client.delete(f"/api/sources/{source_id}/auth")
     assert deleted.status_code == 204
@@ -63,7 +63,43 @@ async def test_set_auth_requires_secret(auth_client):
     client, source_id = await _make_source(auth_client)
     response = await client.put(
         f"/api/sources/{source_id}/auth",
-        json={"auth_type": "cookies", "cookies": ""},
+        json={"auth_type": "token", "token": ""},
+    )
+    assert response.status_code == 400
+
+
+async def test_cookies_auth_type_is_rejected(auth_client):
+    """Cookie auth was removed (ToS/account-ban risk); it must be rejected."""
+    client, source_id = await _make_source(auth_client)
+    response = await client.put(
+        f"/api/sources/{source_id}/auth",
+        json={"auth_type": "cookies", "cookies": "session=abc"},
+    )
+    assert response.status_code == 422
+
+
+async def test_api_key_auth_roundtrip(auth_client):
+    client, source_id = await _make_source(auth_client)
+    response = await client.put(
+        f"/api/sources/{source_id}/auth",
+        json={"auth_type": "api_key", "api_key": "sk-987654"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["auth_type"] == "api_key"
+    assert body["has_auth"] is True
+    assert "sk-987654" not in response.text
+
+    detail = await client.get(f"/api/sources/{source_id}/auth")
+    assert detail.json()["auth_type"] == "api_key"
+    assert "sk-987654" not in detail.text
+
+
+async def test_api_key_requires_value(auth_client):
+    client, source_id = await _make_source(auth_client)
+    response = await client.put(
+        f"/api/sources/{source_id}/auth",
+        json={"auth_type": "api_key", "api_key": ""},
     )
     assert response.status_code == 400
 
@@ -73,7 +109,7 @@ async def test_auth_isolation_between_users(auth_client, db_client, db_session):
     client_a, source_id = await _make_source(auth_client)
     await client_a.put(
         f"/api/sources/{source_id}/auth",
-        json={"auth_type": "cookies", "cookies": "session=a-secret"},
+        json={"auth_type": "token", "token": "tok-a-secret"},
     )
     from tests.helpers import create_user
 
@@ -87,7 +123,7 @@ async def test_auth_isolation_between_users(auth_client, db_client, db_session):
     assert (
         await db_client.put(
             f"/api/sources/{source_id}/auth",
-            json={"auth_type": "cookies", "cookies": "session=stolen"},
+            json={"auth_type": "token", "token": "tok-stolen"},
         )
     ).status_code == 404
 
@@ -96,18 +132,18 @@ async def test_credentials_stored_encrypted(auth_client, db_session):
     client, source_id = await _make_source(auth_client)
     await client.put(
         f"/api/sources/{source_id}/auth",
-        json={"auth_type": "cookies", "cookies": "session=plaintext-secret"},
+        json={"auth_type": "token", "token": "tok-plaintext-secret"},
     )
     record = (
         await db_session.execute(
             select(SourceAuth).where(SourceAuth.source_id == uuid.UUID(source_id))
         )
     ).scalar_one()
-    assert "plaintext-secret" not in record.credentials_encrypted
-    assert decrypt_secret(record.credentials_encrypted) == "session=plaintext-secret"
+    assert "tok-plaintext-secret" not in record.credentials_encrypted
+    assert decrypt_secret(record.credentials_encrypted) == "tok-plaintext-secret"
 
 
-def test_build_fetch_auth_cookies_and_token():
+def test_build_fetch_auth_token_and_api_key():
     class _Record:
         def __init__(self, auth_type, secret):
             self.auth_type = auth_type
@@ -115,13 +151,13 @@ def test_build_fetch_auth_cookies_and_token():
                 "app.services.secrets", fromlist=["encrypt_secret"]
             ).encrypt_secret(secret)
 
-    cookies_auth = build_fetch_auth(_Record("cookies", "session=abc; csrf=xyz"))
-    assert cookies_auth is not None
-    assert cookies_auth.cookies == "session=abc; csrf=xyz"
-
     token_auth = build_fetch_auth(_Record("token", "tok-123"))
     assert token_auth is not None
     assert token_auth.headers == {"Authorization": "Bearer tok-123"}
+
+    api_key_auth = build_fetch_auth(_Record("api_key", "sk-456"))
+    assert api_key_auth is not None
+    assert api_key_auth.api_key == "sk-456"
 
     assert build_fetch_auth(None) is None
 

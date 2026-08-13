@@ -16,7 +16,8 @@ from workers.resilience import (
 from workers.tasks import scrape as scrape_module
 from workers.tasks.scrape import _run_scrape
 
-from app.models import Job, ScrapeRun, Source
+from app.models import Job, ScrapeRun, Source, SourceAuth
+from app.services.secrets import encrypt_secret
 from tests.helpers import create_user
 
 
@@ -48,6 +49,45 @@ class FakeScraper:
             for j in raw_jobs
         ]
 
+    def first_fetch_url(self, url: str) -> str:
+        return url
+
+    async def discover_urls(self, page: ScrapedPage) -> list[str]:
+        return []
+
+    def next_page_url(self, page: ScrapedPage) -> str | None:
+        return None
+
+
+class FakeDiscoveryScraper(FakeScraper):
+    """Two-stage scraper: a results page yields detail URLs to fetch."""
+
+    def __init__(self, detail_urls: list[str]):
+        super().__init__([])
+        self.detail_urls = detail_urls
+        self.fetched: list[str] = []
+
+    def first_fetch_url(self, url: str) -> str:
+        return "https://engine.example/results"
+
+    async def fetch(self, url: str, **kwargs) -> ScrapedPage:
+        self.fetched.append(url)
+        return ScrapedPage(html_content="<html></html>", status_code=200, final_url=url)
+
+    async def discover_urls(self, page: ScrapedPage) -> list[str]:
+        if page.final_url.startswith("https://engine.example"):
+            return self.detail_urls
+        return []
+
+    def parse(self, page: ScrapedPage) -> list[RawJob]:
+        return [
+            RawJob(
+                title=f"Job for {page.final_url}",
+                company="Acme",
+                url=page.final_url,
+            )
+        ]
+
 
 SAMPLE_JOBS = [
     RawJob(title="Backend Engineer", company="Acme", url="https://acme.example/jobs/1"),
@@ -74,7 +114,7 @@ async def _install_fake_scraper(monkeypatch, jobs, *, fail=False):
     Also stubs the robots.txt check so tests never touch the network.
     """
     fake = FakeScraper(jobs, fail=fail)
-    monkeypatch.setattr(scrape_module, "get_scraper", lambda source: fake)
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
     monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
     return fake
@@ -210,3 +250,66 @@ async def test_scrape_ignores_robots_when_disabled(
 
     assert result["new"] == 2
     assert consulted == []
+
+
+async def test_scrape_fetches_discovered_detail_pages(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """Two-stage discovery: results page links are fetched and capped by max_results."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.config = {"provider": "google_cse", "max_results": 2}
+    await db_session.commit()
+
+    fake = FakeDiscoveryScraper(
+        ["https://a.example/j1", "https://b.example/j2", "https://c.example/j3"]
+    )
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["new"] == 2
+    # Results page + the two (capped) detail fetches — the third link is dropped.
+    assert fake.fetched[0] == "https://engine.example/results"
+    assert len(fake.fetched) == 3
+
+    jobs = (await db_session.execute(select(Job))).scalars().all()
+    assert len(jobs) == 2
+    assert {job.url for job in jobs} == {"https://a.example/j1", "https://b.example/j2"}
+
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert runs[0].status == "success"
+
+
+async def test_scrape_passes_api_key_to_discovery_scraper(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """The source's encrypted API key reaches get_scraper for search providers."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.config = {"provider": "google_cse"}
+    await db_session.commit()
+    db_session.add(
+        SourceAuth(
+            source_id=source.id,
+            auth_type="api_key",
+            credentials_encrypted=encrypt_secret("sk-test-123"),
+        )
+    )
+    await db_session.commit()
+
+    captured: dict = {}
+    fake = FakeDiscoveryScraper([])
+    monkeypatch.setattr(
+        scrape_module,
+        "get_scraper",
+        lambda source, api_key=None: captured.update(api_key=api_key) or fake,
+    )
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+
+    await _run_scrape(str(source.id))
+
+    assert captured["api_key"] == "sk-test-123"

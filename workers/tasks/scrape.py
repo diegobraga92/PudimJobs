@@ -7,6 +7,7 @@ Redis-backed circuit breaker.
 """
 
 import asyncio
+import inspect
 import time
 import uuid
 from datetime import datetime, timezone
@@ -73,6 +74,21 @@ async def _skip_run(source_id: str, run: ScrapeRun, reason: str) -> dict:
         )
     logger.info("scrape_skipped", source_id=source_id, reason=reason)
     return {"source_id": source_id, "skipped": True, "reason": reason}
+
+
+async def _discover(scraper, page) -> list[str]:
+    """Extract detail URLs from a page, tolerating scrapers without the hook.
+
+    The contract hook is async; some duck-typed scrapers (e.g. test doubles)
+    omit it or implement it synchronously, so this also covers those cases.
+    """
+    discover = getattr(scraper, "discover_urls", None)
+    if not callable(discover):
+        return []
+    result = discover(page)
+    if inspect.isawaitable(result):
+        result = await result
+    return result or []
 
 
 async def _store_jobs(
@@ -146,34 +162,58 @@ async def _run_scrape(source_id: str) -> dict:
             raise CircuitBreakerOpenError(f"Circuit breaker open for source {source_id}")
 
     try:
-        scraper = get_scraper(source)
-
-        # Optional per-source authentication (cookies / bearer token).
+        # Optional per-source authentication (bearer token / API key).
         auth = None
         async with async_session_factory() as session:
             result = await session.execute(
                 select(SourceAuth).where(SourceAuth.source_id == source_uuid)
             )
-            auth = build_fetch_auth(result.scalar_one_or_none())
+            record = result.scalar_one_or_none()
+            auth = build_fetch_auth(record)
+
+        scraper = get_scraper(source, api_key=auth.api_key if auth else None)
+
+        # The first fetch may be a provider-built endpoint (discovery sources),
+        # not the raw source URL.
+        current_url = getattr(scraper, "first_fetch_url", lambda url: url)(source.url)
 
         # Scraping ethics: honour robots.txt before touching the target.
-        if not _robots_allowed(source, source.url):
+        if not _robots_allowed(source, current_url):
             return await _skip_run(source_id, run, "robots.txt disallows this source")
 
-        wait = rate_limit_wait(source.url, source.rate_limit_seconds)
+        wait = rate_limit_wait(current_url, source.rate_limit_seconds)
         if wait > 0:
             await asyncio.sleep(wait)
-        rate_limit_mark(source.url, source.rate_limit_seconds)
+        rate_limit_mark(current_url, source.rate_limit_seconds)
 
-        # Aggregators can paginate through several listing pages.
+        # Aggregators/ATS boards can paginate through several listing pages;
+        # discovery sources additionally fetch each discovered detail URL.
         max_pages = int((source.config or {}).get("max_pages", 1))
+        max_results = int((source.config or {}).get("max_results", 20))
         pages_fetched = 0
-        current_url = source.url
+        detail_fetched = 0
         raw_jobs: list = []
         while True:
             page = await scraper.fetch(current_url, auth=auth)
-            raw_jobs.extend(scraper.parse(page))
             pages_fetched += 1
+
+            discovered = await _discover(scraper, page)
+            if discovered:
+                for detail_url in discovered:
+                    if detail_fetched >= max_results:
+                        break
+                    if not _robots_allowed(source, detail_url):
+                        continue
+                    wait = rate_limit_wait(detail_url, source.rate_limit_seconds)
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                    rate_limit_mark(detail_url, source.rate_limit_seconds)
+                    detail_page = await scraper.fetch(detail_url, auth=auth)
+                    raw_jobs.extend(scraper.parse(detail_page))
+                    detail_fetched += 1
+            else:
+                raw_jobs.extend(scraper.parse(page))
+
             if pages_fetched >= max_pages:
                 break
             next_url = getattr(scraper, "next_page_url", lambda _page: None)(page)

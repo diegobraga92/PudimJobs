@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 
 import {
   AuthTestResult,
+  DiscoveryProvider,
   Source,
   SourceAuth,
   SourceAuthInput,
@@ -35,12 +36,17 @@ export class SourcesComponent implements OnInit {
   adapter = 'generic_html_list';
   configJson = '';
 
+  /** Discovery provider + config (shown when type === 'discovery'). */
+  providers: DiscoveryProvider[] = [];
+  providersLoading = false;
+  discoveryProvider = '';
+
   /** Per-source authentication panel state. */
   authSource: Source | null = null;
   authCurrent: SourceAuth | null = null;
   authType: SourceAuthInput['auth_type'] = 'none';
-  authCookies = '';
   authToken = '';
+  authApiKey = '';
   authTestResult: AuthTestResult | null = null;
   authSaving = false;
   authTesting = false;
@@ -65,6 +71,25 @@ export class SourcesComponent implements OnInit {
 
   ngOnInit(): void {
     this.refresh();
+    this.loadProviders();
+  }
+
+  private loadProviders(): void {
+    this.providersLoading = true;
+    this.service.listProviders().subscribe({
+      next: (providers) => {
+        this.providers = providers;
+        this.providersLoading = false;
+      },
+      error: () => {
+        this.providersLoading = false;
+      },
+    });
+  }
+
+  /** The provider currently selected in the form (for hints/warnings). */
+  get selectedProvider(): DiscoveryProvider | undefined {
+    return this.providers.find((provider) => provider.name === this.discoveryProvider);
   }
 
   refresh(): void {
@@ -93,6 +118,7 @@ export class SourcesComponent implements OnInit {
     });
     this.adapter = 'generic_html_list';
     this.configJson = '';
+    this.discoveryProvider = '';
     this.showForm = true;
   }
 
@@ -106,7 +132,14 @@ export class SourcesComponent implements OnInit {
       respect_robots_txt: source.respect_robots_txt ?? true,
     });
     this.adapter = (source.config?.['adapter'] as string) ?? 'generic_html_list';
-    this.configJson = source.config ? JSON.stringify(source.config, null, 2) : '';
+    this.discoveryProvider = (source.config?.['provider'] as string) ?? '';
+    if (source.type === 'discovery') {
+      const rest = { ...(source.config ?? {}) };
+      delete rest['provider'];
+      this.configJson = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
+    } else {
+      this.configJson = source.config ? JSON.stringify(source.config, null, 2) : '';
+    }
     this.showForm = true;
   }
 
@@ -145,6 +178,25 @@ export class SourcesComponent implements OnInit {
         }
       }
       config['adapter'] = this.adapter;
+      payload.config = config;
+    }
+    if (raw.type === 'discovery') {
+      if (!this.discoveryProvider) {
+        this.error = 'Choose a discovery provider';
+        this.toast.error('Choose a discovery provider.');
+        return;
+      }
+      const config: Record<string, unknown> = { provider: this.discoveryProvider };
+      if (this.configJson.trim()) {
+        try {
+          Object.assign(config, JSON.parse(this.configJson.trim()));
+        } catch {
+          this.error = 'Invalid discovery config JSON';
+          this.toast.error('Invalid discovery config JSON.');
+          return;
+        }
+      }
+      config['provider'] = this.discoveryProvider;
       payload.config = config;
     }
     const request = this.editingId
@@ -193,8 +245,8 @@ export class SourcesComponent implements OnInit {
   openAuth(source: Source): void {
     this.authSource = source;
     this.authType = 'none';
-    this.authCookies = '';
     this.authToken = '';
+    this.authApiKey = '';
     this.authTestResult = null;
     this.authSaving = false;
     this.authTesting = false;
@@ -220,11 +272,11 @@ export class SourcesComponent implements OnInit {
       return;
     }
     const payload: SourceAuthInput = { auth_type: this.authType };
-    if (this.authType === 'cookies') {
-      payload.cookies = this.authCookies;
-    }
     if (this.authType === 'token') {
       payload.token = this.authToken;
+    }
+    if (this.authType === 'api_key') {
+      payload.api_key = this.authApiKey;
     }
     this.authSaving = true;
     this.service.updateAuth(this.authSource.id, payload).subscribe({
@@ -232,8 +284,8 @@ export class SourcesComponent implements OnInit {
         this.authSaving = false;
         this.authCurrent = auth;
         this.authType = auth.auth_type;
-        this.authCookies = '';
         this.authToken = '';
+        this.authApiKey = '';
         this.authTestResult = null;
         this.toast.success('Source authentication saved.');
       },
@@ -277,8 +329,8 @@ export class SourcesComponent implements OnInit {
       next: () => {
         this.authCurrent = { auth_type: 'none', has_auth: false, updated_at: null };
         this.authType = 'none';
-        this.authCookies = '';
         this.authToken = '';
+        this.authApiKey = '';
         this.authTestResult = null;
         this.toast.success('Source authentication cleared.');
       },

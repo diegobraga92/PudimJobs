@@ -30,3 +30,21 @@ class AbstractScraper(ABC):
         Keys should match ``app.models.Job`` columns: title, company,
         description, url, posted_date, tags.
         """
+
+    async def discover_urls(self, page: ScrapedPage) -> list[str]:
+        """Return job *detail* URLs found on a listing/search page.
+
+        Single-page scrapers return ``[]`` (the default), in which case the
+        scrape task treats ``parse()`` as the job source for that page.
+        Discovery sources (search engines / ATS boards) override this to return
+        result links, which the scrape task then fetches and parses individually.
+        """
+        return []
+
+    def first_fetch_url(self, source_url: str) -> str:
+        """The URL fetched on the first page of a run (default: the source URL).
+
+        Discovery providers override this to return their provider-built
+        endpoint (e.g. a search API URL carrying the API key).
+        """
+        return source_url

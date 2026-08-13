@@ -109,6 +109,28 @@ async def test_sources_require_auth(client):
     assert (await client.get("/api/sources")).status_code == 401
 
 
+async def test_providers_endpoint_lists_discovery_providers(auth_client):
+    client, _, _ = auth_client
+    response = await client.get("/api/sources/providers")
+    assert response.status_code == 200
+    body = response.json()
+    names = {provider["name"] for provider in body}
+    # HTML-scraping providers were removed (ToS); the rest are present.
+    assert {"ashby", "google_cse", "serpapi", "brightdata"} <= names
+    assert not ({"google_html", "bing_html", "duckduckgo_html"} & names)
+
+    for provider in body:
+        assert set(provider) == {"name", "family", "requires_key"}
+
+    ats = next(provider for provider in body if provider["name"] == "ashby")
+    assert ats["family"] == "ats"
+    assert ats["requires_key"] is False
+
+    search = next(provider for provider in body if provider["name"] == "google_cse")
+    assert search["family"] == "search_api"
+    assert search["requires_key"] is True
+
+
 async def test_user_isolation(auth_client, db_client, db_session):
     """User B must not see sources created by user A."""
     client_a, _, _ = auth_client

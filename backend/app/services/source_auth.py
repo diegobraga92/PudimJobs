@@ -12,8 +12,8 @@ def build_fetch_auth(record: SourceAuth | None) -> FetchAuth | None:
     if record is None or not record.credentials_encrypted:
         return None
     raw = decrypt_secret(record.credentials_encrypted)
-    if record.auth_type == SourceAuthType.cookies:
-        return FetchAuth(cookies=raw)
     if record.auth_type == SourceAuthType.token:
         return FetchAuth(headers={"Authorization": f"Bearer {raw}"})
+    if record.auth_type == SourceAuthType.api_key:
+        return FetchAuth(api_key=raw)
     return None

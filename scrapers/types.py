@@ -31,10 +31,11 @@ class RawJob:
 class FetchAuth:
     """Optional authentication context for an outbound scraper fetch.
 
-    Either ``cookies`` (a raw ``Cookie`` header string, e.g. ``"session=abc"``)
-    or ``headers`` (e.g. ``{"Authorization": "Bearer ..."}``) can be set.
+    Either ``headers`` (e.g. ``{"Authorization": "Bearer ..."}``) or ``api_key``
+    (an opaque API key whose *placement* — query param or header — is up to the
+    scraper/provider that consumes it) can be set.
     """
 
-    cookies: str | None = None
     headers: dict[str, str] | None = None
+    api_key: str | None = None
 

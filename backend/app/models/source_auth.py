@@ -5,8 +5,11 @@ write-only through the API — responses only expose ``auth_type`` and whether a
 secret is set. Supported auth types:
 
 - ``none`` — public fetch (default)
-- ``cookies`` — a raw ``Cookie`` header string pasted by the user
 - ``token`` — a bearer token sent as ``Authorization: Bearer ...``
+- ``api_key`` — an API key (search/ATS providers decide its placement)
+
+Cookie-based auth was removed: automating logged-in sessions violates most
+sites' terms of service.
 """
 
 import uuid

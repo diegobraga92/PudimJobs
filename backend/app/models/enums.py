@@ -12,12 +12,13 @@ class SourceType(enum.StrEnum):
     career_page = "career_page"
     aggregator = "aggregator"
     rss = "rss"
+    discovery = "discovery"
 
 
 class SourceAuthType(enum.StrEnum):
     none = "none"
-    cookies = "cookies"
     token = "token"
+    api_key = "api_key"
 
 
 class SourceHealth(enum.StrEnum):

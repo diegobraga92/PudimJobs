@@ -260,9 +260,14 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 **Scraping engine (Celery + RabbitMQ)**
 - Celery worker + Beat scheduler in `workers/`, wired into docker-compose
 - Pluggable scrapers in `scrapers/` (career page via schema.org/JSON-LD, RSS
-  via feedparser, aggregator base)
+  via feedparser, aggregator base, discovery providers)
 - `scrape_source` task: circuit-breaker check → rate limit → fetch → parse →
   normalize → dedup insert → publish `job.new` event → update source health
+- Discovery sources (`scrapers/discovery.py`): ATS feeds (Ashby, Greenhouse,
+  Lever, Workable) and search APIs (Google CSE, Bing, Brave, SerpApi, Bright
+  Data) — provider selected per source; search providers fetch each result
+  page with per-domain robots + rate limiting; `serpapi`/`brightdata` cover
+  LinkedIn Jobs and Indeed via paid third-party APIs
 - Resilience: Redis-backed per-source circuit breaker (5 failures → pause 1h),
   per-domain rate limiting, robots.txt checks, user-agent rotation,
   exponential-backoff retries, RabbitMQ DLX
