@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,11 @@ class Source(Base):
     # Adapter-specific settings (e.g. aggregator selectors/pagination).
     config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     rate_limit_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    # Scraping ethics: honour the target's robots.txt `Disallow` rules before
+    # fetching. Off by default only if the operator explicitly opts out.
+    respect_robots_txt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     last_scraped: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     health: Mapped[SourceHealth] = mapped_column(
         Enum(SourceHealth, native_enum=False, values_callable=enum_values),

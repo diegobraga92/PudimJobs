@@ -55,6 +55,11 @@ export class SourcesComponent implements OnInit {
       name: ['', Validators.required],
       url: ['', [Validators.required, Validators.pattern(/^https?:\/\/.+/)]],
       type: ['career_page', Validators.required],
+      rate_limit_seconds: [
+        30,
+        [Validators.required, Validators.min(0), Validators.max(86400)],
+      ],
+      respect_robots_txt: [true],
     });
   }
 
@@ -79,7 +84,13 @@ export class SourcesComponent implements OnInit {
 
   openCreate(): void {
     this.editingId = null;
-    this.sourceForm.reset({ name: '', url: '', type: 'career_page' });
+    this.sourceForm.reset({
+      name: '',
+      url: '',
+      type: 'career_page',
+      rate_limit_seconds: 30,
+      respect_robots_txt: true,
+    });
     this.adapter = 'generic_html_list';
     this.configJson = '';
     this.showForm = true;
@@ -87,7 +98,13 @@ export class SourcesComponent implements OnInit {
 
   openEdit(source: Source): void {
     this.editingId = source.id;
-    this.sourceForm.setValue({ name: source.name, url: source.url, type: source.type });
+    this.sourceForm.setValue({
+      name: source.name,
+      url: source.url,
+      type: source.type,
+      rate_limit_seconds: source.rate_limit_seconds ?? 30,
+      respect_robots_txt: source.respect_robots_txt ?? true,
+    });
     this.adapter = (source.config?.['adapter'] as string) ?? 'generic_html_list';
     this.configJson = source.config ? JSON.stringify(source.config, null, 2) : '';
     this.showForm = true;
@@ -102,8 +119,20 @@ export class SourcesComponent implements OnInit {
     if (this.sourceForm.invalid) {
       return;
     }
-    const raw = this.sourceForm.value as { name: string; url: string; type: string };
-    const payload: SourceInput = { name: raw.name, url: raw.url, type: raw.type };
+    const raw = this.sourceForm.value as {
+      name: string;
+      url: string;
+      type: string;
+      rate_limit_seconds: number;
+      respect_robots_txt: boolean;
+    };
+    const payload: SourceInput = {
+      name: raw.name,
+      url: raw.url,
+      type: raw.type,
+      rate_limit_seconds: raw.rate_limit_seconds,
+      respect_robots_txt: raw.respect_robots_txt,
+    };
     if (raw.type === 'aggregator') {
       const config: Record<string, unknown> = { adapter: this.adapter };
       if (this.configJson.trim()) {

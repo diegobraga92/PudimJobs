@@ -12,10 +12,15 @@ export interface Source {
   last_scraped: string | null;
   created_at: string;
   jobs_count?: number;
+  /** Scraping ethics / politeness settings. */
+  rate_limit_seconds: number;
+  respect_robots_txt: boolean;
 }
 
-export type SourceInput = Pick<Source, 'name' | 'url' | 'type'> &
-  Partial<Pick<Source, 'id' | 'health' | 'config'>>;
+export type SourceInput = Pick<
+  Source,
+  'name' | 'url' | 'type' | 'rate_limit_seconds' | 'respect_robots_txt'
+> & Partial<Pick<Source, 'id' | 'health' | 'config'>>;
 
 export type SourceAuthType = 'none' | 'cookies' | 'token';
 

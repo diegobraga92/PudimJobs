@@ -26,6 +26,60 @@ async def test_create_source(auth_client):
     assert body["type"] == "career_page"
     assert body["health"] == "healthy"
     assert body["id"]
+    # Scraping ethics defaults.
+    assert body["rate_limit_seconds"] == 30
+    assert body["respect_robots_txt"] is True
+
+
+async def test_scraping_ethics_roundtrip(auth_client):
+    """Per-source ethics settings survive create, read and update."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Polite Agg",
+            "url": "https://agg.example",
+            "type": "aggregator",
+            "rate_limit_seconds": 60,
+            "respect_robots_txt": False,
+        },
+    )
+    assert created.status_code == 201
+    body = created.json()
+    assert body["rate_limit_seconds"] == 60
+    assert body["respect_robots_txt"] is False
+
+    source_id = body["id"]
+    detail = await client.get(f"/api/sources/{source_id}")
+    assert detail.json()["rate_limit_seconds"] == 60
+    assert detail.json()["respect_robots_txt"] is False
+
+    updated = await client.put(
+        f"/api/sources/{source_id}",
+        json={"rate_limit_seconds": 5, "respect_robots_txt": True},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["rate_limit_seconds"] == 5
+    assert updated.json()["respect_robots_txt"] is True
+
+
+async def test_scraping_ethics_validation(auth_client):
+    """Negative/absurd rate limits are rejected by the API."""
+    client, _, _ = auth_client
+    for bad_payload in (
+        {"rate_limit_seconds": -1},
+        {"rate_limit_seconds": 86401},
+    ):
+        response = await client.post(
+            "/api/sources",
+            json={
+                "name": "Bad",
+                "url": "https://bad.example",
+                "type": "rss",
+                **bad_payload,
+            },
+        )
+        assert response.status_code == 422
 
 
 async def test_crud_roundtrip(auth_client):

@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from api.events.producer import publish_job_new
 from api.events.schemas import JobNewEvent
 from scrapers.registry import get_scraper
+from scrapers.utils import is_allowed_by_robots
 from workers.celery_app import celery_app
 from workers.metrics import SCRAPE_DURATION, SCRAPES_TOTAL
 from workers.resilience import (
@@ -54,6 +55,24 @@ async def _finalize_run(
     run.error = error
     run.finished_at = datetime.now(timezone.utc)
     await session.commit()
+
+
+def _robots_allowed(source: Source, url: str) -> bool:
+    """Robots.txt gate: always allowed unless the source opts in to checks."""
+    if not source.respect_robots_txt:
+        return True
+    return is_allowed_by_robots(url)
+
+
+async def _skip_run(source_id: str, run: ScrapeRun, reason: str) -> dict:
+    """Record the run as *skipped* (never trips the circuit breaker)."""
+    async with async_session_factory() as session:
+        run_row = await session.get(ScrapeRun, run.id)
+        await _finalize_run(
+            session, run_row, status="skipped", new_jobs=0, error=reason
+        )
+    logger.info("scrape_skipped", source_id=source_id, reason=reason)
+    return {"source_id": source_id, "skipped": True, "reason": reason}
 
 
 async def _store_jobs(
@@ -137,6 +156,10 @@ async def _run_scrape(source_id: str) -> dict:
             )
             auth = build_fetch_auth(result.scalar_one_or_none())
 
+        # Scraping ethics: honour robots.txt before touching the target.
+        if not _robots_allowed(source, source.url):
+            return await _skip_run(source_id, run, "robots.txt disallows this source")
+
         wait = rate_limit_wait(source.url, source.rate_limit_seconds)
         if wait > 0:
             await asyncio.sleep(wait)
@@ -157,6 +180,14 @@ async def _run_scrape(source_id: str) -> dict:
             if not next_url or next_url == current_url:
                 break
             current_url = next_url
+            if not _robots_allowed(source, current_url):
+                logger.info(
+                    "scrape_stop_pagination",
+                    source_id=source_id,
+                    reason="robots.txt",
+                    url=current_url,
+                )
+                break
             wait = rate_limit_wait(current_url, source.rate_limit_seconds)
             if wait > 0:
                 await asyncio.sleep(wait)

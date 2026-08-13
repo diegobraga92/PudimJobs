@@ -11,6 +11,10 @@ class SourceBase(BaseModel):
     url: str = Field(min_length=1, max_length=1024)
     type: SourceType
     config: dict | None = Field(default=None)
+    # Scraping ethics / politeness: cooldown between requests to the domain and
+    # whether to honour robots.txt `Disallow` rules.
+    rate_limit_seconds: int = Field(default=30, ge=0, le=86400)
+    respect_robots_txt: bool = True
 
 
 class SourceCreate(SourceBase):
@@ -22,6 +26,8 @@ class SourceUpdate(BaseModel):
     url: str | None = Field(default=None, min_length=1, max_length=1024)
     type: SourceType | None = None
     config: dict | None = None
+    rate_limit_seconds: int | None = Field(default=None, ge=0, le=86400)
+    respect_robots_txt: bool | None = None
 
 
 class SourceResponse(SourceBase):

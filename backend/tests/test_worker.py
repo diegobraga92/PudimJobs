@@ -69,10 +69,14 @@ async def _make_source(db_session, user) -> Source:
 
 
 async def _install_fake_scraper(monkeypatch, jobs, *, fail=False):
-    """Replace the scrape task's scraper lookup + event publisher."""
+    """Replace the scrape task's scraper lookup + event publisher.
+
+    Also stubs the robots.txt check so tests never touch the network.
+    """
     fake = FakeScraper(jobs, fail=fail)
     monkeypatch.setattr(scrape_module, "get_scraper", lambda source: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
     return fake
 
 
@@ -159,3 +163,50 @@ async def test_rate_limit_mark_and_wait(redis_client):
     assert rate_limit_wait(url, cooldown_seconds=60) == 0.0
     rate_limit_mark(url, cooldown_seconds=60)
     assert rate_limit_wait(url, cooldown_seconds=60) > 0.0
+
+
+async def test_scrape_skips_when_robots_disallows(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A robots.txt ``Disallow`` records a skipped run, never a failure."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    await _install_fake_scraper(monkeypatch, SAMPLE_JOBS)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: False)
+
+    result = await _run_scrape(str(source.id))
+
+    assert result == {
+        "source_id": str(source.id),
+        "skipped": True,
+        "reason": "robots.txt disallows this source",
+    }
+
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert len(runs) == 1
+    assert runs[0].status == "skipped"
+    assert "robots.txt" in runs[0].error
+
+    jobs = (await db_session.execute(select(Job))).scalars().all()
+    assert jobs == []
+
+
+async def test_scrape_ignores_robots_when_disabled(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """With ``respect_robots_txt=False`` the robots check is never consulted."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.respect_robots_txt = False
+    await db_session.commit()
+    await _install_fake_scraper(monkeypatch, SAMPLE_JOBS)
+
+    consulted: list[str] = []
+    monkeypatch.setattr(
+        scrape_module, "is_allowed_by_robots", lambda url: consulted.append(url) or True
+    )
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["new"] == 2
+    assert consulted == []

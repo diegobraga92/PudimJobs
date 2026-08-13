@@ -71,6 +71,41 @@
       </div>
     }
 
+    <div class="ethics-section">
+      <h4>
+        <app-icon name="shield-check" [size]="14" />
+        Scraping ethics
+      </h4>
+
+      <div class="form-field">
+        <label for="source-rate-limit">Rate limit (seconds between requests)</label>
+        <input
+          id="source-rate-limit"
+          class="input"
+          type="number"
+          min="0"
+          max="86400"
+          formControlName="rate_limit_seconds"
+        />
+        <p class="muted xs">
+          Minimum delay enforced between requests to the source's domain. Higher
+          values are more polite to the target site.
+        </p>
+      </div>
+
+      <div class="form-field">
+        <label class="checkbox-row">
+          <input type="checkbox" formControlName="respect_robots_txt" />
+          Respect robots.txt
+        </label>
+        <p class="muted xs">
+          When enabled, the source is only fetched if its robots.txt allows it.
+          Automated access may still violate the target's terms of service —
+          review them before scraping.
+        </p>
+      </div>
+    </div>
+
     <div class="form-actions">
       <button type="button" class="btn btn-ghost" (click)="cancelForm()">Cancel</button>
       <button type="submit" class="btn btn-primary" [disabled]="sourceForm.invalid">

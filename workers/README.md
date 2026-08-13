@@ -35,8 +35,8 @@ source due for scraping.
 | Mechanism | Implementation |
 |-----------|----------------|
 | Circuit breaker | Redis `cb:{source_id}` counter; ≥5 consecutive failures pauses the source for 1h |
-| Rate limiting | Redis `rate:{domain}` TTL per source (`sources.rate_limit_seconds`) |
+| Rate limiting | Redis `rate:{domain}` TTL per source; cooldown configurable per source in the Sources UI (`sources.rate_limit_seconds`, default 30s) |
 | User-agent rotation | Configured pool in `app.config` |
-| robots.txt | Checked per domain, cached in-process for 1h |
+| robots.txt | Checked per domain, cached in-process for 1h; per-source toggle in the Sources UI (`sources.respect_robots_txt`, default on) |
 | Retry | Celery `autoretry_for` with exponential backoff (1m→2m→4m) |
 | Dead letters | RabbitMQ DLX (`pudimjobs.dlx`) + durable `scrape_runs` failed records |
