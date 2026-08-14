@@ -1,8 +1,8 @@
 <div class="page-header">
-  <h2>Admin</h2>
+  <h2>{{ i18n.t('admin.title') }}</h2>
   <button type="button" class="btn btn-ghost" (click)="refresh()">
     <app-icon name="refresh" [size]="16" />
-    Refresh
+    {{ i18n.t('admin.refresh') }}
   </button>
 </div>
 
@@ -13,7 +13,7 @@
   </div>
 }
 
-<nav class="admin-tabs" role="tablist" aria-label="Admin sections">
+<nav class="admin-tabs" role="tablist" [attr.aria-label]="i18n.t('admin.aria.sections')">
   @for (tab of tabs; track tab.id) {
     <button
       type="button"
@@ -25,7 +25,7 @@
       (click)="selectTab(tab.id)"
     >
       <app-icon [name]="tab.icon" [size]="16" />
-      {{ tab.label }}
+      {{ i18n.t(tab.labelKey) }}
     </button>
   }
 </nav>
@@ -33,7 +33,7 @@
 @if (loading) {
   <div class="loading-text pulse" role="status" aria-live="polite">
     <app-icon name="loader" [size]="16" />
-    Refreshing data…
+    {{ i18n.t('admin.refreshing') }}
   </div>
 }
 
@@ -48,39 +48,39 @@
   <div class="stats">
     <div class="stat-card">
       <span class="stat-value">{{ stats.sources }}</span>
-      <span class="stat-label">Sources</span>
+      <span class="stat-label">{{ i18n.t('admin.statSources') }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">{{ stats.jobs }}</span>
-      <span class="stat-label">Jobs</span>
+      <span class="stat-label">{{ i18n.t('admin.statJobs') }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">{{ stats.jobs_last_24h }}</span>
-      <span class="stat-label">Jobs (24h)</span>
+      <span class="stat-label">{{ i18n.t('admin.statJobs24h') }}</span>
     </div>
     <div class="stat-card" [class.alert]="stats.failed_runs > 0">
       <span class="stat-value">{{ stats.failed_runs }}</span>
-      <span class="stat-label">Failed runs</span>
+      <span class="stat-label">{{ i18n.t('admin.statFailedRuns') }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">{{ stats.total_runs }}</span>
-      <span class="stat-label">Total runs</span>
+      <span class="stat-label">{{ i18n.t('admin.statTotalRuns') }}</span>
     </div>
   </div>
 }
 }
 
 @if (activeTab === 'sources') {
-<h3>Source Health</h3>
+<h3>{{ i18n.t('admin.sourceHealth') }}</h3>
 <div class="table-scroll">
   <table class="table">
     <thead>
       <tr>
-        <th>Name</th>
-        <th>Type</th>
-        <th>Health</th>
-        <th>Last scraped</th>
-        <th class="row-actions">Action</th>
+        <th>{{ i18n.t('common.name') }}</th>
+        <th>{{ i18n.t('common.type') }}</th>
+        <th>{{ i18n.t('common.health') }}</th>
+        <th>{{ i18n.t('admin.lastScraped') }}</th>
+        <th class="row-actions">{{ i18n.t('admin.action') }}</th>
       </tr>
     </thead>
     <tbody>
@@ -102,11 +102,11 @@
               {{ source.health }}
             </span>
           </td>
-          <td>{{ source.last_scraped ? (source.last_scraped | date: 'short') : 'never' }}</td>
+          <td>{{ source.last_scraped ? (source.last_scraped | date: 'short') : i18n.t('admin.never') }}</td>
           <td class="row-actions">
             <button type="button" class="btn btn-ghost btn-sm" (click)="triggerScrape(source.id)">
               <app-icon name="refresh" [size]="14" />
-              Scrape now
+              {{ i18n.t('admin.scrapeNow') }}
             </button>
           </td>
         </tr>
@@ -117,24 +117,24 @@
 }
 
 @if (activeTab === 'dlq') {
-<h3>Dead-Letter Queue (failed scrape runs)</h3>
+<h3>{{ i18n.t('admin.dlqTitle') }}</h3>
 @if (dlq.length === 0) {
   <div class="empty-state panel">
     <span class="empty-icon">
       <app-icon name="circle-check" [size]="26" />
     </span>
-    <h3>No failed runs</h3>
-    <p>Everything is healthy — nothing to replay.</p>
+    <h3>{{ i18n.t('admin.noFailedRuns') }}</h3>
+    <p>{{ i18n.t('admin.noFailedRunsHint') }}</p>
   </div>
 } @else {
   <div class="table-scroll">
     <table class="table">
       <thead>
         <tr>
-          <th>Started</th>
-          <th>Error</th>
-          <th>Jobs</th>
-          <th class="row-actions">Action</th>
+          <th>{{ i18n.t('admin.started') }}</th>
+          <th>{{ i18n.t('admin.errorCol') }}</th>
+          <th>{{ i18n.t('admin.jobsCol') }}</th>
+          <th class="row-actions">{{ i18n.t('admin.action') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -146,7 +146,7 @@
             <td class="row-actions">
               <button type="button" class="btn btn-primary btn-sm" (click)="replay(run.id)">
                 <app-icon name="refresh" [size]="13" />
-                Replay
+                {{ i18n.t('admin.replay') }}
               </button>
             </td>
           </tr>
@@ -158,28 +158,28 @@
 }
 
 @if (activeTab === 'quality') {
-<h3>Data Quality</h3>
+<h3>{{ i18n.t('admin.dataQuality') }}</h3>
 @if (quality) {
   <div class="stats">
     <div class="stat-card">
       <span class="stat-value">{{ quality.assessed }}/{{ quality.jobs_total }}</span>
-      <span class="stat-label">Jobs assessed</span>
+      <span class="stat-label">{{ i18n.t('admin.jobsAssessed') }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">{{ quality.avg_completeness | percent }}</span>
-      <span class="stat-label">Avg completeness</span>
+      <span class="stat-label">{{ i18n.t('admin.avgCompleteness') }}</span>
     </div>
     <div class="stat-card" [class.alert]="quality.duplicates > 0">
       <span class="stat-value">{{ quality.duplicates }}</span>
-      <span class="stat-label">Duplicates</span>
+      <span class="stat-label">{{ i18n.t('admin.duplicates') }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">{{ quality.normalization_coverage | percent }}</span>
-      <span class="stat-label">Normalization</span>
+      <span class="stat-label">{{ i18n.t('admin.normalization') }}</span>
     </div>
     <div class="stat-card" [class.alert]="quality.jobs_with_issues > 0">
       <span class="stat-value">{{ quality.jobs_with_issues }}</span>
-      <span class="stat-label">With issues</span>
+      <span class="stat-label">{{ i18n.t('admin.withIssues') }}</span>
     </div>
   </div>
 }
@@ -189,9 +189,9 @@
     <table class="table">
       <thead>
         <tr>
-          <th>Source</th>
-          <th>Jobs</th>
-          <th>Avg completeness</th>
+          <th>{{ i18n.t('admin.sourceCol') }}</th>
+          <th>{{ i18n.t('admin.jobsCol') }}</th>
+          <th>{{ i18n.t('admin.avgCompleteness') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -210,7 +210,7 @@
 <div class="flagged-toggle">
   <label class="checkbox-row">
     <input type="checkbox" [checked]="showFlaggedOnly" (change)="toggleFlaggedOnly()" />
-    Flagged only (duplicates / issues)
+    {{ i18n.t('admin.flaggedOnly') }}
   </label>
 </div>
 
@@ -219,11 +219,11 @@
     <table class="table">
       <thead>
         <tr>
-          <th>Title</th>
-          <th>Company</th>
-          <th>Completeness</th>
-          <th>Normalized</th>
-          <th>Issues</th>
+          <th>{{ i18n.t('admin.titleCol') }}</th>
+          <th>{{ i18n.t('admin.companyCol') }}</th>
+          <th>{{ i18n.t('admin.completeness') }}</th>
+          <th>{{ i18n.t('admin.normalized') }}</th>
+          <th>{{ i18n.t('admin.issues') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -251,41 +251,41 @@
     </table>
   </div>
 } @else {
-  <p class="muted">No assessed jobs yet — trigger a scrape to generate quality data.</p>
+  <p class="muted">{{ i18n.t('admin.noAssessedJobs') }}</p>
 }
 }
 
 @if (activeTab === 'audit') {
-<h3>Audit Log</h3>
+<h3>{{ i18n.t('admin.auditLog') }}</h3>
 <div class="audit-filters">
   <select class="select" [(ngModel)]="auditAction" (ngModelChange)="loadAudit()">
-    <option value="">All actions</option>
+    <option value="">{{ i18n.t('admin.allActions') }}</option>
     @for (action of auditActions.actions; track action) {
       <option [value]="action">{{ action }}</option>
     }
   </select>
   <select class="select" [(ngModel)]="auditEntity" (ngModelChange)="loadAudit()">
-    <option value="">All entity types</option>
+    <option value="">{{ i18n.t('admin.allEntityTypes') }}</option>
     @for (type of auditActions.entity_types; track type) {
       <option [value]="type">{{ type }}</option>
     }
   </select>
-  <input type="date" class="input" [(ngModel)]="auditFrom" (ngModelChange)="loadAudit()" title="From date" />
-  <input type="date" class="input" [(ngModel)]="auditTo" (ngModelChange)="loadAudit()" title="To date" />
+  <input type="date" class="input" [(ngModel)]="auditFrom" (ngModelChange)="loadAudit()" [title]="i18n.t('admin.fromDate')" />
+  <input type="date" class="input" [(ngModel)]="auditTo" (ngModelChange)="loadAudit()" [title]="i18n.t('admin.toDate')" />
 </div>
 
 @if (auditEntries.length === 0) {
-  <p class="muted">No audit entries match the filters.</p>
+  <p class="muted">{{ i18n.t('admin.noAuditEntries') }}</p>
 } @else {
   <div class="table-scroll">
     <table class="table">
       <thead>
         <tr>
-          <th>Timestamp</th>
-          <th>User</th>
-          <th>Action</th>
-          <th>Entity</th>
-          <th class="row-actions">Details</th>
+          <th>{{ i18n.t('admin.timestamp') }}</th>
+          <th>{{ i18n.t('admin.user') }}</th>
+          <th>{{ i18n.t('admin.actionCol') }}</th>
+          <th>{{ i18n.t('admin.entity') }}</th>
+          <th class="row-actions">{{ i18n.t('admin.details') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -300,7 +300,7 @@
             </td>
             <td class="row-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="toggleAuditDetails(entry.id)">
-                {{ expandedAuditId === entry.id ? 'Hide' : 'Details' }}
+                {{ expandedAuditId === entry.id ? i18n.t('admin.hide') : i18n.t('admin.details') }}
               </button>
             </td>
           </tr>
@@ -317,22 +317,21 @@
 }
 
 @if (activeTab === 'llm') {
-<h3>LLM (CV tailoring)</h3>
+<h3>{{ i18n.t('admin.llmTitle') }}</h3>
 <p class="muted">
-  Configure an OpenAI-compatible API used to rephrase CV bullet points during
-  tailoring. Leave the API key blank to keep the currently stored key.
+  {{ i18n.t('admin.llmIntro') }}
 </p>
 
 <div class="panel form">
   <div class="form-field">
     <label class="checkbox-row">
       <input type="checkbox" [(ngModel)]="llmEnabled" />
-      Enable LLM rephrasing
+      {{ i18n.t('admin.enableLlm') }}
     </label>
   </div>
 
   <div class="form-field">
-    <label for="llm-base-url">Base URL</label>
+    <label for="llm-base-url">{{ i18n.t('admin.baseUrl') }}</label>
     <input
       id="llm-base-url"
       class="input"
@@ -342,7 +341,7 @@
   </div>
 
   <div class="form-field">
-    <label for="llm-model">Model</label>
+    <label for="llm-model">{{ i18n.t('admin.model') }}</label>
     <input
       id="llm-model"
       class="input"
@@ -353,12 +352,12 @@
 
   <div class="form-field">
     <label for="llm-api-key">
-      API key
+      {{ i18n.t('admin.apiKey') }}
       @if (llmConfig) {
         @if (llmConfig.api_key_masked) {
-          <span class="muted">(stored: {{ llmConfig.api_key_masked }})</span>
+          <span class="muted">({{ i18n.t('admin.stored') }} {{ llmConfig.api_key_masked }})</span>
         } @else {
-          <span class="muted">(not set)</span>
+          <span class="muted">({{ i18n.t('admin.notSet') }})</span>
         }
       }
     </label>
@@ -379,16 +378,16 @@
       [class.alert-error]="!llmTestResult.ok"
     >
       @if (llmTestResult.ok) {
-        Connected successfully.
+        {{ i18n.t('admin.connectedOk') }}
       } @else {
-        {{ llmTestResult.error || 'Connection failed.' }}
+        {{ llmTestResult.error || i18n.t('admin.connectionFailed') }}
       }
     </div>
   }
 
   <div class="form-actions">
     <button type="button" class="btn btn-ghost" (click)="loadLlm()" [disabled]="llmSaving">
-      Reset
+      {{ i18n.t('admin.reset') }}
     </button>
     <button
       type="button"
@@ -397,10 +396,10 @@
       [disabled]="llmTesting || !llmConfig?.enabled"
     >
       <app-icon name="activity" [size]="14" />
-      {{ llmTesting ? 'Testing…' : 'Test connection' }}
+      {{ llmTesting ? i18n.t('admin.testing') : i18n.t('admin.testConnection') }}
     </button>
     <button type="button" class="btn btn-primary" (click)="saveLlm()" [disabled]="llmSaving">
-      {{ llmSaving ? 'Saving…' : 'Save' }}
+      {{ llmSaving ? i18n.t('admin.saving') : i18n.t('admin.save') }}
     </button>
   </div>
 </div>

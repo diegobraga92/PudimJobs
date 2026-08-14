@@ -4,6 +4,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { AuthService } from '../../services/auth.service';
+import { I18nService } from '../../services/i18n.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 
 @Component({
@@ -23,7 +24,8 @@ export class LoginComponent {
   constructor(
     private fb: FormBuilder,
     private auth: AuthService,
-    private router: Router
+    private router: Router,
+    readonly i18n: I18nService
   ) {
     this.loginForm = this.fb.group({
       email: ['', [Validators.required, Validators.email]],
@@ -50,7 +52,7 @@ export class LoginComponent {
       },
       error: () => {
         this.loading = false;
-        this.error = 'Invalid email or password';
+        this.error = this.i18n.t('login.invalidCredentials');
       },
     });
   }

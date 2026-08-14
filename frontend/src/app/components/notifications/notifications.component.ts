@@ -4,6 +4,7 @@ import { CommonModule } from '@angular/common';
 import { Notification, NotificationsService } from '../../services/notifications.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { ToastService } from '../../shared/toast/toast.service';
+import { I18nService } from '../../services/i18n.service';
 
 @Component({
   selector: 'app-notifications',
@@ -20,7 +21,8 @@ export class NotificationsComponent implements OnInit {
 
   constructor(
     private service: NotificationsService,
-    private toast: ToastService
+    private toast: ToastService,
+    readonly i18n: I18nService
   ) {}
 
   ngOnInit(): void {
@@ -35,8 +37,8 @@ export class NotificationsComponent implements OnInit {
         this.total = result.total;
       },
       error: () => {
-        this.error = 'Failed to load notifications';
-        this.toast.error('Failed to load notifications.');
+        this.error = this.i18n.t('errors.failedLoadNotifications');
+        this.toast.error(this.i18n.t('errors.failedLoadNotifications'));
       },
     });
   }
@@ -45,8 +47,8 @@ export class NotificationsComponent implements OnInit {
     this.service.markRead(notification.id).subscribe({
       next: () => this.refresh(),
       error: () => {
-        this.error = 'Failed to update notification';
-        this.toast.error('Failed to update notification.');
+        this.error = this.i18n.t('errors.failedUpdateNotification');
+        this.toast.error(this.i18n.t('errors.failedUpdateNotification'));
       },
     });
   }
@@ -54,12 +56,12 @@ export class NotificationsComponent implements OnInit {
   markAllRead(): void {
     this.service.markAllRead().subscribe({
       next: () => {
-        this.toast.success('All notifications marked as read.');
+        this.toast.success(this.i18n.t('notifications.allReadToast'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to update notifications';
-        this.toast.error('Failed to update notifications.');
+        this.error = this.i18n.t('errors.failedUpdateNotifications');
+        this.toast.error(this.i18n.t('errors.failedUpdateNotifications'));
       },
     });
   }

@@ -1,6 +1,6 @@
 <div class="page-header">
-  <h2>Application Pipeline</h2>
-  <span class="muted pipeline-count">{{ total }} total</span>
+  <h2>{{ i18n.t('applications.title') }}</h2>
+  <span class="muted pipeline-count">{{ i18n.t('applications.total', { total }) }}</span>
 </div>
 
 @if (error) {
@@ -15,8 +15,8 @@
     <span class="empty-icon">
       <app-icon name="kanban" [size]="26" />
     </span>
-    <h3>Your pipeline is empty</h3>
-    <p>Open a job and press "Add to applications" to start tracking it here.</p>
+    <h3>{{ i18n.t('applications.emptyTitle') }}</h3>
+    <p>{{ i18n.t('applications.emptyHint') }}</p>
   </div>
 }
 
@@ -43,7 +43,7 @@
             @if (application.applied_date) {
               <span class="card-date">
                 <app-icon name="calendar" [size]="12" />
-                Applied {{ application.applied_date | date: 'mediumDate' }}
+                {{ i18n.t('pipeline.applied') }} {{ application.applied_date | date: 'mediumDate' }}
               </span>
             }
           </button>
@@ -51,7 +51,7 @@
         @if (columns[status].length === 0) {
           <div class="drop-hint">
             <app-icon name="kanban" [size]="14" />
-            Drop here
+            {{ i18n.t('applications.dropHere') }}
           </div>
         }
       </div>
@@ -79,7 +79,7 @@
       @if (selected.job_url) {
         <p>
           <a [href]="selected.job_url" target="_blank" rel="noopener noreferrer">
-            View posting
+            {{ i18n.t('applications.viewPosting') }}
             <app-icon name="external-link" [size]="13" />
           </a>
         </p>
@@ -90,7 +90,7 @@
       }
 
       <div class="form-field">
-        <label for="app-status">Move to status</label>
+        <label for="app-status">{{ i18n.t('applications.moveToStatus') }}</label>
         <select
           id="app-status"
           class="select"
@@ -106,9 +106,9 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-danger" (click)="remove(selected)">
           <app-icon name="trash" [size]="15" />
-          Delete
+          {{ i18n.t('common.delete') }}
         </button>
-        <button type="button" class="btn btn-ghost" (click)="closeDetail()">Close</button>
+        <button type="button" class="btn btn-ghost" (click)="closeDetail()">{{ i18n.t('common.close') }}</button>
       </div>
     </div>
   </div>

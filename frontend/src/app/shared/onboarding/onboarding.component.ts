@@ -1,15 +1,16 @@
-import { Component, EventEmitter, Output } from '@angular/core';
+import { Component, EventEmitter, Output, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AppIconComponent } from '../icons/icon.component';
 import { AppIconName } from '../icons/icon-name';
+import { I18nService } from '../../services/i18n.service';
 
 interface OnboardingStep {
   icon: AppIconName;
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
   route: string;
-  cta: string;
+  ctaKey: string;
 }
 
 /**
@@ -27,8 +28,8 @@ interface OnboardingStep {
           <app-icon name="sparkle" [size]="26" />
         </span>
         <div>
-          <h2>Welcome to PudimJobs 👋</h2>
-          <p>Here's how to go from job boards to your first offer in three steps.</p>
+          <h2>{{ i18n.t('onboarding.welcome') }}</h2>
+          <p>{{ i18n.t('onboarding.intro') }}</p>
         </div>
       </header>
 
@@ -39,11 +40,11 @@ interface OnboardingStep {
               <app-icon [name]="step.icon" [size]="20" />
             </span>
             <div class="step-body">
-              <h3>{{ step.title }}</h3>
-              <p>{{ step.description }}</p>
+              <h3>{{ i18n.t(step.titleKey) }}</h3>
+              <p>{{ i18n.t(step.descriptionKey) }}</p>
             </div>
             <a class="btn btn-ghost btn-sm" [routerLink]="step.route" (click)="dismiss()">
-              {{ step.cta }}
+              {{ i18n.t(step.ctaKey) }}
             </a>
           </li>
         }
@@ -51,7 +52,7 @@ interface OnboardingStep {
 
       <footer class="onboarding-foot">
         <button type="button" class="btn btn-ghost" (click)="dismiss()">
-          Got it — hide this
+          {{ i18n.t('onboarding.dismiss') }}
         </button>
       </footer>
     </div>
@@ -159,29 +160,31 @@ interface OnboardingStep {
   ],
 })
 export class OnboardingComponent {
+  readonly i18n = inject(I18nService);
+
   @Output() dismissed = new EventEmitter<void>();
 
   readonly steps: OnboardingStep[] = [
     {
       icon: 'globe',
-      title: 'Add a job source',
-      description: 'Connect a career page, aggregator, or RSS feed so new jobs are scraped automatically.',
+      titleKey: 'onboarding.step1.title',
+      descriptionKey: 'onboarding.step1.description',
       route: '/sources',
-      cta: 'Add sources',
+      ctaKey: 'onboarding.step1.cta',
     },
     {
       icon: 'file-text',
-      title: 'Create your master CV',
-      description: 'Store your summary, skills, experience, and education once — then tailor it per job.',
+      titleKey: 'onboarding.step2.title',
+      descriptionKey: 'onboarding.step2.description',
       route: '/cv',
-      cta: 'Edit CV',
+      ctaKey: 'onboarding.step2.cta',
     },
     {
       icon: 'kanban',
-      title: 'Track applications',
-      description: 'Move jobs through Saved → Applied → Interview → Offer and stay on top of your pipeline.',
+      titleKey: 'onboarding.step3.title',
+      descriptionKey: 'onboarding.step3.description',
       route: '/applications',
-      cta: 'Open pipeline',
+      ctaKey: 'onboarding.step3.cta',
     },
   ];
 

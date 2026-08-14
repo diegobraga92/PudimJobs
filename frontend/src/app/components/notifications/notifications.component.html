@@ -1,5 +1,5 @@
 <div class="page-header">
-  <h2>Notifications</h2>
+  <h2>{{ i18n.t('notifications.title') }}</h2>
   <button
     type="button"
     class="btn btn-ghost"
@@ -7,7 +7,7 @@
     [disabled]="unread === 0"
   >
     <app-icon name="check" [size]="15" />
-    Mark all read
+    {{ i18n.t('notifications.markAllRead') }}
   </button>
 </div>
 
@@ -20,9 +20,9 @@
 
 <div class="summary">
   @if (unread > 0) {
-    <span class="badge badge-info">{{ unread }} unread</span>
+    <span class="badge badge-info">{{ i18n.t('notifications.unread', { count: unread }) }}</span>
   }
-  <span class="muted">{{ total }} total</span>
+  <span class="muted">{{ i18n.t('notifications.total', { count: total }) }}</span>
 </div>
 
 @if (notifications.length === 0) {
@@ -30,8 +30,8 @@
     <span class="empty-icon">
       <app-icon name="inbox" [size]="26" />
     </span>
-    <h3>You're all caught up</h3>
-    <p>New matching jobs will appear here as soon as they're scraped.</p>
+    <h3>{{ i18n.t('notifications.emptyTitle') }}</h3>
+    <p>{{ i18n.t('notifications.emptyHint') }}</p>
   </div>
 } @else {
   <div class="list">
@@ -50,7 +50,7 @@
         </div>
         @if (!item.read) {
           <button type="button" class="btn btn-ghost btn-sm" (click)="markRead(item)">
-            Mark read
+            {{ i18n.t('notifications.markRead') }}
           </button>
         }
       </div>

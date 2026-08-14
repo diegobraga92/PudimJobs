@@ -15,6 +15,7 @@ import {
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
+import { I18nService } from '../../services/i18n.service';
 
 @Component({
   selector: 'app-sources',
@@ -55,7 +56,8 @@ export class SourcesComponent implements OnInit {
     private fb: FormBuilder,
     private service: SourcesService,
     private confirm: ConfirmService,
-    private toast: ToastService
+    private toast: ToastService,
+    readonly i18n: I18nService
   ) {
     this.sourceForm = this.fb.group({
       name: ['', Validators.required],
@@ -101,7 +103,7 @@ export class SourcesComponent implements OnInit {
         this.loading = false;
       },
       error: () => {
-        this.error = 'Failed to load sources';
+        this.error = this.i18n.t('errors.failedLoadSources');
         this.loading = false;
       },
     });
@@ -172,8 +174,8 @@ export class SourcesComponent implements OnInit {
         try {
           Object.assign(config, JSON.parse(this.configJson.trim()));
         } catch {
-          this.error = 'Invalid aggregator config JSON';
-          this.toast.error('Invalid aggregator config JSON.');
+          this.error = this.i18n.t('errors.invalidAggregatorJson');
+          this.toast.error(this.i18n.t('errors.invalidAggregatorJson'));
           return;
         }
       }
@@ -182,8 +184,8 @@ export class SourcesComponent implements OnInit {
     }
     if (raw.type === 'discovery') {
       if (!this.discoveryProvider) {
-        this.error = 'Choose a discovery provider';
-        this.toast.error('Choose a discovery provider.');
+        this.error = this.i18n.t('errors.chooseProvider');
+        this.toast.error(this.i18n.t('errors.chooseProvider'));
         return;
       }
       const config: Record<string, unknown> = { provider: this.discoveryProvider };
@@ -191,8 +193,8 @@ export class SourcesComponent implements OnInit {
         try {
           Object.assign(config, JSON.parse(this.configJson.trim()));
         } catch {
-          this.error = 'Invalid discovery config JSON';
-          this.toast.error('Invalid discovery config JSON.');
+          this.error = this.i18n.t('errors.invalidDiscoveryJson');
+          this.toast.error(this.i18n.t('errors.invalidDiscoveryJson'));
           return;
         }
       }
@@ -208,22 +210,22 @@ export class SourcesComponent implements OnInit {
         const wasEditing = !!this.editingId;
         this.showForm = false;
         this.editingId = null;
-        this.toast.success(wasEditing ? 'Source updated.' : 'Source added.');
+        this.toast.success(wasEditing ? this.i18n.t('sources.sourceUpdated') : this.i18n.t('sources.sourceAdded'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to save source';
-        this.toast.error('Failed to save source.');
+        this.error = this.i18n.t('errors.failedSaveSource');
+        this.toast.error(this.i18n.t('errors.failedSaveSource'));
       },
     });
   }
 
   async remove(source: Source): Promise<void> {
     const confirmed = await this.confirm.confirm({
-      title: 'Delete source?',
-      message: `Delete source "${source.name}"? Jobs already scraped from it will be kept.`,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Keep source',
+      title: this.i18n.t('sources.deleteTitle'),
+      message: this.i18n.t('sources.deleteMessage', { name: source.name }),
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('sources.keepSource'),
       destructive: true,
     });
     if (!confirmed) {
@@ -231,12 +233,12 @@ export class SourcesComponent implements OnInit {
     }
     this.service.delete(source.id).subscribe({
       next: () => {
-        this.toast.success('Source deleted.');
+        this.toast.success(this.i18n.t('sources.sourceDeleted'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to delete source';
-        this.toast.error('Failed to delete source.');
+        this.error = this.i18n.t('errors.failedDeleteSource');
+        this.toast.error(this.i18n.t('errors.failedDeleteSource'));
       },
     });
   }
@@ -287,12 +289,12 @@ export class SourcesComponent implements OnInit {
         this.authToken = '';
         this.authApiKey = '';
         this.authTestResult = null;
-        this.toast.success('Source authentication saved.');
+        this.toast.success(this.i18n.t('sources.authSaved'));
       },
       error: () => {
         this.authSaving = false;
-        this.error = 'Failed to save source authentication';
-        this.toast.error('Failed to save source authentication.');
+        this.error = this.i18n.t('errors.failedSaveAuth');
+        this.toast.error(this.i18n.t('errors.failedSaveAuth'));
       },
     });
   }
@@ -308,15 +310,15 @@ export class SourcesComponent implements OnInit {
         this.authTesting = false;
         this.authTestResult = result;
         if (result.ok) {
-          this.toast.success('Auth connection OK.');
+          this.toast.success(this.i18n.t('sources.authOk'));
         } else {
-          this.toast.error(result.error ? `Auth test failed: ${result.error}` : 'Auth test failed.');
+          this.toast.error(result.error ? this.i18n.t('sources.authFailedWith', { error: result.error }) : this.i18n.t('sources.authFailed'));
         }
       },
       error: () => {
         this.authTesting = false;
-        this.error = 'Failed to run auth test';
-        this.toast.error('Failed to run auth test.');
+        this.error = this.i18n.t('errors.failedRunAuthTest');
+        this.toast.error(this.i18n.t('errors.failedRunAuthTest'));
       },
     });
   }
@@ -332,11 +334,11 @@ export class SourcesComponent implements OnInit {
         this.authToken = '';
         this.authApiKey = '';
         this.authTestResult = null;
-        this.toast.success('Source authentication cleared.');
+        this.toast.success(this.i18n.t('sources.authCleared'));
       },
       error: () => {
-        this.error = 'Failed to clear source authentication';
-        this.toast.error('Failed to clear source authentication.');
+        this.error = this.i18n.t('errors.failedClearAuth');
+        this.toast.error(this.i18n.t('errors.failedClearAuth'));
       },
     });
   }

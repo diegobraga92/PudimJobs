@@ -2,6 +2,7 @@ import { Component } from '@angular/core';
 import { NgFor } from '@angular/common';
 
 import { AppIconComponent } from '../icons/icon.component';
+import { I18nService } from '../../services/i18n.service';
 import { ToastService } from './toast.service';
 
 /**
@@ -22,7 +23,7 @@ import { ToastService } from './toast.service';
             type="button"
             class="toast-close"
             (click)="service.dismiss(toast.id)"
-            aria-label="Dismiss notification"
+            [attr.aria-label]="i18n.t('toast.dismiss')"
           >
             <app-icon name="x" [size]="16" />
           </button>
@@ -32,5 +33,5 @@ import { ToastService } from './toast.service';
   `,
 })
 export class ToastViewportComponent {
-  constructor(readonly service: ToastService) {}
+  constructor(readonly service: ToastService, readonly i18n: I18nService) {}
 }

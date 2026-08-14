@@ -10,16 +10,9 @@ import {
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
+import { I18nService } from '../../services/i18n.service';
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
-
-const STATUS_LABELS: Record<ApplicationStatus, string> = {
-  saved: 'Saved',
-  applied: 'Applied',
-  interview: 'Interview',
-  offer: 'Offer',
-  rejected: 'Rejected',
-};
 
 @Component({
   selector: 'app-applications',
@@ -44,7 +37,8 @@ export class ApplicationsComponent implements OnInit {
   constructor(
     private service: ApplicationsService,
     private confirm: ConfirmService,
-    private toast: ToastService
+    private toast: ToastService,
+    readonly i18n: I18nService
   ) {}
 
   ngOnInit(): void {
@@ -52,7 +46,7 @@ export class ApplicationsComponent implements OnInit {
   }
 
   statusLabel(status: ApplicationStatus): string {
-    return STATUS_LABELS[status];
+    return this.i18n.t(`pipeline.${status}`);
   }
 
   /**
@@ -68,10 +62,10 @@ export class ApplicationsComponent implements OnInit {
     const targetStatus = event.container.id as ApplicationStatus;
     this.service.update(application.id, { status: targetStatus }).subscribe({
       next: () => {
-        this.toast.success(`Moved to ${STATUS_LABELS[targetStatus]}.`);
+        this.toast.success(this.i18n.t('applications.movedTo', { status: this.i18n.t(`pipeline.${targetStatus}`) }));
       },
       error: () => {
-        this.toast.error('Failed to move application.');
+        this.toast.error(this.i18n.t('errors.failedMoveApplication'));
         this.refresh();
       },
     });
@@ -90,8 +84,8 @@ export class ApplicationsComponent implements OnInit {
         }
       },
       error: () => {
-        this.error = 'Failed to load applications';
-        this.toast.error('Failed to load applications.');
+        this.error = this.i18n.t('errors.failedLoadApplications');
+        this.toast.error(this.i18n.t('errors.failedLoadApplications'));
       },
     });
   }
@@ -112,22 +106,22 @@ export class ApplicationsComponent implements OnInit {
     this.service.update(app.id, { status }).subscribe({
       next: () => {
         this.selected = null;
-        this.toast.success(`Moved to ${STATUS_LABELS[status]}.`);
+        this.toast.success(this.i18n.t('applications.movedTo', { status: this.i18n.t(`pipeline.${status}`) }));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to update status';
-        this.toast.error('Failed to update status.');
+        this.error = this.i18n.t('errors.failedUpdateStatus');
+        this.toast.error(this.i18n.t('errors.failedUpdateStatus'));
       },
     });
   }
 
   async remove(application: Application): Promise<void> {
     const confirmed = await this.confirm.confirm({
-      title: 'Remove application?',
-      message: `Remove "${application.job_title}" from your pipeline? This cannot be undone.`,
-      confirmLabel: 'Remove',
-      cancelLabel: 'Keep it',
+      title: this.i18n.t('applications.removeTitle'),
+      message: this.i18n.t('applications.removeMessage', { title: application.job_title }),
+      confirmLabel: this.i18n.t('common.remove'),
+      cancelLabel: this.i18n.t('applications.keepIt'),
       destructive: true,
     });
     if (!confirmed) {
@@ -136,12 +130,12 @@ export class ApplicationsComponent implements OnInit {
     this.service.delete(application.id).subscribe({
       next: () => {
         this.selected = null;
-        this.toast.success('Application removed.');
+        this.toast.success(this.i18n.t('applications.removed'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to delete application';
-        this.toast.error('Failed to delete application.');
+        this.error = this.i18n.t('errors.failedDeleteApplication');
+        this.toast.error(this.i18n.t('errors.failedDeleteApplication'));
       },
     });
   }

@@ -1,8 +1,8 @@
 <div class="page-header">
-  <h2>Jobs</h2>
+  <h2>{{ i18n.t('jobs.title') }}</h2>
   <button type="button" class="btn btn-primary" (click)="openCreate()">
     <app-icon name="plus" [size]="16" />
-    Add job
+    {{ i18n.t('jobs.addJob') }}
   </button>
 </div>
 
@@ -24,24 +24,24 @@
     <input
       formControlName="q"
       class="input"
-      placeholder="Keywords (title, company, description)"
-      aria-label="Search keywords"
+      [placeholder]="i18n.t('jobs.searchKeywordsPlaceholder')"
+      [attr.aria-label]="i18n.t('jobs.aria.searchKeywords')"
     />
   </div>
   <div class="search-field">
     <input
       formControlName="company"
       class="input"
-      placeholder="Company"
-      aria-label="Filter by company"
+      [placeholder]="i18n.t('common.company')"
+      [attr.aria-label]="i18n.t('jobs.aria.filterCompany')"
     />
   </div>
   <div class="search-field">
     <input
       formControlName="tags"
       class="input"
-      placeholder="Tags (comma separated)"
-      aria-label="Filter by tags"
+      [placeholder]="i18n.t('jobs.tagsPlaceholder')"
+      [attr.aria-label]="i18n.t('jobs.aria.filterTags')"
     />
   </div>
   <div class="search-field">
@@ -49,7 +49,7 @@
       formControlName="date_from"
       class="input"
       type="date"
-      aria-label="Posted after date"
+      [attr.aria-label]="i18n.t('jobs.aria.afterDate')"
     />
   </div>
   <div class="search-field">
@@ -57,7 +57,7 @@
       formControlName="date_to"
       class="input"
       type="date"
-      aria-label="Posted before date"
+      [attr.aria-label]="i18n.t('jobs.aria.beforeDate')"
     />
   </div>
   <button type="submit" class="btn btn-primary search-submit" [disabled]="loading">
@@ -66,7 +66,7 @@
     } @else {
       <app-icon name="search" [size]="16" />
     }
-    <span class="search-label">{{ loading ? 'Searching…' : 'Search' }}</span>
+    <span class="search-label">{{ loading ? i18n.t('jobs.searching') : i18n.t('jobs.search') }}</span>
   </button>
 </form>
 
@@ -75,27 +75,27 @@
     class="panel form"
     [formGroup]="jobForm"
     (ngSubmit)="save()"
-    [attr.aria-label]="'Add job manually'"
+    [attr.aria-label]="i18n.t('jobs.addJobManually')"
   >
-    <h3>Add job manually</h3>
+    <h3>{{ i18n.t('jobs.addJobManually') }}</h3>
 
     <div class="form-field">
-      <label for="job-title">Title</label>
+      <label for="job-title">{{ i18n.t('common.title') }}</label>
       <input
         id="job-title"
         class="input"
         formControlName="title"
-        placeholder="Senior Python Engineer"
+        [placeholder]="i18n.t('jobs.titlePlaceholder')"
       />
     </div>
 
     <div class="form-field">
-      <label for="job-company">Company</label>
+      <label for="job-company">{{ i18n.t('common.company') }}</label>
       <input id="job-company" class="input" formControlName="company" placeholder="Acme" />
     </div>
 
     <div class="form-field">
-      <label for="job-url">URL</label>
+      <label for="job-url">{{ i18n.t('common.url') }}</label>
       <input
         id="job-url"
         class="input"
@@ -106,31 +106,31 @@
 
     <div class="grid-2">
       <div class="form-field">
-        <label for="job-posted-date">Posted date</label>
+        <label for="job-posted-date">{{ i18n.t('jobs.postedDate') }}</label>
         <input id="job-posted-date" class="input" formControlName="posted_date" type="date" />
       </div>
 
       <div class="form-field">
-        <label for="job-tags">Tags</label>
+        <label for="job-tags">{{ i18n.t('common.tags') }}</label>
         <input id="job-tags" class="input" formControlName="tags" placeholder="python, fastapi" />
       </div>
     </div>
 
     <div class="form-field">
-      <label for="job-description">Description</label>
+      <label for="job-description">{{ i18n.t('common.description') }}</label>
       <textarea
         id="job-description"
         class="textarea"
         formControlName="description"
         rows="4"
-        placeholder="Full job description…"
+        [placeholder]="i18n.t('jobs.descriptionPlaceholder')"
       ></textarea>
     </div>
 
     <div class="form-actions">
-      <button type="button" class="btn btn-ghost" (click)="cancelForm()">Cancel</button>
+      <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
       <button type="submit" class="btn btn-primary" [disabled]="jobForm.invalid">
-        Add job
+        {{ i18n.t('jobs.addJob') }}
       </button>
     </div>
   </form>
@@ -155,11 +155,11 @@
     <span class="empty-icon">
       <app-icon name="briefcase" [size]="26" />
     </span>
-    <h3>No jobs found</h3>
-    <p>Try adjusting your search filters, or add a job manually to get started.</p>
+    <h3>{{ i18n.t('jobs.noJobsFound') }}</h3>
+    <p>{{ i18n.t('jobs.noJobsHint') }}</p>
     <button type="button" class="btn btn-primary" (click)="openCreate()">
       <app-icon name="plus" [size]="16" />
-      Add your first job
+      {{ i18n.t('jobs.addFirstJob') }}
     </button>
   </div>
 } @else {
@@ -181,7 +181,7 @@
         @if (job.posted_date) {
           <div class="job-date">
             <app-icon name="calendar" [size]="12" />
-            Posted {{ job.posted_date | date: 'mediumDate' }}
+            {{ i18n.t('jobs.postedPrefix') }} {{ job.posted_date | date: 'mediumDate' }}
           </div>
         }
         @if (job.tags.length > 0) {
@@ -196,7 +196,7 @@
   </div>
 
   @if (pageCount > 1) {
-    <nav class="pagination" aria-label="Jobs pagination">
+    <nav class="pagination" [attr.aria-label]="i18n.t('jobs.pagination')">
       <button
         type="button"
         class="btn btn-ghost btn-sm"
@@ -204,7 +204,7 @@
         (click)="goToPage(page - 1)"
       >
         <app-icon name="chevron-left" [size]="15" />
-        Previous
+        {{ i18n.t('common.previous') }}
       </button>
       <span class="pagination-info">{{ rangeLabel }}</span>
       <button
@@ -213,7 +213,7 @@
         [disabled]="page >= pageCount"
         (click)="goToPage(page + 1)"
       >
-        Next
+        {{ i18n.t('common.next') }}
         <app-icon name="chevron-right" [size]="15" />
       </button>
     </nav>

@@ -1,8 +1,8 @@
 <div class="page-header">
-  <h2>Job Alerts</h2>
+  <h2>{{ i18n.t('alerts.title') }}</h2>
   <button type="button" class="btn btn-primary" (click)="openCreate()">
     <app-icon name="plus" [size]="16" />
-    New alert
+    {{ i18n.t('alerts.newAlert') }}
   </button>
 </div>
 
@@ -15,16 +15,16 @@
 
 @if (showForm) {
   <form class="panel form" [formGroup]="alertForm" (ngSubmit)="save()">
-    <h3>{{ editingId ? 'Edit alert' : 'New alert' }}</h3>
+    <h3>{{ editingId ? i18n.t('alerts.editAlert') : i18n.t('alerts.newAlert') }}</h3>
 
     <div class="form-field">
-      <label for="alert-name">Name</label>
+      <label for="alert-name">{{ i18n.t('common.name') }}</label>
       <input id="alert-name" class="input" formControlName="name" placeholder="Senior Python jobs" />
     </div>
 
     <div class="grid-2">
       <div class="form-field">
-        <label for="alert-keywords">Keywords (comma separated)</label>
+        <label for="alert-keywords">{{ i18n.t('alerts.keywords') }}</label>
         <input
           id="alert-keywords"
           class="input"
@@ -33,7 +33,7 @@
         />
       </div>
       <div class="form-field">
-        <label for="alert-companies">Companies (comma separated)</label>
+        <label for="alert-companies">{{ i18n.t('alerts.companies') }}</label>
         <input
           id="alert-companies"
           class="input"
@@ -45,7 +45,7 @@
 
     <div class="grid-2">
       <div class="form-field">
-        <label for="alert-tags">Tags (comma separated)</label>
+        <label for="alert-tags">{{ i18n.t('alerts.tags') }}</label>
         <input
           id="alert-tags"
           class="input"
@@ -54,7 +54,7 @@
         />
       </div>
       <div class="form-field">
-        <label for="alert-min-years">Min years of experience</label>
+        <label for="alert-min-years">{{ i18n.t('alerts.minYears') }}</label>
         <input
           id="alert-min-years"
           class="input"
@@ -67,7 +67,7 @@
     </div>
 
     <div class="form-field">
-      <label for="alert-channels">Channels (comma separated: in_app, email)</label>
+      <label for="alert-channels">{{ i18n.t('alerts.channels') }}</label>
       <input
         id="alert-channels"
         class="input"
@@ -80,18 +80,18 @@
     <div class="form-field">
       <label class="checkbox-row">
         <input formControlName="remote_only" type="checkbox" />
-        Remote-only
+        {{ i18n.t('alerts.remoteOnly') }}
       </label>
       <label class="checkbox-row">
         <input formControlName="active" type="checkbox" />
-        Active
+        {{ i18n.t('alerts.active') }}
       </label>
     </div>
 
     <div class="form-actions">
-      <button type="button" class="btn btn-ghost" (click)="cancelForm()">Cancel</button>
+      <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
       <button type="submit" class="btn btn-primary" [disabled]="alertForm.invalid">
-        {{ editingId ? 'Save changes' : 'Create alert' }}
+        {{ editingId ? i18n.t('alerts.saveChanges') : i18n.t('alerts.createAlert') }}
       </button>
     </div>
   </form>
@@ -100,18 +100,18 @@
 @if (loading) {
   <div class="loading-text pulse">
     <app-icon name="loader" [size]="16" />
-    Loading alerts…
+    {{ i18n.t('alerts.loading') }}
   </div>
 } @else if (rules.length === 0) {
   <div class="empty-state panel">
     <span class="empty-icon">
       <app-icon name="bell" [size]="26" />
     </span>
-    <h3>No alert rules yet</h3>
-    <p>Create one to get notified about new matching jobs.</p>
+    <h3>{{ i18n.t('alerts.noRules') }}</h3>
+    <p>{{ i18n.t('alerts.noRulesHint') }}</p>
     <button type="button" class="btn btn-primary" (click)="openCreate()">
       <app-icon name="plus" [size]="16" />
-      Create an alert
+      {{ i18n.t('alerts.createOne') }}
     </button>
   </div>
 } @else {
@@ -119,14 +119,14 @@
     <table class="table">
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Keywords</th>
-          <th>Companies</th>
-          <th>Remote</th>
-          <th>Min years</th>
-          <th>Channels</th>
-          <th>Status</th>
-          <th class="row-actions">Actions</th>
+          <th>{{ i18n.t('common.name') }}</th>
+          <th>{{ i18n.t('alerts.tableKeywords') }}</th>
+          <th>{{ i18n.t('alerts.tableCompanies') }}</th>
+          <th>{{ i18n.t('alerts.tableRemote') }}</th>
+          <th>{{ i18n.t('alerts.tableMinYears') }}</th>
+          <th>{{ i18n.t('alerts.tableChannels') }}</th>
+          <th>{{ i18n.t('alerts.tableStatus') }}</th>
+          <th class="row-actions">{{ i18n.t('common.actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -152,17 +152,17 @@
                 [class.btn-ghost]="!rule.active"
                 (click)="toggleActive(rule)"
               >
-                {{ rule.active ? 'Active' : 'Paused' }}
+                {{ rule.active ? i18n.t('alerts.active') : i18n.t('alerts.paused') }}
               </button>
             </td>
             <td class="row-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(rule)">
                 <app-icon name="pencil" [size]="14" />
-                Edit
+                {{ i18n.t('common.edit') }}
               </button>
               <button type="button" class="btn btn-danger btn-sm" (click)="remove(rule)">
                 <app-icon name="trash" [size]="14" />
-                Delete
+                {{ i18n.t('common.delete') }}
               </button>
             </td>
           </tr>

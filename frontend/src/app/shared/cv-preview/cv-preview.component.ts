@@ -1,6 +1,7 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
 
 import { CVStructure } from '../../services/cv.service';
+import { I18nService } from '../../services/i18n.service';
 
 /**
  * Renders a CVStructure as a clean, A4-style single-page document. Used by the
@@ -17,14 +18,14 @@ import { CVStructure } from '../../services/cv.service';
           @if (cv.summary) {
             <span>{{ cv.summary }}</span>
           } @else {
-            <span class="empty">Your professional summary appears here.</span>
+            <span class="empty">{{ i18n.t('cvPreview.summaryEmpty') }}</span>
           }
         </p>
       </header>
 
       @if (cv.skills.length > 0) {
         <section class="cv-section">
-          <h3>Skills</h3>
+          <h3>{{ i18n.t('cvPreview.skills') }}</h3>
           <div class="cv-skills">
             @for (skill of cv.skills; track skill) {
               <span class="skill-chip">{{ skill }}</span>
@@ -35,7 +36,7 @@ import { CVStructure } from '../../services/cv.service';
 
       @if (cv.experience.length > 0) {
         <section class="cv-section">
-          <h3>Experience</h3>
+          <h3>{{ i18n.t('cvPreview.experience') }}</h3>
           @for (exp of cv.experience; track $index) {
             <div class="cv-entry">
               <div class="cv-entry-head">
@@ -57,7 +58,7 @@ import { CVStructure } from '../../services/cv.service';
 
       @if (cv.education.length > 0) {
         <section class="cv-section">
-          <h3>Education</h3>
+          <h3>{{ i18n.t('cvPreview.education') }}</h3>
           @for (edu of cv.education; track $index) {
             <div class="cv-entry">
               <div class="cv-entry-head">
@@ -72,7 +73,7 @@ import { CVStructure } from '../../services/cv.service';
 
       @if (cv.projects.length > 0) {
         <section class="cv-section">
-          <h3>Projects</h3>
+          <h3>{{ i18n.t('cvPreview.projects') }}</h3>
           @for (project of cv.projects; track $index) {
             <div class="cv-entry">
               <div class="cv-entry-head">
@@ -210,6 +211,8 @@ import { CVStructure } from '../../services/cv.service';
   ],
 })
 export class CvPreviewComponent {
+  readonly i18n = inject(I18nService);
+
   @Input({ required: true }) cv!: CVStructure;
   /** Display name for the resume header. */
   @Input() name = 'Your Name';
@@ -232,10 +235,8 @@ export class CvPreviewComponent {
     if (!month) {
       return year;
     }
-    const names = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return `${names[Number(month) - 1] ?? month} ${year}`;
+    const idx = Number(month);
+    const name = idx >= 1 && idx <= 12 ? this.i18n.t(`months.${idx}`) : month;
+    return `${name} ${year}`;
   }
 }

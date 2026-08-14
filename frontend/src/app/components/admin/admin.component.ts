@@ -20,12 +20,13 @@ import {
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { AppIconName } from '../../shared/icons/icon-name';
 import { ToastService } from '../../shared/toast/toast.service';
+import { I18nService } from '../../services/i18n.service';
 
 type AdminTab = 'overview' | 'sources' | 'quality' | 'dlq' | 'audit' | 'llm';
 
 interface AdminTabDef {
   id: AdminTab;
-  label: string;
+  labelKey: string;
   icon: AppIconName;
 }
 
@@ -38,12 +39,12 @@ interface AdminTabDef {
 })
 export class AdminComponent implements OnInit {
   readonly tabs: AdminTabDef[] = [
-    { id: 'overview', label: 'Overview', icon: 'layout-dashboard' },
-    { id: 'sources', label: 'Sources', icon: 'globe' },
-    { id: 'quality', label: 'Quality', icon: 'chart' },
-    { id: 'dlq', label: 'Dead-Letter Queue', icon: 'circle-alert' },
-    { id: 'audit', label: 'Audit Log', icon: 'history' },
-    { id: 'llm', label: 'LLM', icon: 'sparkle' },
+    { id: 'overview', labelKey: 'admin.tabs.overview', icon: 'layout-dashboard' },
+    { id: 'sources', labelKey: 'admin.tabs.sources', icon: 'globe' },
+    { id: 'quality', labelKey: 'admin.tabs.quality', icon: 'chart' },
+    { id: 'dlq', labelKey: 'admin.tabs.dlq', icon: 'circle-alert' },
+    { id: 'audit', labelKey: 'admin.tabs.audit', icon: 'history' },
+    { id: 'llm', labelKey: 'admin.tabs.llm', icon: 'sparkle' },
   ];
   activeTab: AdminTab = 'overview';
 
@@ -76,7 +77,8 @@ export class AdminComponent implements OnInit {
 
   constructor(
     private service: AdminService,
-    private toast: ToastService
+    private toast: ToastService,
+    readonly i18n: I18nService
   ) {}
 
   ngOnInit(): void {
@@ -106,7 +108,8 @@ export class AdminComponent implements OnInit {
 
   /** Human-readable label for the active tab (used as the tabpanel's aria-label). */
   activeTabLabel(): string {
-    return this.tabs.find((tab) => tab.id === this.activeTab)?.label ?? this.activeTab;
+    const tab = this.tabs.find((item) => item.id === this.activeTab);
+    return tab ? this.i18n.t(tab.labelKey) : this.activeTab;
   }
 
   refresh(): void {
@@ -115,8 +118,8 @@ export class AdminComponent implements OnInit {
     this.service.stats().subscribe({
       next: (stats) => (this.stats = stats),
       error: () => {
-        this.error = 'Failed to load stats';
-        this.toast.error('Failed to load stats.');
+        this.error = this.i18n.t('errors.failedLoadStats');
+        this.toast.error(this.i18n.t('errors.failedLoadStats'));
       },
     });
     this.loadSourceHealth();
@@ -138,8 +141,8 @@ export class AdminComponent implements OnInit {
         this.llmApiKey = '';
       },
       error: () => {
-        this.error = 'Failed to load LLM settings';
-        this.toast.error('Failed to load LLM settings.');
+        this.error = this.i18n.t('errors.failedLoadLlm');
+        this.toast.error(this.i18n.t('errors.failedLoadLlm'));
       },
     });
   }
@@ -166,12 +169,12 @@ export class AdminComponent implements OnInit {
         this.llmModel = config.model;
         this.llmApiKey = '';
         this.llmTestResult = null;
-        this.toast.success('LLM settings saved.');
+        this.toast.success(this.i18n.t('admin.llmSaved'));
       },
       error: () => {
         this.llmSaving = false;
-        this.error = 'Failed to save LLM settings';
-        this.toast.error('Failed to save LLM settings.');
+        this.error = this.i18n.t('errors.failedSaveLlm');
+        this.toast.error(this.i18n.t('errors.failedSaveLlm'));
       },
     });
   }
@@ -187,15 +190,15 @@ export class AdminComponent implements OnInit {
         this.llmTesting = false;
         this.llmTestResult = result;
         if (result.ok) {
-          this.toast.success('LLM connection OK.');
+          this.toast.success(this.i18n.t('admin.llmOk'));
         } else {
-          this.toast.error(result.error ? `LLM test failed: ${result.error}` : 'LLM test failed.');
+          this.toast.error(result.error ? this.i18n.t('admin.llmFailedWith', { error: result.error }) : this.i18n.t('admin.llmFailed'));
         }
       },
       error: () => {
         this.llmTesting = false;
-        this.error = 'Failed to run LLM test';
-        this.toast.error('Failed to run LLM test.');
+        this.error = this.i18n.t('errors.failedRunLlmTest');
+        this.toast.error(this.i18n.t('errors.failedRunLlmTest'));
       },
     });
   }
@@ -204,8 +207,8 @@ export class AdminComponent implements OnInit {
     this.service.sourceHealth().subscribe({
       next: (sources) => (this.sources = sources),
       error: () => {
-        this.error = 'Failed to load source health';
-        this.toast.error('Failed to load source health.');
+        this.error = this.i18n.t('errors.failedLoadSourceHealth');
+        this.toast.error(this.i18n.t('errors.failedLoadSourceHealth'));
       },
     });
   }
@@ -217,9 +220,9 @@ export class AdminComponent implements OnInit {
         this.loading = false;
       },
       error: () => {
-        this.error = 'Failed to load DLQ';
+        this.error = this.i18n.t('errors.failedLoadDlq');
         this.loading = false;
-        this.toast.error('Failed to load dead-letter queue.');
+        this.toast.error(this.i18n.t('errors.failedLoadDlq'));
       },
     });
   }
@@ -228,8 +231,8 @@ export class AdminComponent implements OnInit {
     this.service.qualityOverview().subscribe({
       next: (quality) => (this.quality = quality),
       error: () => {
-        this.error = 'Failed to load quality overview';
-        this.toast.error('Failed to load quality overview.');
+        this.error = this.i18n.t('errors.failedLoadQuality');
+        this.toast.error(this.i18n.t('errors.failedLoadQuality'));
       },
     });
     this.service.qualityBySource().subscribe({
@@ -242,8 +245,8 @@ export class AdminComponent implements OnInit {
     this.service.qualityJobs(this.showFlaggedOnly).subscribe({
       next: (jobs) => (this.qualityJobs = jobs),
       error: () => {
-        this.error = 'Failed to load quality jobs';
-        this.toast.error('Failed to load quality jobs.');
+        this.error = this.i18n.t('errors.failedLoadQualityJobs');
+        this.toast.error(this.i18n.t('errors.failedLoadQualityJobs'));
       },
     });
   }
@@ -263,8 +266,8 @@ export class AdminComponent implements OnInit {
     this.service.auditLog(filters).subscribe({
       next: (entries) => (this.auditEntries = entries),
       error: () => {
-        this.error = 'Failed to load audit log';
-        this.toast.error('Failed to load audit log.');
+        this.error = this.i18n.t('errors.failedLoadAudit');
+        this.toast.error(this.i18n.t('errors.failedLoadAudit'));
       },
     });
   }
@@ -283,12 +286,12 @@ export class AdminComponent implements OnInit {
   triggerScrape(sourceId: string): void {
     this.service.triggerScrape(sourceId).subscribe({
       next: () => {
-        this.toast.success('Scrape triggered.');
+        this.toast.success(this.i18n.t('admin.scrapeTriggered'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to trigger scrape';
-        this.toast.error('Failed to trigger scrape.');
+        this.error = this.i18n.t('errors.failedTriggerScrape');
+        this.toast.error(this.i18n.t('errors.failedTriggerScrape'));
       },
     });
   }
@@ -296,12 +299,12 @@ export class AdminComponent implements OnInit {
   replay(runId: string): void {
     this.service.replay(runId).subscribe({
       next: () => {
-        this.toast.success('Run replayed.');
+        this.toast.success(this.i18n.t('admin.runReplayed'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to replay run';
-        this.toast.error('Failed to replay run.');
+        this.error = this.i18n.t('errors.failedReplay');
+        this.toast.error(this.i18n.t('errors.failedReplay'));
       },
     });
   }

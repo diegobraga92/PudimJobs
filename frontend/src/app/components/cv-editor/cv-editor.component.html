@@ -1,7 +1,7 @@
 <div class="page-header">
-  <h2>Master CV</h2>
+  <h2>{{ i18n.t('cv.title') }}</h2>
   <div class="header-actions">
-    <div class="segmented" role="tablist" aria-label="CV editor mode">
+    <div class="segmented" role="tablist" [attr.aria-label]="i18n.t('cv.aria.editorMode')">
       <button
         type="button"
         role="tab"
@@ -12,7 +12,7 @@
         (click)="mode = 'edit'"
       >
         <app-icon name="pencil" [size]="15" />
-        Edit
+        {{ i18n.t('cv.edit') }}
       </button>
       <button
         type="button"
@@ -24,7 +24,7 @@
         (click)="mode = 'preview'"
       >
         <app-icon name="eye" [size]="15" />
-        Preview
+        {{ i18n.t('cv.preview') }}
       </button>
     </div>
     <button type="button" class="btn btn-primary" (click)="save()" [disabled]="saving || mode !== 'edit'">
@@ -32,7 +32,7 @@
         <app-icon class="spinner" name="loader" [size]="16" />
       }
       <app-icon name="check" [size]="16" />
-      {{ saving ? 'Saving…' : 'Save as new version' }}
+      {{ saving ? i18n.t('cv.saving') : i18n.t('cv.saveNewVersion') }}
     </button>
   </div>
 </div>
@@ -58,64 +58,64 @@
       class="panel editor"
       [formGroup]="cvForm"
       (ngSubmit)="save()"
-      aria-label="Master CV editor"
+      [attr.aria-label]="i18n.t('cv.aria.editor')"
     >
-    <h3>Summary</h3>
+    <h3>{{ i18n.t('cv.summary') }}</h3>
     <div class="form-field">
       <textarea
         class="textarea"
         formControlName="summary"
         rows="3"
-        placeholder="Short professional summary"
-        aria-label="Professional summary"
+        [placeholder]="i18n.t('cv.summaryPlaceholder')"
+        [attr.aria-label]="i18n.t('cv.aria.summary')"
       ></textarea>
     </div>
 
-    <h3>Skills</h3>
+    <h3>{{ i18n.t('cv.skills') }}</h3>
     <div class="form-field">
       <input
         class="input"
         formControlName="skillsText"
-        placeholder="python, fastapi, postgresql (comma separated)"
-        aria-label="Skills, comma separated"
+        [placeholder]="i18n.t('cv.skillsPlaceholder')"
+        [attr.aria-label]="i18n.t('cv.aria.skills')"
       />
     </div>
 
-    <h3>Experience</h3>
+    <h3>{{ i18n.t('cv.experience') }}</h3>
     @for (exp of experience.controls; track $index) {
       <div class="sub-form" [formGroupName]="$index">
         <div class="sub-header">
           <strong>
             <app-icon name="briefcase" [size]="14" />
-            Experience {{ $index + 1 }}
+            {{ i18n.t('cv.experienceItem', { n: $index + 1 }) }}
           </strong>
           <button type="button" class="btn btn-ghost btn-sm" (click)="removeExperience($index)">
             <app-icon name="trash" [size]="13" />
-            Remove
+            {{ i18n.t('common.remove') }}
           </button>
         </div>
         <div class="grid-2">
           <div class="form-field">
-            <label>Company</label>
+            <label>{{ i18n.t('common.company') }}</label>
             <input class="input" formControlName="company" />
           </div>
           <div class="form-field">
-            <label>Title</label>
+            <label>{{ i18n.t('common.title') }}</label>
             <input class="input" formControlName="title" />
           </div>
         </div>
         <div class="grid-2">
           <div class="form-field">
-            <label>Start</label>
+            <label>{{ i18n.t('cv.start') }}</label>
             <input class="input" formControlName="start_date" placeholder="2020-01" />
           </div>
           <div class="form-field">
-            <label>End</label>
+            <label>{{ i18n.t('cv.end') }}</label>
             <input class="input" formControlName="end_date" placeholder="2023-06" />
           </div>
         </div>
         <div class="form-field">
-          <label>Bullet points (one per line)</label>
+          <label>{{ i18n.t('cv.bullets') }}</label>
           <textarea
             class="textarea"
             formControlName="bulletsText"
@@ -127,34 +127,34 @@
     }
     <button type="button" class="btn btn-ghost" (click)="addExperience()">
       <app-icon name="plus" [size]="15" />
-      Add experience
+      {{ i18n.t('cv.addExperience') }}
     </button>
 
 
-    <h3>Education</h3>
+    <h3>{{ i18n.t('cv.education') }}</h3>
     @for (edu of education.controls; track $index) {
       <div class="sub-form" [formGroupName]="$index">
         <div class="sub-header">
           <strong>
             <app-icon name="globe" [size]="14" />
-            Education {{ $index + 1 }}
+            {{ i18n.t('cv.educationItem', { n: $index + 1 }) }}
           </strong>
           <button type="button" class="btn btn-ghost btn-sm" (click)="removeEducation($index)">
             <app-icon name="trash" [size]="13" />
-            Remove
+            {{ i18n.t('common.remove') }}
           </button>
         </div>
         <div class="form-field">
-          <label>Institution</label>
+          <label>{{ i18n.t('cv.institution') }}</label>
           <input class="input" formControlName="institution" />
         </div>
         <div class="grid-2">
           <div class="form-field">
-            <label>Degree</label>
+            <label>{{ i18n.t('cv.degree') }}</label>
             <input class="input" formControlName="degree" />
           </div>
           <div class="form-field">
-            <label>Year</label>
+            <label>{{ i18n.t('cv.year') }}</label>
             <input class="input" formControlName="year" />
           </div>
         </div>
@@ -162,39 +162,39 @@
     }
     <button type="button" class="btn btn-ghost" (click)="addEducation()">
       <app-icon name="plus" [size]="15" />
-      Add education
+      {{ i18n.t('cv.addEducation') }}
     </button>
 
-    <h3>Projects</h3>
+    <h3>{{ i18n.t('cv.projects') }}</h3>
     @for (proj of projects.controls; track $index) {
       <div class="sub-form" [formGroupName]="$index">
         <div class="sub-header">
           <strong>
             <app-icon name="star" [size]="14" />
-            Project {{ $index + 1 }}
+            {{ i18n.t('cv.projectItem', { n: $index + 1 }) }}
           </strong>
           <button type="button" class="btn btn-ghost btn-sm" (click)="removeProject($index)">
             <app-icon name="trash" [size]="13" />
-            Remove
+            {{ i18n.t('common.remove') }}
           </button>
         </div>
         <div class="form-field">
-          <label>Name</label>
+          <label>{{ i18n.t('common.name') }}</label>
           <input class="input" formControlName="name" />
         </div>
         <div class="form-field">
-          <label>Link</label>
+          <label>{{ i18n.t('cv.link') }}</label>
           <input class="input" formControlName="link" />
         </div>
         <div class="form-field">
-          <label>Description</label>
+          <label>{{ i18n.t('common.description') }}</label>
           <textarea class="textarea" formControlName="description" rows="2"></textarea>
         </div>
       </div>
     }
     <button type="button" class="btn btn-ghost" (click)="addProject()">
       <app-icon name="plus" [size]="15" />
-      Add project
+      {{ i18n.t('cv.addProject') }}
     </button>
     </form>
   } @else {
@@ -204,16 +204,16 @@
   }
 
   <aside class="panel history">
-    <h3>Version history</h3>
+    <h3>{{ i18n.t('cv.versionHistory') }}</h3>
     @if (versions.length === 0) {
-      <p class="muted small">No versions saved yet.</p>
+      <p class="muted small">{{ i18n.t('cv.noVersions') }}</p>
     } @else {
       <ul>
         @for (version of versions; track version.id) {
           <li [class.current]="version.is_current">
             {{ version.label }}
             @if (version.is_current) {
-              <span class="badge badge-info">current</span>
+              <span class="badge badge-info">{{ i18n.t('cv.current') }}</span>
             }
             <div class="muted xs">{{ version.updated_at | date: 'short' }}</div>
           </li>
@@ -221,9 +221,9 @@
       </ul>
     }
 
-    <h3>Tailored CVs</h3>
+    <h3>{{ i18n.t('cv.tailoredCvs') }}</h3>
     @if (generated.length === 0) {
-      <p class="muted small">No tailored CVs yet — use "Tailor CV" on a job.</p>
+      <p class="muted small">{{ i18n.t('cv.noTailored') }}</p>
     } @else {
       <ul>
         @for (item of generated; track item.id) {
@@ -234,7 +234,7 @@
             </div>
             <button type="button" class="btn btn-ghost btn-sm" (click)="downloadPdf(item.id)">
               <app-icon name="download" [size]="14" />
-              PDF
+              {{ i18n.t('cv.pdf') }}
             </button>
           </li>
         }

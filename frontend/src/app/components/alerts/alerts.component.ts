@@ -6,6 +6,7 @@ import { AlertRule, AlertRuleInput, AlertsService } from '../../services/alerts.
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
+import { I18nService } from '../../services/i18n.service';
 
 @Component({
   selector: 'app-alerts',
@@ -28,7 +29,8 @@ export class AlertsComponent implements OnInit {
     private fb: FormBuilder,
     private service: AlertsService,
     private confirm: ConfirmService,
-    private toast: ToastService
+    private toast: ToastService,
+    readonly i18n: I18nService
   ) {
     this.alertForm = this.fb.group({
       name: ['', Validators.required],
@@ -54,7 +56,7 @@ export class AlertsComponent implements OnInit {
         this.loading = false;
       },
       error: () => {
-        this.error = 'Failed to load alert rules';
+        this.error = this.i18n.t('errors.failedLoadAlerts');
         this.loading = false;
       },
     });
@@ -112,12 +114,12 @@ export class AlertsComponent implements OnInit {
         const wasEditing = !!this.editingId;
         this.showForm = false;
         this.editingId = null;
-        this.toast.success(wasEditing ? 'Alert updated.' : 'Alert created.');
+        this.toast.success(wasEditing ? this.i18n.t('alerts.updated') : this.i18n.t('alerts.created'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to save alert rule';
-        this.toast.error('Failed to save alert rule.');
+        this.error = this.i18n.t('errors.failedSaveAlert');
+        this.toast.error(this.i18n.t('errors.failedSaveAlert'));
       },
     });
   }
@@ -125,22 +127,22 @@ export class AlertsComponent implements OnInit {
   toggleActive(rule: AlertRule): void {
     this.service.update(rule.id, { active: !rule.active }).subscribe({
       next: () => {
-        this.toast.success(rule.active ? 'Alert paused.' : 'Alert activated.');
+        this.toast.success(rule.active ? this.i18n.t('alerts.pausedToast') : this.i18n.t('alerts.activatedToast'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to update rule';
-        this.toast.error('Failed to update rule.');
+        this.error = this.i18n.t('errors.failedUpdateRule');
+        this.toast.error(this.i18n.t('errors.failedUpdateRule'));
       },
     });
   }
 
   async remove(rule: AlertRule): Promise<void> {
     const confirmed = await this.confirm.confirm({
-      title: 'Delete alert?',
-      message: `Delete alert "${rule.name}"? You will stop receiving matching job notifications.`,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Keep alert',
+      title: this.i18n.t('alerts.deleteTitle'),
+      message: this.i18n.t('alerts.deleteMessage', { name: rule.name }),
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('alerts.keepAlert'),
       destructive: true,
     });
     if (!confirmed) {
@@ -148,12 +150,12 @@ export class AlertsComponent implements OnInit {
     }
     this.service.delete(rule.id).subscribe({
       next: () => {
-        this.toast.success('Alert deleted.');
+        this.toast.success(this.i18n.t('alerts.deletedToast'));
         this.refresh();
       },
       error: () => {
-        this.error = 'Failed to delete alert rule';
-        this.toast.error('Failed to delete alert rule.');
+        this.error = this.i18n.t('errors.failedDeleteAlert');
+        this.toast.error(this.i18n.t('errors.failedDeleteAlert'));
       },
     });
   }

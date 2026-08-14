@@ -7,11 +7,12 @@ import { HealthCheckService, HealthResponse } from '../../health-check.service';
 import { AuthService, User } from '../../services/auth.service';
 import { NotificationsService } from '../../services/notifications.service';
 import { ThemeService } from '../../services/theme.service';
+import { I18nService } from '../../services/i18n.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { AppIconName } from '../../shared/icons/icon-name';
 
 interface NavItem {
-  label: string;
+  labelKey: string;
   route: string;
   icon: AppIconName;
   adminOnly?: boolean;
@@ -33,13 +34,13 @@ export class LayoutComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly navItems: NavItem[] = [
-    { label: 'Jobs', route: '/jobs', icon: 'briefcase' },
-    { label: 'Sources', route: '/sources', icon: 'globe' },
-    { label: 'Master CV', route: '/cv', icon: 'file-text' },
-    { label: 'Applications', route: '/applications', icon: 'kanban' },
-    { label: 'Alerts', route: '/alerts', icon: 'bell' },
-    { label: 'Notifications', route: '/notifications', icon: 'bell-ring' },
-    { label: 'Admin', route: '/admin', icon: 'shield-check', adminOnly: true },
+    { labelKey: 'layout.nav.jobs', route: '/jobs', icon: 'briefcase' },
+    { labelKey: 'layout.nav.sources', route: '/sources', icon: 'globe' },
+    { labelKey: 'layout.nav.masterCv', route: '/cv', icon: 'file-text' },
+    { labelKey: 'layout.nav.applications', route: '/applications', icon: 'kanban' },
+    { labelKey: 'layout.nav.alerts', route: '/alerts', icon: 'bell' },
+    { labelKey: 'layout.nav.notifications', route: '/notifications', icon: 'bell-ring' },
+    { labelKey: 'layout.nav.admin', route: '/admin', icon: 'shield-check', adminOnly: true },
   ];
 
   constructor(
@@ -47,7 +48,8 @@ export class LayoutComponent implements OnInit {
     private router: Router,
     private healthCheck: HealthCheckService,
     private notifications: NotificationsService,
-    readonly theme: ThemeService
+    readonly theme: ThemeService,
+    readonly i18n: I18nService
   ) {}
 
   ngOnInit(): void {

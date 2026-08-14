@@ -8,17 +8,9 @@ import { ApplicationsService } from '../../services/applications.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { OnboardingComponent } from '../../shared/onboarding/onboarding.component';
 import { ToastService } from '../../shared/toast/toast.service';
+import { I18nService } from '../../services/i18n.service';
 
 const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
-
-/** Status label shown on a job card that is already in the application pipeline. */
-const PIPELINE_LABELS: Record<string, string> = {
-  saved: 'Saved',
-  applied: 'Applied',
-  interview: 'Interview',
-  offer: 'Offer',
-  rejected: 'Rejected',
-};
 
 const PIPELINE_BADGES: Record<string, string> = {
   saved: 'badge-info',
@@ -59,7 +51,8 @@ export class JobsComponent implements OnInit {
     private service: JobsService,
     private applications: ApplicationsService,
     private router: Router,
-    private toast: ToastService
+    private toast: ToastService,
+    readonly i18n: I18nService
   ) {
     this.searchForm = this.fb.group({
       q: [''],
@@ -98,7 +91,9 @@ export class JobsComponent implements OnInit {
   }
 
   pipelineLabel(status: string): string {
-    return PIPELINE_LABELS[status] ?? 'In pipeline';
+    const key = `pipeline.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? this.i18n.t('pipeline.inPipeline') : label;
   }
 
   pipelineBadge(status: string): string {
@@ -129,7 +124,7 @@ export class JobsComponent implements OnInit {
         this.loading = false;
       },
       error: () => {
-        this.error = 'Failed to load jobs';
+        this.error = this.i18n.t('errors.failedLoadJobs');
         this.loading = false;
       },
     });
@@ -147,11 +142,11 @@ export class JobsComponent implements OnInit {
 
   get rangeLabel(): string {
     if (this.jobs.length === 0) {
-      return '0 results';
+      return this.i18n.t('jobs.zeroResults');
     }
     const start = (this.page - 1) * this.pageSize + 1;
     const end = Math.min(this.page * this.pageSize, this.jobs.length);
-    return `${start}–${end} of ${this.jobs.length}`;
+    return this.i18n.t('jobs.rangeLabel', { start, end, total: this.jobs.length });
   }
 
   goToPage(p: number): void {
@@ -199,13 +194,13 @@ export class JobsComponent implements OnInit {
     this.service.create(payload).subscribe({
       next: () => {
         this.showForm = false;
-        this.toast.success('Job added successfully.');
+        this.toast.success(this.i18n.t('jobs.jobAdded'));
         this.search();
         this.loadPipeline();
       },
       error: () => {
-        this.error = 'Failed to create job';
-        this.toast.error('Failed to create job.');
+        this.error = this.i18n.t('errors.failedCreateJob');
+        this.toast.error(this.i18n.t('errors.failedCreateJob'));
       },
     });
   }

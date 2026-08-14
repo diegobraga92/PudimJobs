@@ -1,7 +1,7 @@
 @if (loading) {
   <button type="button" class="btn btn-ghost btn-sm" (click)="back()">
     <app-icon name="arrow-left" [size]="16" />
-    Back to jobs
+    {{ i18n.t('jobDetail.backToJobs') }}
   </button>
 
   <div class="panel detail" aria-hidden="true">
@@ -21,7 +21,7 @@
 } @else if (job) {
   <button type="button" class="btn btn-ghost btn-sm" (click)="back()">
     <app-icon name="arrow-left" [size]="16" />
-    Back to jobs
+    {{ i18n.t('jobDetail.backToJobs') }}
   </button>
 
   <div class="panel detail">
@@ -34,7 +34,7 @@
     @if (job.posted_date) {
       <p class="muted">
         <app-icon name="calendar" [size]="13" />
-        Posted {{ job.posted_date | date: 'mediumDate' }}
+        {{ i18n.t('jobs.postedPrefix') }} {{ job.posted_date | date: 'mediumDate' }}
       </p>
     }
 
@@ -49,7 +49,7 @@
     @if (job.url) {
       <p>
         <a [href]="job.url" target="_blank" rel="noopener noreferrer">
-          View original posting
+          {{ i18n.t('jobDetail.viewOriginal') }}
           <app-icon name="external-link" [size]="13" />
         </a>
       </p>
@@ -60,7 +60,7 @@
         @if (saving) {
           <app-icon class="spinner" name="loader" [size]="16" />
         }
-        {{ saving ? 'Adding…' : 'Add to applications' }}
+        {{ saving ? i18n.t('jobDetail.adding') : i18n.t('jobDetail.addToApplications') }}
       </button>
 
       <button type="button" class="btn btn-accent" (click)="tailor()" [disabled]="tailoring">
@@ -68,7 +68,7 @@
           <app-icon class="spinner" name="loader" [size]="16" />
         }
         <app-icon name="wand" [size]="16" />
-        {{ tailoring ? 'Tailoring…' : 'Tailor CV for this job' }}
+        {{ tailoring ? i18n.t('jobDetail.tailoring') : i18n.t('jobDetail.tailorCv') }}
       </button>
     </div>
 
@@ -79,11 +79,11 @@
       </div>
     }
 
-    <h3>Parsed job requirements</h3>
+    <h3>{{ i18n.t('jobDetail.parsedRequirements') }}</h3>
     @if (parsed) {
       <div class="parsed">
         <div class="parsed-row">
-          <strong>Skills:</strong>
+          <strong>{{ i18n.t('common.skills') }}</strong>
           <span class="tags">
             @for (skill of parsed.skills; track skill) {
               <span class="tag">{{ skill }}</span>
@@ -92,29 +92,29 @@
         </div>
         @if (parsed.years_experience) {
           <div class="parsed-row">
-            <strong>Experience:</strong>
-            <span>{{ parsed.years_experience }}+ years</span>
+            <strong>{{ i18n.t('common.experience') }}</strong>
+            <span>{{ parsed.years_experience }}+ {{ i18n.t('common.years') }}</span>
           </div>
         }
         @if (parsed.education_level) {
           <div class="parsed-row">
-            <strong>Education:</strong>
+            <strong>{{ i18n.t('common.education') }}</strong>
             <span>{{ parsed.education_level }}</span>
           </div>
         }
       </div>
     } @else {
       <p class="muted">
-        Not parsed yet.
+        {{ i18n.t('jobDetail.notParsed') }}
         <button type="button" class="btn btn-ghost btn-sm" (click)="parseNow()">
-          Parse now
+          {{ i18n.t('jobDetail.parseNow') }}
         </button>
       </p>
     }
 
-    <h3>Description</h3>
+    <h3>{{ i18n.t('common.description') }}</h3>
     <div class="description">
-      {{ job.description || 'No description provided.' }}
+      {{ job.description || i18n.t('jobDetail.noDescription') }}
     </div>
   </div>
 }

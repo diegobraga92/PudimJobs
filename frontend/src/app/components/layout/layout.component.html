@@ -3,12 +3,12 @@
     <button
       type="button"
       class="sidebar-backdrop"
-      aria-label="Close navigation menu"
+      [attr.aria-label]="i18n.t('layout.aria.closeNav')"
       (click)="sidebarOpen = false"
     ></button>
   }
 
-  <aside class="sidebar" aria-label="Main navigation">
+  <aside class="sidebar" [attr.aria-label]="i18n.t('layout.aria.mainNav')">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">
         <app-icon name="briefcase" [size]="22" />
@@ -17,7 +17,7 @@
       <button
         type="button"
         class="sidebar-close"
-        aria-label="Close navigation menu"
+        [attr.aria-label]="i18n.t('layout.aria.closeNav')"
         (click)="sidebarOpen = false"
       >
         <app-icon name="x" [size]="18" />
@@ -36,7 +36,7 @@
             (click)="sidebarOpen = false"
           >
             <app-icon [name]="item.icon" [size]="19" />
-            <span>{{ item.label }}</span>
+            <span>{{ i18n.t(item.labelKey) }}</span>
             @if (item.route === '/notifications' && unread > 0) {
               <span class="nav-badge">{{ unread > 99 ? '99+' : unread }}</span>
             }
@@ -62,7 +62,7 @@
           aria-hidden="true"
         ></span>
         <span class="api-status" [class.degraded]="!health || health.status !== 'ok'">
-          {{ health?.status === 'ok' ? 'API online' : 'API unreachable' }}
+          {{ health?.status === 'ok' ? i18n.t('layout.apiOnline') : i18n.t('layout.apiUnreachable') }}
         </span>
       </div>
 
@@ -70,16 +70,25 @@
         <button
           type="button"
           class="btn btn-ghost logout"
-          [attr.aria-label]="theme.isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+          [attr.aria-label]="i18n.lang() === 'en' ? i18n.t('layout.aria.switchToPortuguese') : i18n.t('layout.aria.switchToEnglish')"
+          (click)="i18n.toggle()"
+        >
+          <app-icon name="globe" [size]="16" />
+          {{ i18n.lang() === 'en' ? 'Português' : 'English' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost logout"
+          [attr.aria-label]="theme.isDark ? i18n.t('layout.switchToLight') : i18n.t('layout.switchToDark')"
           (click)="theme.toggle()"
         >
           <app-icon [name]="theme.isDark ? 'sun' : 'moon'" [size]="16" />
-          {{ theme.isDark ? 'Light mode' : 'Dark mode' }}
+          {{ theme.isDark ? i18n.t('layout.lightMode') : i18n.t('layout.darkMode') }}
         </button>
 
         <button type="button" class="btn btn-ghost logout" (click)="logout()">
           <app-icon name="log-out" [size]="16" />
-          Sign out
+          {{ i18n.t('layout.signOut') }}
         </button>
       </div>
     </div>
@@ -89,7 +98,7 @@
     <button
       type="button"
       class="sidebar-toggle"
-      aria-label="Open navigation menu"
+      [attr.aria-label]="i18n.t('layout.aria.openNav')"
       (click)="sidebarOpen = true"
     >
       <app-icon name="menu" [size]="20" />

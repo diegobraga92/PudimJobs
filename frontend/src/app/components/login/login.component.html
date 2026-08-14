@@ -5,12 +5,12 @@
         <app-icon name="briefcase" [size]="24" />
       </span>
       <h1>PudimJobs</h1>
-      <p class="tagline">Job Application Tracker</p>
+      <p class="tagline">{{ i18n.t('login.tagline') }}</p>
     </div>
 
     <form [formGroup]="loginForm" (ngSubmit)="submit()" novalidate>
       <div class="form-field">
-        <label for="email">Email</label>
+        <label for="email">{{ i18n.t('login.email') }}</label>
         <input
           id="email"
           class="input"
@@ -21,15 +21,15 @@
           [attr.aria-invalid]="submitted && loginForm.controls.email.invalid"
         />
         @if (submitted && loginForm.controls.email.errors?.['required']) {
-          <span class="field-error">Email is required.</span>
+          <span class="field-error">{{ i18n.t('login.emailRequired') }}</span>
         }
         @if (submitted && loginForm.controls.email.errors?.['email']) {
-          <span class="field-error">Enter a valid email address.</span>
+          <span class="field-error">{{ i18n.t('login.emailInvalid') }}</span>
         }
       </div>
 
       <div class="form-field">
-        <label for="password">Password</label>
+        <label for="password">{{ i18n.t('login.password') }}</label>
         <div class="password-wrap">
           <input
             id="password"
@@ -43,7 +43,7 @@
           <button
             type="button"
             class="password-toggle"
-            [attr.aria-label]="showPassword ? 'Hide password' : 'Show password'"
+            [attr.aria-label]="showPassword ? i18n.t('login.hidePassword') : i18n.t('login.showPassword')"
             [attr.aria-pressed]="showPassword"
             (click)="showPassword = !showPassword"
           >
@@ -51,10 +51,10 @@
           </button>
         </div>
         @if (submitted && loginForm.controls.password.errors?.['required']) {
-          <span class="field-error">Password is required.</span>
+          <span class="field-error">{{ i18n.t('login.passwordRequired') }}</span>
         }
         @if (submitted && loginForm.controls.password.errors?.['minlength']) {
-          <span class="field-error">Password must be at least 6 characters.</span>
+          <span class="field-error">{{ i18n.t('login.passwordMinLength') }}</span>
         }
       </div>
 
@@ -73,7 +73,7 @@
         @if (loading) {
           <app-icon class="spinner" name="loader" [size]="17" />
         }
-        {{ loading ? 'Signing in…' : 'Sign in' }}
+        {{ loading ? i18n.t('login.signingIn') : i18n.t('login.signIn') }}
       </button>
     </form>
   </div>

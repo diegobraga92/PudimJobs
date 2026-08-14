@@ -6,6 +6,7 @@ import { ApplicationsService } from '../../services/applications.service';
 import { JobDetail, JobsService, ParsedJD } from '../../services/jobs.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { ToastService } from '../../shared/toast/toast.service';
+import { I18nService } from '../../services/i18n.service';
 
 @Component({
   selector: 'app-job-detail',
@@ -29,7 +30,8 @@ export class JobDetailComponent implements OnInit {
     private router: Router,
     private jobs: JobsService,
     private applications: ApplicationsService,
-    private toast: ToastService
+    private toast: ToastService,
+    readonly i18n: I18nService
   ) {}
 
   ngOnInit(): void {
@@ -46,7 +48,7 @@ export class JobDetailComponent implements OnInit {
       },
       error: () => {
         this.loading = false;
-        this.error = 'Failed to load job';
+        this.error = this.i18n.t('errors.failedLoadJob');
       },
     });
   }
@@ -67,13 +69,13 @@ export class JobDetailComponent implements OnInit {
     }
     this.jobs.parse(this.job.id).subscribe({
       next: () => {
-        this.message = 'Parsing job description… refresh to see results.';
+        this.message = this.i18n.t('jobDetail.parsingQueued');
         this.parsed = null;
-        this.toast.info('Job parsing has been queued.');
+        this.toast.info(this.i18n.t('jobDetail.parsingQueuedToast'));
       },
       error: () => {
-        this.error = 'Failed to enqueue parsing';
-        this.toast.error('Failed to enqueue parsing.');
+        this.error = this.i18n.t('errors.failedEnqueueParsing');
+        this.toast.error(this.i18n.t('errors.failedEnqueueParsing'));
       },
     });
   }
@@ -87,13 +89,13 @@ export class JobDetailComponent implements OnInit {
     this.applications.create({ job_id: this.job.id, status: 'saved' }).subscribe({
       next: () => {
         this.saving = false;
-        this.message = 'Added to your application pipeline.';
-        this.toast.success('Added to your application pipeline.');
+        this.message = this.i18n.t('jobDetail.addedToPipeline');
+        this.toast.success(this.i18n.t('jobDetail.addedToPipeline'));
       },
       error: () => {
         this.saving = false;
-        this.message = 'Could not add the application.';
-        this.toast.error('Could not add the application.');
+        this.message = this.i18n.t('jobDetail.couldNotAdd');
+        this.toast.error(this.i18n.t('jobDetail.couldNotAdd'));
       },
     });
   }
@@ -107,13 +109,13 @@ export class JobDetailComponent implements OnInit {
     this.jobs.tailor(this.job.id).subscribe({
       next: () => {
         this.tailoring = false;
-        this.message = 'Tailoring started. Download the result from the CV page.';
-        this.toast.success('Tailoring started — see the CV page for your PDF.');
+        this.message = this.i18n.t('jobDetail.tailoringStarted');
+        this.toast.success(this.i18n.t('jobDetail.tailoringStartedToast'));
       },
       error: () => {
         this.tailoring = false;
-        this.error = 'Failed to start tailoring (is there a master CV yet?).';
-        this.toast.error('Failed to start tailoring — is there a master CV yet?');
+        this.error = this.i18n.t('jobDetail.failedTailoring');
+        this.toast.error(this.i18n.t('jobDetail.failedTailoringToast'));
       },
     });
   }

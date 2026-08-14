@@ -1,8 +1,8 @@
 <div class="page-header">
-  <h2>Job Sources</h2>
+  <h2>{{ i18n.t('sources.title') }}</h2>
   <button type="button" class="btn btn-primary" (click)="openCreate()">
     <app-icon name="plus" [size]="16" />
-    Add source
+    {{ i18n.t('sources.addSource') }}
   </button>
 </div>
 
@@ -15,15 +15,15 @@
 
 @if (showForm) {
   <form class="panel form" [formGroup]="sourceForm" (ngSubmit)="save()">
-    <h3>{{ editingId ? 'Edit source' : 'Add source' }}</h3>
+    <h3>{{ editingId ? i18n.t('sources.editSource') : i18n.t('sources.addSource') }}</h3>
 
     <div class="form-field">
-      <label for="source-name">Name</label>
+      <label for="source-name">{{ i18n.t('common.name') }}</label>
       <input id="source-name" class="input" formControlName="name" placeholder="Acme Careers" />
     </div>
 
     <div class="form-field">
-      <label for="source-url">URL</label>
+      <label for="source-url">{{ i18n.t('common.url') }}</label>
       <input
         id="source-url"
         class="input"
@@ -33,30 +33,30 @@
     </div>
 
     <div class="form-field">
-      <label for="source-type">Type</label>
+      <label for="source-type">{{ i18n.t('common.type') }}</label>
       <select id="source-type" class="select" formControlName="type">
-        <option value="career_page">Career page</option>
-        <option value="aggregator">Aggregator</option>
-        <option value="rss">RSS feed</option>
-        <option value="discovery">Discovery (search / ATS)</option>
+        <option value="career_page">{{ i18n.t('sources.type.careerPage') }}</option>
+        <option value="aggregator">{{ i18n.t('sources.type.aggregator') }}</option>
+        <option value="rss">{{ i18n.t('sources.type.rss') }}</option>
+        <option value="discovery">{{ i18n.t('sources.type.discovery') }}</option>
       </select>
     </div>
 
     @if (sourceForm.get('type')?.value === 'aggregator') {
       <div class="form-field">
-        <label for="source-adapter">Adapter</label>
+        <label for="source-adapter">{{ i18n.t('sources.adapter') }}</label>
         <select
           id="source-adapter"
           class="select"
           [(ngModel)]="adapter"
           [ngModelOptions]="{ standalone: true }"
         >
-          <option value="generic_html_list">Generic HTML list</option>
+          <option value="generic_html_list">{{ i18n.t('sources.genericHtmlList') }}</option>
         </select>
       </div>
 
       <div class="form-field">
-        <label for="source-config">Adapter config (JSON)</label>
+        <label for="source-config">{{ i18n.t('sources.adapterConfig') }}</label>
         <textarea
           id="source-config"
           class="textarea"
@@ -66,17 +66,17 @@
           placeholder='{ "item_selector": "li.job", "title_selector": "h2", "url_selector": "a", "next_page_selector": "a.next", "max_pages": 3 }'
         ></textarea>
         <p class="muted xs">
-          CSS selectors used by the generic HTML-list adapter. Optionally set
-          <code>max_pages</code> to paginate through listing pages.
+          {{ i18n.t('sources.adapterHintPrefix') }}
+          <code>max_pages</code> {{ i18n.t('sources.adapterHintSuffix') }}
         </p>
       </div>
     }
 
     @if (sourceForm.get('type')?.value === 'discovery') {
       <div class="form-field">
-        <label for="source-provider">Provider</label>
+        <label for="source-provider">{{ i18n.t('sources.provider') }}</label>
         @if (providersLoading) {
-          <span class="muted">Loading providers…</span>
+          <span class="muted">{{ i18n.t('sources.loadingProviders') }}</span>
         } @else {
           <select
             id="source-provider"
@@ -84,33 +84,29 @@
             [(ngModel)]="discoveryProvider"
             [ngModelOptions]="{ standalone: true }"
           >
-            <option value="" disabled>Choose a provider…</option>
+            <option value="" disabled>{{ i18n.t('sources.chooseProviderOption') }}</option>
             @for (provider of providers; track provider.name) {
               <option [value]="provider.name">
-                {{ provider.name }}@if (provider.requires_key) { · API key }
+                {{ provider.name }}@if (provider.requires_key) { · {{ i18n.t('sources.apiKeyBadge') }} }
               </option>
             }
           </select>
         }
         <p class="muted xs">
-          ATS providers (ashby, greenhouse, lever, workable) fetch a board's
-          public JSON feed. Search providers (google_cse, bing, brave, serpapi,
-          brightdata) query a search API and then fetch each result page —
-          serpapi/brightdata cover LinkedIn Jobs and Indeed via a paid,
-          third-party key.
+          {{ i18n.t('sources.discoveryHint') }}
         </p>
       </div>
 
       @if (selectedProvider?.requires_key) {
         <p class="muted xs">
-          This provider needs an API key: save the source, then open its
-          <strong>Auth</strong> panel and choose <em>API key</em> to store it
-          encrypted.
+          {{ i18n.t('sources.needsApiKeyPrefix') }}
+          <strong>{{ i18n.t('common.auth') }}</strong> {{ i18n.t('sources.needsApiKeyMiddle') }}
+          <em>{{ i18n.t('common.apiKey') }}</em> {{ i18n.t('sources.needsApiKeySuffix') }}
         </p>
       }
 
       <div class="form-field">
-        <label for="source-discovery-config">Provider config (JSON)</label>
+        <label for="source-discovery-config">{{ i18n.t('sources.providerConfig') }}</label>
         <textarea
           id="source-discovery-config"
           class="textarea"
@@ -120,13 +116,7 @@
           placeholder='{ "query": "site:ashby.com Python Remote Brazil", "cx": "your-cse-id", "max_results": 20 }'
         ></textarea>
         <p class="muted xs">
-          Provider-specific settings. Search providers take <code>query</code>
-          (and <code>cx</code> for Google, <code>count</code> for Bing/Brave),
-          <code>max_results</code> and an optional <code>detail_strategy</code>
-          (<code>json_ld</code> default, or <code>selectors</code>). ATS
-          providers take the board identifier (<code>org</code>,
-          <code>board_token</code>, <code>company</code>) and an optional
-          <code>company</code> display name.
+          {{ i18n.t('sources.providerConfigHint') }}
         </p>
       </div>
     }
@@ -134,11 +124,11 @@
     <div class="ethics-section">
       <h4>
         <app-icon name="shield-check" [size]="14" />
-        Scraping ethics
+        {{ i18n.t('sources.scrapingEthics') }}
       </h4>
 
       <div class="form-field">
-        <label for="source-rate-limit">Rate limit (seconds between requests)</label>
+        <label for="source-rate-limit">{{ i18n.t('sources.rateLimit') }}</label>
         <input
           id="source-rate-limit"
           class="input"
@@ -148,28 +138,25 @@
           formControlName="rate_limit_seconds"
         />
         <p class="muted xs">
-          Minimum delay enforced between requests to the source's domain. Higher
-          values are more polite to the target site.
+          {{ i18n.t('sources.rateLimitHint') }}
         </p>
       </div>
 
       <div class="form-field">
         <label class="checkbox-row">
           <input type="checkbox" formControlName="respect_robots_txt" />
-          Respect robots.txt
+          {{ i18n.t('sources.respectRobots') }}
         </label>
         <p class="muted xs">
-          When enabled, the source is only fetched if its robots.txt allows it.
-          Automated access may still violate the target's terms of service —
-          review them before scraping.
+          {{ i18n.t('sources.respectRobotsHint') }}
         </p>
       </div>
     </div>
 
     <div class="form-actions">
-      <button type="button" class="btn btn-ghost" (click)="cancelForm()">Cancel</button>
+      <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
       <button type="submit" class="btn btn-primary" [disabled]="sourceForm.invalid">
-        {{ editingId ? 'Save changes' : 'Add source' }}
+        {{ editingId ? i18n.t('sources.saveChanges') : i18n.t('sources.addSource') }}
       </button>
     </div>
   </form>
@@ -178,32 +165,29 @@
 @if (authSource) {
   <form class="panel form" (ngSubmit)="saveAuth()">
     <div style="display: flex; justify-content: space-between; align-items: center">
-      <h3>Authentication — {{ authSource.name }}</h3>
+      <h3>{{ i18n.t('sources.authenticationTitle', { name: authSource.name }) }}</h3>
       <button type="button" class="btn btn-ghost btn-sm" (click)="closeAuth()">
         <app-icon name="x" [size]="14" />
-        Close
+        {{ i18n.t('common.close') }}
       </button>
     </div>
 
     <p class="muted">
-      For authenticated sources, paste a bearer token (Authorization header) or
-      an API key (used by discovery providers). Credentials are encrypted at
-      rest and never returned by the API. Note: automated access may violate
-      the target site's terms of service.
+      {{ i18n.t('sources.authIntro') }}
     </p>
 
     <div class="form-field">
-      <label for="auth-type">Auth type</label>
+      <label for="auth-type">{{ i18n.t('sources.authType') }}</label>
       <select id="auth-type" class="select" [(ngModel)]="authType" name="authType">
-        <option value="none">None (public)</option>
-        <option value="token">Bearer token</option>
-        <option value="api_key">API key</option>
+        <option value="none">{{ i18n.t('sources.authNone') }}</option>
+        <option value="token">{{ i18n.t('sources.authToken') }}</option>
+        <option value="api_key">{{ i18n.t('sources.authApiKey') }}</option>
       </select>
     </div>
 
     @if (authType === 'token') {
       <div class="form-field">
-        <label for="auth-token">Bearer token</label>
+        <label for="auth-token">{{ i18n.t('sources.authToken') }}</label>
         <input
           id="auth-token"
           class="input"
@@ -211,14 +195,14 @@
           [(ngModel)]="authToken"
           name="authToken"
           autocomplete="off"
-          placeholder="tok-…"
+          [placeholder]="i18n.t('sources.authTokenPlaceholder')"
         />
       </div>
     }
 
     @if (authType === 'api_key') {
       <div class="form-field">
-        <label for="auth-api-key">API key</label>
+        <label for="auth-api-key">{{ i18n.t('sources.authApiKey') }}</label>
         <input
           id="auth-api-key"
           class="input"
@@ -226,20 +210,17 @@
           [(ngModel)]="authApiKey"
           name="authApiKey"
           autocomplete="off"
-          placeholder="search/ATS API key"
+          [placeholder]="i18n.t('sources.authApiKeyPlaceholder')"
         />
         <p class="muted xs">
-          Used by discovery providers (Google CSE, Bing, Brave). Stored
-          encrypted and never returned by the API.
+          {{ i18n.t('sources.authApiKeyHint') }}
         </p>
       </div>
     }
 
     @if (authCurrent?.has_auth && authType !== 'none') {
       <p class="muted xs">
-        Stored credentials: {{ authCurrent?.auth_type }} (set
-        {{ authCurrent?.updated_at | date: 'short' }}). Re-enter the value to
-        replace them.
+        {{ i18n.t('sources.storedCredentialsPrefix', { type: authCurrent?.auth_type ?? '' }) }}{{ authCurrent?.updated_at | date: 'short' }}{{ i18n.t('sources.storedCredentialsSuffix') }}
       </p>
     }
 
@@ -250,16 +231,16 @@
         [class.alert-error]="!authTestResult.ok"
       >
         @if (authTestResult.ok) {
-          Connection OK — the site responded with HTTP {{ authTestResult.status_code }}.
+          {{ i18n.t('sources.connectionOk', { status: authTestResult.status_code }) }}
         } @else {
-          {{ authTestResult.error || 'Connection failed.' }}
+          {{ authTestResult.error || i18n.t('sources.connectionFailed') }}
         }
       </div>
     }
 
     <div class="form-actions">
       @if (authCurrent?.has_auth) {
-        <button type="button" class="btn btn-danger" (click)="clearAuth()">Clear auth</button>
+        <button type="button" class="btn btn-danger" (click)="clearAuth()">{{ i18n.t('sources.clearAuth') }}</button>
       }
       <button
         type="button"
@@ -268,10 +249,10 @@
         [disabled]="authTesting || !authCurrent?.has_auth"
       >
         <app-icon name="activity" [size]="14" />
-        {{ authTesting ? 'Testing…' : 'Test connection' }}
+        {{ authTesting ? i18n.t('sources.testing') : i18n.t('sources.testConnection') }}
       </button>
       <button type="submit" class="btn btn-primary" [disabled]="authSaving">
-        {{ authSaving ? 'Saving…' : 'Save' }}
+        {{ authSaving ? i18n.t('sources.saving') : i18n.t('common.save') }}
       </button>
     </div>
   </form>
@@ -295,11 +276,11 @@
     <span class="empty-icon">
       <app-icon name="globe" [size]="26" />
     </span>
-    <h3>No sources yet</h3>
-    <p>Add a career page, aggregator, or RSS feed to start collecting jobs.</p>
+    <h3>{{ i18n.t('sources.noSourcesYet') }}</h3>
+    <p>{{ i18n.t('sources.noSourcesHint') }}</p>
     <button type="button" class="btn btn-primary" (click)="openCreate()">
       <app-icon name="plus" [size]="16" />
-      Add your first source
+      {{ i18n.t('sources.addFirstSource') }}
     </button>
   </div>
 } @else {
@@ -307,12 +288,12 @@
     <table class="table">
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Jobs</th>
-          <th>Health</th>
-          <th>Last scraped</th>
-          <th class="row-actions">Actions</th>
+          <th>{{ i18n.t('common.name') }}</th>
+          <th>{{ i18n.t('common.type') }}</th>
+          <th>{{ i18n.t('common.jobs') }}</th>
+          <th>{{ i18n.t('common.health') }}</th>
+          <th>{{ i18n.t('sources.lastScraped') }}</th>
+          <th class="row-actions">{{ i18n.t('common.actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -341,15 +322,15 @@
             <td class="row-actions">
               <button type="button" class="btn btn-ghost btn-sm" (click)="openAuth(source)">
                 <app-icon name="settings" [size]="14" />
-                Auth
+                {{ i18n.t('common.auth') }}
               </button>
               <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(source)">
                 <app-icon name="pencil" [size]="14" />
-                Edit
+                {{ i18n.t('common.edit') }}
               </button>
               <button type="button" class="btn btn-danger btn-sm" (click)="remove(source)">
                 <app-icon name="trash" [size]="14" />
-                Delete
+                {{ i18n.t('common.delete') }}
               </button>
             </td>
           </tr>

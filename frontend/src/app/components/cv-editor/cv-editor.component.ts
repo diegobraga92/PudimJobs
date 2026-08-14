@@ -7,6 +7,7 @@ import { CVStructure, CvService, GeneratedCV, MasterCV } from '../../services/cv
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
 import { ToastService } from '../../shared/toast/toast.service';
+import { I18nService } from '../../services/i18n.service';
 
 interface ExperienceFormItem {
   company: string;
@@ -54,7 +55,8 @@ export class CvEditorComponent implements OnInit {
     private fb: FormBuilder,
     private service: CvService,
     private auth: AuthService,
-    private toast: ToastService
+    private toast: ToastService,
+    readonly i18n: I18nService
   ) {
     this.cvForm = this.fb.group({
       summary: [''],
@@ -87,7 +89,7 @@ export class CvEditorComponent implements OnInit {
           this.loadIntoForm(current.structured_json);
         }
       },
-      error: () => (this.error = 'Failed to load CV'),
+      error: () => (this.error = this.i18n.t('errors.failedLoadCV')),
     });
     this.service.generated().subscribe({
       next: (generated) => (this.generated = generated),
@@ -105,7 +107,7 @@ export class CvEditorComponent implements OnInit {
         anchor.click();
         URL.revokeObjectURL(url);
       },
-      error: () => (this.error = 'Failed to download PDF'),
+      error: () => (this.error = this.i18n.t('errors.failedDownloadPdf')),
     });
   }
 
@@ -174,14 +176,14 @@ export class CvEditorComponent implements OnInit {
     this.service.create({ structured_json: this.buildStructure() }).subscribe({
       next: (saved) => {
         this.saving = false;
-        this.message = `Saved as ${saved.label}.`;
-        this.toast.success(`Master CV saved as ${saved.label}.`);
+        this.message = this.i18n.t('cv.savedAs', { label: saved.label });
+        this.toast.success(this.i18n.t('cv.savedAsToast', { label: saved.label }));
         this.ngOnInit();
       },
       error: () => {
         this.saving = false;
-        this.error = 'Failed to save CV';
-        this.toast.error('Failed to save CV.');
+        this.error = this.i18n.t('errors.failedSaveCV');
+        this.toast.error(this.i18n.t('errors.failedSaveCV'));
       },
     });
   }
