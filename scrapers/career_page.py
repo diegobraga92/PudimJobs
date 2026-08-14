@@ -40,7 +40,8 @@ class CareerPageScraper(AbstractScraper):
                 "url": raw.url,
                 "posted_date": raw.posted_date,
                 "tags": raw.tags or [],
+                "external_id": raw.external_id,
             }
             for raw in raw_jobs
-            if raw.title and raw.url
+            if raw.title and raw.title.strip() and raw.url
         ]

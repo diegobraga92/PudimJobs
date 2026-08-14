@@ -10,6 +10,9 @@ def test_default_settings_are_sensible():
     assert settings.rabbitmq_url.startswith("amqp://")
     assert settings.redis_url.startswith("redis://")
     assert settings.log_level == "DEBUG"
+    assert settings.scraper_max_response_bytes == 2_000_000
+    assert settings.scraper_max_redirects == 5
+    assert settings.scraper_bot_user_agent == "PudimJobsBot/0.1"
 
 
 def test_settings_override_from_environment(monkeypatch):

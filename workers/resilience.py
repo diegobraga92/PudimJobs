@@ -7,7 +7,10 @@ across loops. Circuit-breaker/rate-limit operations are microsecond-scale and
 safe to call from async code.
 """
 
+from urllib.parse import urlparse
+
 import redis
+
 from app.config import settings
 
 redis_client: redis.Redis = redis.Redis.from_url(
@@ -39,8 +42,8 @@ def circuit_breaker_reset(source_id: str) -> None:
 
 
 def _domain_key(url: str) -> str:
-    stripped = url.split("//")[1] if "//" in url else url
-    return stripped.split("/")[0]
+    """Normalize a URL to its domain (host[:port]) for rate-limit scoping."""
+    return urlparse(url).netloc
 
 
 def rate_limit_wait(url: str, cooldown_seconds: int = 30) -> float:

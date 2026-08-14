@@ -12,7 +12,7 @@ sources, single user, hourly scraping) and the **projection** (500 sources,
 | Compute (API) | 1 × `t4g.small` (ECS Fargate) | $15 |
 | Compute (worker + beat + consumer) | 1 × `t4g.small` | $15 |
 | ElastiCache Redis 7 | `cache.t4g.micro` (broker/backend/CB) | $12 |
-| S3 | 10 GB (raw HTML + PDFs), infrequent access | $1 |
+| S3 | 10 GB (generated CV PDFs), infrequent access | $1 |
 | Application Load Balancer | 1 ALB | $20 |
 | **Total** | | **~$88/mo** |
 
@@ -45,14 +45,14 @@ Notes:
 - ECS Fargate task definitions / EKS workloads
 - ALB + target groups
 - VPC networking (the RDS security group currently assumes `10.0.0.0/8`)
-- S3 bucket for raw-HTML/PDF archive + lifecycle rules
+- S3 bucket for generated CV PDFs + lifecycle rules
 - ElastiCache Redis
 
 ## Cost levers
 
 1. **Spot instances** for workers — largest single saving (60–70%).
-2. **Storage lifecycle** — move `raw_html` > 90 days to Glacier (S3) instead of
-   the RDS volume.
+2. **Storage lifecycle** — move old generated CV PDFs to Glacier (S3) instead
+   of the RDS volume.
 3. **Single-AZ vs Multi-AZ** — Multi-AZ doubles RDS cost; Phase 7's failover
    runbook assumes the simpler single-AZ dev setup.
 4. **Reserved capacity** at steady state (1–3 yr commits cut ~40%).

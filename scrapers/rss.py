@@ -4,7 +4,7 @@ Parses job feeds with ``feedparser``. Feed entries map to ``RawJob`` and the
 feed's title/company metadata supplies the company name when entries lack one.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import feedparser
 
@@ -13,10 +13,10 @@ from scrapers.types import FetchAuth, RawJob, ScrapedPage
 from scrapers.utils import fetch_html
 
 
-def _entry_date(entry) -> None | object:
+def _entry_date(entry) -> object | None:
     published = entry.get("published_parsed") or entry.get("updated_parsed")
     if published:
-        return datetime(*published[:6], tzinfo=timezone.utc).date()
+        return datetime(*published[:6], tzinfo=UTC).date()
     return None
 
 
@@ -55,7 +55,8 @@ class RSSScraper(AbstractScraper):
                 "url": raw.url,
                 "posted_date": raw.posted_date,
                 "tags": raw.tags or [],
+                "external_id": raw.external_id,
             }
             for raw in raw_jobs
-            if raw.title and raw.url
+            if raw.title and raw.title.strip() and raw.url
         ]

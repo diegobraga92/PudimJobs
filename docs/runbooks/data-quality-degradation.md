@@ -24,9 +24,9 @@ duplicates rising; specific sources underperforming in the per-source table.
 
 1. Inspect raw scraped data (`GET /api/jobs/{id}` for affected jobs).
 2. Fix the parser if the source format changed (see `scraper-failure.md`).
-3. Trigger a reparse to recompute quality from stored `raw_html`:
+3. Re-scrape the affected source(s) to refresh jobs and quality:
    ```bash
-   curl -X POST http://localhost:8000/api/admin/sources/<source_id>/reparse \
+   curl -X POST http://localhost:8000/api/admin/sources/<source_id>/scrape \
      -H "Authorization: Bearer $TOKEN"
    ```
 
@@ -42,7 +42,7 @@ duplicates rising; specific sources underperforming in the per-source table.
 
 1. Add the missing mapping to `app/data/company_map.json` or
    `title_map.json` (deploy = code change).
-2. Re-run quality for affected jobs (re-trigger a scrape or reparse).
+2. Re-run quality for affected jobs (re-trigger a scrape).
 
 ## Verification
 

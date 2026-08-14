@@ -10,23 +10,23 @@ import asyncio
 import inspect
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import structlog
+from api.events.producer import publish_job_new
+from api.events.schemas import JobNewEvent
+from celery import Task
+from scrapers.registry import get_scraper
+from scrapers.utils import is_allowed_by_robots, redact_sensitive
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
 from app.database import async_session_factory
 from app.models import Job, ScrapeRun, Source
 from app.models.enums import SourceHealth
 from app.models.source_auth import SourceAuth
 from app.services.source_auth import build_fetch_auth
-from celery import Task
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-
-from api.events.producer import publish_job_new
-from api.events.schemas import JobNewEvent
-from scrapers.registry import get_scraper
-from scrapers.utils import is_allowed_by_robots
 from workers.celery_app import celery_app
 from workers.metrics import SCRAPE_DURATION, SCRAPES_TOTAL
 from workers.resilience import (
@@ -41,11 +41,28 @@ from workers.resilience import (
 logger = structlog.get_logger(__name__)
 
 
-async def _existing_urls(session, source_id: uuid.UUID) -> set[str]:
+class EmptyScrapeError(Exception):
+    """Raised when a scrape completes but parses zero jobs.
+
+    Usually signals a site format change or broken selectors; the circuit
+    breaker trips after repeated occurrences (see postmortem 001). Sources that
+    are legitimately empty can opt out with ``config['allow_empty'] = true``.
+    """
+
+
+async def _existing_keys(session, source_id: uuid.UUID) -> tuple[set[str], set[str]]:
+    """Return the URLs and provider-native external ids already stored."""
     result = await session.execute(
-        select(Job.url).where(Job.source_id == source_id, Job.url.is_not(None))
+        select(Job.url, Job.external_id).where(Job.source_id == source_id)
     )
-    return {row[0] for row in result if row[0]}
+    urls: set[str] = set()
+    external_ids: set[str] = set()
+    for url, external_id in result:
+        if url:
+            urls.add(url)
+        if external_id:
+            external_ids.add(external_id)
+    return urls, external_ids
 
 
 async def _finalize_run(
@@ -54,7 +71,7 @@ async def _finalize_run(
     run.status = status
     run.new_jobs = new_jobs
     run.error = error
-    run.finished_at = datetime.now(timezone.utc)
+    run.finished_at = datetime.now(UTC)
     await session.commit()
 
 
@@ -94,29 +111,36 @@ async def _discover(scraper, page) -> list[str]:
 async def _store_jobs(
     source: Source, normalized: list[dict], session
 ) -> tuple[int, int, list[Job]]:
-    """Insert normalized jobs, skipping duplicates by (source, url)."""
-    existing = await _existing_urls(session, source.id)
+    """Insert normalized jobs, skipping duplicates by URL or external id."""
+    existing_urls, existing_external_ids = await _existing_keys(session, source.id)
     new_count = 0
     skip_count = 0
     stored: list[Job] = []
     for data in normalized:
         url = data.get("url")
-        if url and url in existing:
+        external_id = data.get("external_id")
+        if url and url in existing_urls:
+            skip_count += 1
+            continue
+        if external_id and external_id in existing_external_ids:
             skip_count += 1
             continue
         job = Job(
             user_id=source.user_id,
             source_id=source.id,
-            title=data["title"],
-            company=data["company"],
+            title=(data["title"] or "").strip()[:255],
+            company=(data["company"] or "").strip()[:255],
             description=data.get("description"),
             url=url,
             posted_date=data.get("posted_date"),
             tags=data.get("tags") or [],
+            external_id=external_id,
         )
         session.add(job)
         if url:
-            existing.add(url)
+            existing_urls.add(url)
+        if external_id:
+            existing_external_ids.add(external_id)
         stored.append(job)
         new_count += 1
     try:
@@ -142,9 +166,18 @@ async def _publish_events(source: Source, stored: list[Job]) -> None:
         )
 
 
+def _config_int(source: Source, key: str, default: int) -> int:
+    """Read an integer from ``source.config``, falling back on bad values."""
+    raw = (source.config or {}).get(key, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 async def _run_scrape(source_id: str) -> dict:
     source_uuid = uuid.UUID(source_id)
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
 
     async with async_session_factory() as session:
         source = await session.get(Source, source_uuid)
@@ -188,8 +221,8 @@ async def _run_scrape(source_id: str) -> dict:
 
         # Aggregators/ATS boards can paginate through several listing pages;
         # discovery sources additionally fetch each discovered detail URL.
-        max_pages = int((source.config or {}).get("max_pages", 1))
-        max_results = int((source.config or {}).get("max_results", 20))
+        max_pages = _config_int(source, "max_pages", 1)
+        max_results = _config_int(source, "max_results", 20)
         pages_fetched = 0
         detail_fetched = 0
         raw_jobs: list = []
@@ -225,7 +258,7 @@ async def _run_scrape(source_id: str) -> dict:
                     "scrape_stop_pagination",
                     source_id=source_id,
                     reason="robots.txt",
-                    url=current_url,
+                    url=redact_sensitive(current_url),
                 )
                 break
             wait = rate_limit_wait(current_url, source.rate_limit_seconds)
@@ -235,6 +268,17 @@ async def _run_scrape(source_id: str) -> dict:
 
         normalized = scraper.normalize(raw_jobs)
 
+        # Fail fast when a source yields no jobs at all: a site format change
+        # or broken selectors usually manifests as an empty parse, and treating
+        # it as "0 new jobs, success" hides the breakage (see postmortem 001).
+        # Sources that are legitimately empty can opt out via config.
+        allow_empty = bool((source.config or {}).get("allow_empty", False))
+        if not normalized and not allow_empty:
+            raise EmptyScrapeError(
+                "parse produced 0 jobs; possible site format change "
+                "(set config['allow_empty']=true to allow empty sources)"
+            )
+
         async with async_session_factory() as session:
             new_count, skip_count, stored = await _store_jobs(source, normalized, session)
             run_row = await session.get(ScrapeRun, run.id)
@@ -243,7 +287,7 @@ async def _run_scrape(source_id: str) -> dict:
             )
 
             source = await session.get(Source, source_uuid)
-            source.last_scraped = datetime.now(timezone.utc)
+            source.last_scraped = datetime.now(UTC)
             source.health = SourceHealth.healthy
             await session.commit()
 
@@ -263,7 +307,7 @@ async def _run_scrape(source_id: str) -> dict:
         error = (
             f"authentication failed (HTTP {exc.response.status_code})"
             if auth_failed
-            else str(exc)[:1024]
+            else redact_sensitive(str(exc)[:1024])
         )
         async with async_session_factory() as session:
             source_row = await session.get(Source, source_uuid)
@@ -284,7 +328,7 @@ async def _run_scrape(source_id: str) -> dict:
     bind=True,
     name="workers.tasks.scrape.scrape_source",
     autoretry_for=(Exception,),
-    exclude_autoretry_for=(CircuitBreakerOpenError, ValueError),
+    exclude_autoretry_for=(CircuitBreakerOpenError, ValueError, EmptyScrapeError),
     max_retries=3,
     default_retry_delay=60,
     retry_backoff=True,

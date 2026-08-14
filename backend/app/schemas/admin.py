@@ -39,8 +39,3 @@ class ReplayResponse(BaseModel):
     replayed: bool
     run_id: uuid.UUID
     source_id: uuid.UUID
-
-
-class ReparseResponse(BaseModel):
-    source_id: uuid.UUID
-    reparse_count: int

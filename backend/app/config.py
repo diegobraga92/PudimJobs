@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # Allow scraping private/loopback targets (e.g. a LAN-hosted careers site).
     # Off by default to keep shared deployments SSRF-safe.
     scraper_allow_private_networks: bool = False
+    # SSRF hardening: cap each response body and the redirect chain length.
+    scraper_max_response_bytes: int = 2_000_000  # 2 MB
+    scraper_max_redirects: int = 5
+    # Bot identity used when matching robots.txt rules (not the HTTP request UA,
+    # which stays browser-like for anti-bot compatibility).
+    scraper_bot_user_agent: str = "PudimJobsBot/0.1"
     user_agents: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/125.0 Safari/537.36,"

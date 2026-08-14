@@ -30,6 +30,8 @@ class Job(Base):
     __table_args__ = (
         # Idempotency for scraped jobs: a URL is unique per source.
         UniqueConstraint("source_id", "url", name="uq_jobs_source_url"),
+        # Provider-native job ids dedupe re-postings that reuse a URL.
+        UniqueConstraint("source_id", "external_id", name="uq_jobs_source_external_id"),
         # Full-text search index (PostgreSQL FTS, Phase 5).
         Index("ix_jobs_search_vector", "search_vector", postgresql_using="gin"),
     )
@@ -48,7 +50,9 @@ class Job(Base):
     posted_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     parsed_jd: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    raw_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Provider-native job id (RSS guid, ATS requisition id, JSON-LD identifier).
+    # Raw HTML is intentionally NOT retained (copyright/ToS + storage).
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR, Computed(_SEARCH_VECTOR_EXPR), nullable=True
     )

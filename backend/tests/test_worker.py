@@ -45,6 +45,7 @@ class FakeScraper:
                 "description": j.description,
                 "posted_date": None,
                 "tags": j.tags,
+                "external_id": j.external_id,
             }
             for j in raw_jobs
         ]
@@ -164,6 +165,66 @@ async def test_scrape_deduplicates_on_second_run(
 
     jobs = (await db_session.execute(select(Job))).scalars().all()
     assert len(jobs) == 2
+
+
+async def test_scrape_fails_fast_on_empty_parse(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A completed scrape that parses zero jobs fails instead of '0 new'."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    await _install_fake_scraper(monkeypatch, [])
+
+    with pytest.raises(scrape_module.EmptyScrapeError):
+        await _run_scrape(str(source.id))
+
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert len(runs) == 1
+    assert runs[0].status == "failed"
+    assert "0 jobs" in runs[0].error
+
+
+async def test_scrape_allow_empty_config_permits_empty_sources(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """``config['allow_empty']=true`` opts out of the empty-parse fail-fast."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.config = {"allow_empty": True}
+    await db_session.commit()
+    await _install_fake_scraper(monkeypatch, [])
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["new"] == 0
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert runs[0].status == "success"
+
+
+async def test_scrape_deduplicates_by_external_id(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """Provider-native ids dedupe re-postings that reuse a URL."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    job = RawJob(
+        title="Backend Engineer",
+        company="Acme",
+        url="https://acme.example/jobs/evergreen",
+        external_id="acme-req-1",
+    )
+    await _install_fake_scraper(monkeypatch, [job])
+
+    first = await _run_scrape(str(source.id))
+    second = await _run_scrape(str(source.id))
+
+    assert first["new"] == 1
+    assert second["new"] == 0
+    assert second["skipped"] == 1
+
+    jobs = (await db_session.execute(select(Job))).scalars().all()
+    assert len(jobs) == 1
+    assert jobs[0].external_id == "acme-req-1"
 
 
 async def test_scrape_failure_records_run_and_opens_circuit_breaker(
@@ -289,7 +350,7 @@ async def test_scrape_passes_api_key_to_discovery_scraper(
     """The source's encrypted API key reaches get_scraper for search providers."""
     user = await create_user(db_session)
     source = await _make_source(db_session, user)
-    source.config = {"provider": "google_cse"}
+    source.config = {"provider": "google_cse", "allow_empty": True}
     await db_session.commit()
     db_session.add(
         SourceAuth(

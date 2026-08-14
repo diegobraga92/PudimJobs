@@ -23,9 +23,11 @@
    ```bash
    docker compose up -d postgres
    ```
-2. **Disk full** → archive/delete old raw HTML (keep `jobs` rows):
+2. **Disk full** → archive/delete old generated CVs and scrape runs (keep
+   current `jobs` rows):
    ```sql
-   UPDATE jobs SET raw_html = NULL WHERE created_at < now() - interval '90 days';
+   DELETE FROM generated_cvs WHERE created_at < now() - interval '90 days';
+   DELETE FROM scrape_runs WHERE started_at < now() - interval '90 days';
    ```
    then `VACUUM FULL jobs;`
 3. **Index bloat** → `REINDEX CONCURRENTLY` on the hot indexes

@@ -32,11 +32,6 @@ scrape runs; no new jobs from a source; alert notifications for that source stop
    ```bash
    docker exec <redis-container> redis-cli DEL "cb:<source_id>"
    ```
-4. Recover historical jobs from stored `raw_html` without re-scraping:
-   ```bash
-   curl -X POST http://localhost:8000/api/admin/sources/<source_id>/reparse \
-     -H "Authorization: Bearer $TOKEN"
-   ```
 
 ### Case B — rate limit / robots.txt
 

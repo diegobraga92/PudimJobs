@@ -17,7 +17,7 @@ Simple STRIDE analysis for the API and scraping engine. Phase 6 deliverable.
 
 | Threat | Scenario | Mitigation | Status |
 |--------|----------|-----------|--------|
-| **S**poofing | A malicious site injects fake job data | Scraped data validated by Pydantic/ORM types; `raw_html` stored separately | Implemented |
+| **S**poofing | A malicious site injects fake job data | Scraped data validated by Pydantic/ORM types; normalized extract only (raw HTML not retained) | Implemented |
 | **T**ampering | Scraper payload tampered with | HTTPS fetches; user-agent rotation; no signed payloads needed (read-only) | Implemented |
 | **I**nformation disclosure | Secrets leak into scraper tasks | Workers read only env vars needed (DB, broker); no cloud credentials mounted | Implemented |
 | **D**enial of service | Scraping a target too fast / SSRF | Per-domain rate limiting + circuit breakers (Phase 2); robots.txt respect | Implemented |

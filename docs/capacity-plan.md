@@ -50,13 +50,11 @@ or a dedicated table partition at > 10³ notifications/hour.
 | What | Size/job | 50 sources (≈1.5k jobs/mo) | 500 sources (≈15k jobs/mo) |
 |------|----------|---------------------------|----------------------------|
 | Jobs row + JSONB | ~1 KB | ~1.5 MB/mo | ~15 MB/mo |
-| `raw_html` | ~3 KB | ~4.5 MB/mo → **54 MB/yr** | ~45 MB/mo → **540 MB/yr** |
 | Generated CV PDFs | ~10 KB | negligible | ~150 MB/yr |
 | GIN tsvector index | ~20% of text | negligible | ~100 MB/yr |
 
-**Recommendation:** move `raw_html` > 90 days old to S3/Glacier (migration is
-a column update + archive job). Retains the reprocessing guarantee (ADR 004)
-while keeping the RDS volume lean.
+**Note:** raw HTML is intentionally not retained (copyright/ToS), so the
+reprocessing path is a re-scrape, not an archive replay.
 
 ## Worker scaling guidance
 

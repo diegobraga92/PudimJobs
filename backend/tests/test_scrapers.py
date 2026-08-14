@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+import scrapers.utils as utils
 from scrapers.aggregator import GenericHtmlListScraper, get_aggregator_adapter
 from scrapers.career_page import CareerPageScraper
 from scrapers.discovery import (
@@ -17,6 +18,7 @@ from scrapers.discovery import (
 from scrapers.registry import get_scraper
 from scrapers.rss import RSSScraper
 from scrapers.types import RawJob, ScrapedPage
+from scrapers.utils import parse_json_ld_jobs, redact_sensitive
 
 from app.models.enums import SourceType
 
@@ -172,10 +174,64 @@ def test_aggregator_next_page_url_none_without_selector():
 def test_aggregator_normalize_skips_invalid():
     scraper = GenericHtmlListScraper({})
     normalized = scraper.normalize(
-        [RawJob(title="X", company="Y", url="https://x.example/job")]
+        [RawJob(title="X", company="Y", url="https://x.example/job", external_id="job-1")]
     )
     assert normalized[0]["company"] == "Y"
+    assert normalized[0]["external_id"] == "job-1"
     assert scraper.normalize([RawJob(title="", company="", url="")]) == []
+    # Whitespace-only titles are dropped, not stored as empty strings.
+    assert (
+        scraper.normalize(
+            [RawJob(title="   ", company="Y", url="https://x.example/job")]
+        )
+        == []
+    )
+
+
+class _FakeRobotsResponse:
+    def __init__(self, text: str):
+        self.status_code = 200
+        self.text = text
+
+
+def test_robots_respects_allow_and_disallow(monkeypatch):
+    """robots.txt handling honours ``Allow`` (which overrides ``Disallow``)."""
+    # `urllib.robotparser` returns the *first* matching rule, so Allow precedes
+    # Disallow in the file (as most crawlers expect).
+    monkeypatch.setattr(
+        utils.httpx,
+        "get",
+        lambda *a, **k: _FakeRobotsResponse(
+            "User-agent: *\nAllow: /private/open\nDisallow: /private\n"
+        ),
+    )
+    utils._robots_parser_cache.clear()
+
+    assert utils.is_allowed_by_robots("https://example.com/jobs/1") is True
+    assert utils.is_allowed_by_robots("https://example.com/private/jobs/2") is False
+    assert utils.is_allowed_by_robots("https://example.com/private/open/3") is True
+
+
+def test_redact_sensitive_hides_query_keys():
+    assert (
+        redact_sensitive("https://serpapi.com/search?engine=linkedin&api_key=SECRET")
+        == "https://serpapi.com/search?engine=linkedin&api_key=REDACTED"
+    )
+    # Keys embedded in httpx error messages are redacted too.
+    msg = "Client error '403' for url 'https://serpapi.com/search?api_key=SECRET&engine=linkedin'"
+    assert "SECRET" not in redact_sensitive(msg)
+
+
+def test_json_ld_identifier_dict_is_coerced():
+    html = """
+    <script type="application/ld+json">
+    {"@type": "JobPosting", "title": "T", "hiringOrganization": {"name": "C"},
+     "url": "https://x.example/1",
+     "identifier": {"@type": "PropertyValue", "value": "req-42"}}
+    </script>
+    """
+    jobs = parse_json_ld_jobs(html)
+    assert jobs[0].external_id == "req-42"
 
 
 def test_get_aggregator_adapter_unknown_raises():

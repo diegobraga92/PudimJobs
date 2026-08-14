@@ -18,7 +18,7 @@
   - [x] ADR: `003-event-evolution.md`
 - [x] Reprocessing workflow:
   - [x] Admin endpoint to inspect DLQ, select failed jobs, and re‑queue for retry
-  - [x] Replay capability for historical raw HTML (re‑parse after parser improvements)
+  - [x] DLQ replay and re-scrape recovery after parser improvements
   - [x] Reprocessing audit log (who replayed, when, result)
   - [x] ADR: `004-reprocessing-strategy.md`
 - [x] Scheduling: periodic scraping per source (configurable interval, Celery Beat)
@@ -145,7 +145,7 @@
 
 - [x] Cost estimation: monthly cost for cloud resources (compute, RDS, S3, ELK), scaled for 50 sources hourly scraping
 - [x] Scaling projection: 500 sources, 10k users; identify bottlenecks (search, database, workers)
-- [x] Capacity plan: worker count vs scraping frequency, storage retention for JDs and raw HTML, search index size
+- [x] Capacity plan: worker count vs scraping frequency, storage retention for JDs and descriptions, search index size
 - [x] Final documentation:
   - [x] Architecture diagram (C4)
   - [x] `README.md` with demo, setup, stakeholder guide

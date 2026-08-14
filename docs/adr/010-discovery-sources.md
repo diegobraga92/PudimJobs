@@ -57,8 +57,8 @@ registry** (`scrapers/discovery.py`), selected per source via
   enums; `config` is JSONB).
 - Discovery scrapes are more expensive (N detail fetches); per-domain rate
   limiting + `max_results` keep them polite.
-- `scrape_runs` raw-HTML replay re-parses stored *detail* pages but cannot
-  re-run a past search query against a transient results page.
+- `scrape_runs` replay re-fetches a source but cannot re-run a past search
+  query against a transient results page.
 - Search-API quotas (Google ~100 free/day) apply; ATS APIs vary in auth
   (Ashby/Lever public, Greenhouse needs a board token).
 

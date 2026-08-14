@@ -11,15 +11,17 @@ and network errors happen. The product requires an operational story for:
 
 - Inspecting failed scrapes ("the DLQ"),
 - Replaying them after a fix,
-- Re-parsing stored raw HTML after a parser improvement.
+- Re-scraping a source after a parser improvement.
 
 ## Decision
 
-### Store raw HTML with every job
+### Normalized extract only — raw HTML is not retained
 
-`jobs.raw_html` holds the exact markup from which a job was parsed. This makes
-reparsing possible without re-fetching — the HTML a site served weeks ago may
-no longer exist.
+Only the normalized job fields (title, company, description, url, tags,
+`external_id`) are stored. Full page markup is deliberately not retained:
+storing third-party content raises copyright/ToS and storage concerns, and the
+normalized extract is enough for reprocessing. Recovery after a parser fix is
+therefore a re-scrape (the live page may have changed — an accepted tradeoff).
 
 ### Durable failed-run log as the reprocessing queue
 
@@ -29,8 +31,6 @@ queue:
 
 - `GET /api/admin/dlq` lists failed runs (with the error message).
 - `POST /api/admin/dlq/{run_id}/replay` re-enqueues the source's scrape.
-- `POST /api/admin/sources/{id}/reparse` re-runs the parser over stored
-  `raw_html` and updates jobs in place.
 
 A DB-backed log is chosen over consuming RabbitMQ's DLQ directly because it
 is queryable, auditable, and survives broker restarts; the broker's DLX is
@@ -38,7 +38,7 @@ still configured as a safety net for crashed/lost tasks.
 
 ### Audit trail
 
-Replay, reparse, and manual-scrape actions write to `audit_logs` with
+Replay and manual-scrape actions write to `audit_logs` with
 `entity_type = "reprocessing"`, recording who performed them (Phase 6 will
 surface this in an admin dashboard).
 
@@ -52,8 +52,8 @@ surface this in an admin dashboard).
 
 ### Negative / Risks
 
-- `raw_html` grows storage; retention/capacity planning is deferred to
-  Phase 8 but the column is already optional (NULL for manually-added jobs).
+- Re-scrape recovery only reflects the *current* state of a page: postings
+  that were removed or rewritten after the failure cannot be recovered.
 - Replay re-runs the whole source (not a single job); per-job replay is a
   future refinement.
 
@@ -62,5 +62,5 @@ surface this in an admin dashboard).
 | Option | Reason for Rejection |
 |--------|---------------------|
 | Consume RabbitMQ DLQ directly in the admin API | Not queryable/auditable; messages are transient |
-| Re-fetch HTML instead of storing it | Source may have changed or removed the page |
+| Store raw HTML with every job | Copyright/ToS + storage; recovery is a re-scrape instead |
 | Per-job granularity from the start | Extra complexity with no Phase 2 consumer demand |

@@ -272,7 +272,7 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
   per-domain rate limiting, robots.txt checks, user-agent rotation,
   exponential-backoff retries, RabbitMQ DLX
 - Reprocessing: `scrape_runs` durable failed-run log; admin endpoints to list
-  the DLQ, replay runs, and re-parse stored raw HTML
+  the DLQ and replay failed runs
 - Versioned `job.new` events in `api/events/` (JSON on a topic exchange,
   `job.new.v1` routing key)
 - Admin dashboard in the frontend: stats, source health, DLQ with replay
@@ -340,7 +340,7 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
   HTML, exhaust worker memory, break a normalization rule — each injects a
   failure and verifies the system's response
 - Blameless postmortem: `docs/postmortems/001-scraper-outage-data-quality.md`
-  (simulated job-board HTML change → circuit breaker → DLQ → raw-HTML replay
+  (simulated job-board HTML change → circuit breaker → DLQ → re-scrape
   recovery, with corrective actions)
 - Four runbooks in `docs/runbooks/`: scraper failure, RabbitMQ backlog, data
   quality degradation, database failover

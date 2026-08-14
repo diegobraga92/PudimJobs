@@ -24,6 +24,7 @@ from urllib.parse import urlencode
 import httpx
 from bs4 import BeautifulSoup
 
+from app.config import settings
 from scrapers.base import AbstractScraper
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
 from scrapers.utils import fetch_html, parse_job_detail, parse_json_ld_jobs
@@ -98,9 +99,10 @@ class DiscoveryProvider(ABC):
                 "url": raw.url,
                 "posted_date": raw.posted_date,
                 "tags": raw.tags or [],
+                "external_id": raw.external_id,
             }
             for raw in raw_jobs
-            if raw.title and raw.url
+            if raw.title and raw.title.strip() and raw.url
         ]
 
 
@@ -455,11 +457,24 @@ class BrightDataProvider(SearchApiProvider):
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
+            if len(resp.content) > settings.scraper_max_response_bytes:
+                raise ValueError(
+                    "Response exceeds "
+                    f"scraper_max_response_bytes ({settings.scraper_max_response_bytes})"
+                )
             return ScrapedPage(
                 html_content=resp.text,
                 status_code=resp.status_code,
                 final_url=url,
             )
+
+    def next_page_url(self, page: ScrapedPage) -> str | None:
+        """Pagination is intentionally unsupported.
+
+        ``fetch`` always re-POSTs ``_target_url()`` and ignores the passed URL,
+        so a second "page" would duplicate the first result set.
+        """
+        return None
 
     def result_links(self, page: ScrapedPage) -> list[str]:
         soup = BeautifulSoup(page.html_content, "lxml")
