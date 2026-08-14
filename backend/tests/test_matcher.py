@@ -71,6 +71,18 @@ def test_min_years_experience_filter():
     assert not job_matches_rule(_job(), _rule(keywords=[], min_years_experience=7))
 
 
+def test_min_years_unknown_passes():
+    """A JD that doesn't state experience passes the min-years gate (fail-open)."""
+    assert job_matches_rule(
+        _job(parsed_jd={"years_experience": None}),
+        _rule(keywords=[], min_years_experience=7),
+    )
+    assert not job_matches_rule(
+        _job(parsed_jd={"years_experience": 3}),
+        _rule(keywords=[], min_years_experience=7),
+    )
+
+
 def test_empty_rule_matches_everything():
     rule = _rule(keywords=[], companies=[], tags=[], remote_only=False, min_years_experience=None)
     assert job_matches_rule(_job(), rule)

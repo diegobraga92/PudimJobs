@@ -35,7 +35,9 @@ def job_matches_rule(job: Job, rule: AlertRule) -> bool:
 
     if rule.min_years_experience is not None:
         years = (job.parsed_jd or {}).get("years_experience")
-        if years is None or years < rule.min_years_experience:
+        # Fail-open: when the JD doesn't state experience, don't exclude the
+        # job — a false positive can be eyeballed, a false negative is lost.
+        if years is not None and years < rule.min_years_experience:
             return False
 
     return True

@@ -1,4 +1,9 @@
-"""JD parsing with spaCy NER + regex skill extraction."""
+"""JD parsing with spaCy NER + regex skill extraction.
+
+spaCy is only needed for keyword extraction; when the model is unavailable the
+parser degrades gracefully (skills, years and education are pure regex and
+taxonomy based).
+"""
 
 import re
 from dataclasses import dataclass, field
@@ -9,9 +14,20 @@ from app.services.skill_matcher import extract_skills
 
 _nlp = None
 
-_YEARS_RE = re.compile(
-    r"(\d{1,2})\+?\s*(?:years?|yrs?)\s*(?:of\s*)?(?:relevant\s*)?experience",
+_YEARS_EXPERIENCE_RE = re.compile(
+    r"(\d{1,2})(?:\s*[-\u2013]\s*(\d{1,2}))?\s*\+?\s*(?:years?|yrs?)\s*"
+    r"(?:of\s*)?(?:relevant\s*)?(?:professional\s*)?experience\b",
     re.IGNORECASE,
+)
+_YEARS_ANY_RE = re.compile(
+    r"(?:at\s*least\s*|minimum(?:\s+of)?\s*|min\.?\s*)?"
+    r"(\d{1,2})(?:\s*[-\u2013]\s*(\d{1,2}))?\s*\+?\s*(?:years?|yrs?)\b",
+    re.IGNORECASE,
+)
+_SENIORITY_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
+    (re.compile(r"\bsenior\b", re.IGNORECASE), 5),
+    (re.compile(r"\bmid(?:[- ]level)?\b", re.IGNORECASE), 3),
+    (re.compile(r"\bjunior\b", re.IGNORECASE), 1),
 )
 _EDUCATION_PATTERNS: dict[str, re.Pattern] = {
     "phd": re.compile(r"\b(ph\.?\s*d\.?|doctorate)\b", re.IGNORECASE),
@@ -37,17 +53,29 @@ def _get_nlp():
     if _nlp is None:
         try:
             _nlp = spacy.load("en_core_web_sm")
-        except OSError as exc:  # pragma: no cover - env setup
-            raise RuntimeError(
-                "spaCy model 'en_core_web_sm' is not installed. "
-                "Run: python -m spacy download en_core_web_sm"
-            ) from exc
-    return _nlp
+        except OSError:
+            # Model not installed: only keyword extraction is degraded.
+            _nlp = False
+    return _nlp or None
 
 
 def _extract_years(text: str) -> int | None:
-    match = _YEARS_RE.search(text)
-    return int(match.group(1)) if match else None
+    """Best-effort years-of-experience extraction.
+
+    Prefers an explicit ``N years (of) experience`` statement, then a bare
+    ``N+ years`` / ``at least N years`` pattern, and finally conservative
+    seniority hints (senior/mid/junior) when no number is stated. Ranges
+    ("3-5 years") resolve to the upper bound.
+    """
+    for pattern in (_YEARS_EXPERIENCE_RE, _YEARS_ANY_RE):
+        match = pattern.search(text)
+        if match:
+            lower = int(match.group(1))
+            return max(lower, int(match.group(2))) if match.group(2) else lower
+    for pattern, years in _SENIORITY_PATTERNS:
+        if pattern.search(text):
+            return years
+    return None
 
 
 def _extract_education(text: str) -> str | None:
@@ -80,13 +108,16 @@ def parse_jd(text: str | None) -> ParsedJD:
     """Parse a job description into structured requirements."""
     if not text or not text.strip():
         return ParsedJD()
+    keywords: list[str] = []
     nlp = _get_nlp()
-    doc = nlp(text[:5000])  # cap input for parsing speed
+    if nlp is not None:
+        doc = nlp(text[:5000])  # cap input for parsing speed
+        keywords = _extract_keywords(doc)
     return ParsedJD(
         skills=extract_skills(text),
         years_experience=_extract_years(text),
         education_level=_extract_education(text),
-        keywords=_extract_keywords(doc),
+        keywords=keywords,
     )
 
 

@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
+    # Max CV bullets rephrased per LLM call (ADR 006 rate limit).
+    tailor_llm_max_bullets: int = 5
 
     # Notifications / email (Mailpit for local dev)
     smtp_host: str = "localhost"

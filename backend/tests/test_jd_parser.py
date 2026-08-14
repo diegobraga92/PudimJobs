@@ -43,3 +43,26 @@ def test_parsed_jd_to_dict_roundtrip():
     data = parsed_jd_to_dict(parsed)
     assert set(data) == {"skills", "years_experience", "education_level", "keywords"}
     assert data["years_experience"] == 5
+
+
+def test_parse_jd_years_range_uses_upper_bound():
+    assert parse_jd("We need 3-5 years of experience.").years_experience == 5
+
+
+def test_parse_jd_years_without_experience_keyword():
+    assert parse_jd("Minimum 5 years building distributed systems.").years_experience == 5
+    assert parse_jd("At least 4 years in data engineering.").years_experience == 4
+
+
+def test_parse_jd_seniority_fallback():
+    assert parse_jd("Senior backend engineer role.").years_experience == 5
+    assert parse_jd("Mid-level frontend developer.").years_experience == 3
+    assert parse_jd("Junior developer.").years_experience == 1
+    assert parse_jd("We need help with a project.").years_experience is None
+
+
+def test_parse_jd_extracts_skill_aliases():
+    parsed = parse_jd("Kubernetes (k8s) with React.js and C++ experience.")
+    assert "kubernetes" in parsed.skills
+    assert "react" in parsed.skills
+    assert "c++" in parsed.skills

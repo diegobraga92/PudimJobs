@@ -89,3 +89,37 @@ async def test_tailor_task_parses_jd_on_demand(test_engine, db_session):
     await db_session.refresh(job)
     assert job.parsed_jd is not None
     assert "python" in job.parsed_jd["skills"]
+
+
+async def test_tailor_task_is_idempotent(test_engine, db_session):
+    """Re-tailoring the same job + source CV version reuses the artifact."""
+    user = await create_user(db_session)
+    cv = MasterCV(
+        user_id=user.id,
+        label="CV v1",
+        version=1,
+        is_current=True,
+        structured_json=CV_STRUCTURE,
+    )
+    job = Job(
+        user_id=user.id,
+        title="Senior Backend Engineer",
+        company="Acme",
+        description="Python and FastAPI on AWS with PostgreSQL. 5+ years required.",
+    )
+    db_session.add_all([cv, job])
+    await db_session.commit()
+    await db_session.refresh(cv)
+    await db_session.refresh(job)
+
+    first = await _run_tailor(str(job.id), str(cv.id))
+    second = await _run_tailor(str(job.id), str(cv.id))
+
+    assert second["already_exists"] is True
+    assert second["generated_cv_id"] == first["generated_cv_id"]
+
+    versions = (await db_session.execute(select(MasterCV))).scalars().all()
+    assert len(versions) == 2  # original + one tailored version
+
+    generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
+    assert len(generated) == 1

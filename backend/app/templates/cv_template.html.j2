@@ -19,6 +19,7 @@
   .summary { line-height: 1.5; }
   .education-item { margin-bottom: 4px; }
   .project-desc { margin: 2px 0 4px; line-height: 1.5; }
+  .project-link { font-size: 9pt; color: #555; margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -60,6 +61,7 @@
       <div class="experience-item">
         <div class="experience-header">{{ proj.name }}</div>
         {% if proj.description %}<div class="project-desc">{{ proj.description }}</div>{% endif %}
+        {% if proj.link %}<div class="project-link">{{ proj.link }}</div>{% endif %}
       </div>
     {% endfor %}
   {% endif %}

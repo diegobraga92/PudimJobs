@@ -19,6 +19,10 @@ class GeneratedCV(Base):
     master_cv_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("master_cv.id", ondelete="SET NULL"), nullable=True
     )
+    # The source CV version this artifact was tailored from (idempotency key).
+    source_master_cv_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("master_cv.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )
