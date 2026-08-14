@@ -246,6 +246,13 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'cv.addExperience': { en: 'Add experience', 'pt-BR': 'Adicionar experiência' },
   'cv.education': { en: 'Education', 'pt-BR': 'Formação' },
   'cv.educationItem': { en: 'Education {n}', 'pt-BR': 'Formação {n}' },
+  'cv.import': { en: 'Import PDF/DOCX', 'pt-BR': 'Importar PDF/DOCX' },
+  'cv.imported': {
+    en: 'CV imported — review it, then save as a new version.',
+    'pt-BR': 'CV importado — revise e salve como uma nova versão.',
+  },
+  'cv.importedToast': { en: 'CV imported from file.', 'pt-BR': 'CV importado do arquivo.' },
+  'cv.importing': { en: 'Importing…', 'pt-BR': 'Importando…' },
   'cv.institution': { en: 'Institution', 'pt-BR': 'Instituição' },
   'cv.degree': { en: 'Degree', 'pt-BR': 'Titulação' },
   'cv.year': { en: 'Year', 'pt-BR': 'Ano' },
@@ -262,6 +269,15 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'cv.pdf': { en: 'PDF', 'pt-BR': 'PDF' },
   'cv.savedAs': { en: 'Saved as {label}.', 'pt-BR': 'Salvo como {label}.' },
   'cv.savedAsToast': { en: 'Master CV saved as {label}.', 'pt-BR': 'CV principal salvo como {label}.' },
+  'cv.exportPdf': { en: 'Download PDF', 'pt-BR': 'Baixar PDF' },
+  'cv.exporting': { en: 'Exporting…', 'pt-BR': 'Exportando…' },
+  'cv.pdfExported': { en: 'PDF exported.', 'pt-BR': 'PDF exportado.' },
+  'cv.editTailored': { en: 'Edit tailored CV', 'pt-BR': 'Editar CV personalizado' },
+  'cv.editingTailored': {
+    en: 'Loaded {job} into the editor — edit it, then export or save as a new version.',
+    'pt-BR': '{job} carregado no editor — edite e depois exporte ou salve como nova versão.',
+  },
+  'cv.editingTailoredToast': { en: 'Tailored CV loaded for editing.', 'pt-BR': 'CV personalizado carregado para edição.' },
 
   // ---- Alerts --------------------------------------------------------------
   'alerts.title': { en: 'Job Alerts', 'pt-BR': 'Alertas de Vagas' },
@@ -445,7 +461,16 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'errors.failedDeleteApplication': { en: 'Failed to delete application', 'pt-BR': 'Falha ao excluir a candidatura' },
   'errors.failedLoadCV': { en: 'Failed to load CV', 'pt-BR': 'Falha ao carregar o CV' },
   'errors.failedDownloadPdf': { en: 'Failed to download PDF', 'pt-BR': 'Falha ao baixar o PDF' },
+  'errors.failedExportPdf': { en: 'Failed to export PDF', 'pt-BR': 'Falha ao exportar o PDF' },
   'errors.failedSaveCV': { en: 'Failed to save CV', 'pt-BR': 'Falha ao salvar o CV' },
+  'errors.failedParseCV': {
+    en: 'Failed to parse the CV file',
+    'pt-BR': 'Falha ao analisar o arquivo do CV',
+  },
+  'errors.unsupportedCvFile': {
+    en: 'Unsupported file. Upload a PDF or DOCX.',
+    'pt-BR': 'Arquivo não suportado. Envie um PDF ou DOCX.',
+  },
   'errors.failedLoadAlerts': { en: 'Failed to load alert rules', 'pt-BR': 'Falha ao carregar as regras de alerta' },
   'errors.failedSaveAlert': { en: 'Failed to save alert rule', 'pt-BR': 'Falha ao salvar a regra de alerta' },
   'errors.failedUpdateRule': { en: 'Failed to update rule', 'pt-BR': 'Falha ao atualizar a regra' },

@@ -27,6 +27,33 @@
         {{ i18n.t('cv.preview') }}
       </button>
     </div>
+    <button
+      type="button"
+      class="btn btn-ghost"
+      [disabled]="importing || mode !== 'edit'"
+      (click)="fileInput.click()"
+      [attr.aria-label]="i18n.t('cv.import')"
+    >
+      @if (importing) {
+        <app-icon class="spinner" name="loader" [size]="16" />
+      }
+      <app-icon name="file-plus" [size]="16" />
+      {{ importing ? i18n.t('cv.importing') : i18n.t('cv.import') }}
+    </button>
+    <input
+      #fileInput
+      type="file"
+      accept=".pdf,.docx"
+      hidden
+      (change)="onFileSelected($event)"
+    />
+    <button type="button" class="btn btn-ghost" (click)="exportPdf()" [disabled]="exporting">
+      @if (exporting) {
+        <app-icon class="spinner" name="loader" [size]="16" />
+      }
+      <app-icon name="download" [size]="16" />
+      {{ exporting ? i18n.t('cv.exporting') : i18n.t('cv.exportPdf') }}
+    </button>
     <button type="button" class="btn btn-primary" (click)="save()" [disabled]="saving || mode !== 'edit'">
       @if (saving) {
         <app-icon class="spinner" name="loader" [size]="16" />
@@ -232,10 +259,22 @@
               <strong>{{ item.job_title }}</strong>
               <div class="muted xs">{{ item.job_company }}</div>
             </div>
-            <button type="button" class="btn btn-ghost btn-sm" (click)="downloadPdf(item.id)">
-              <app-icon name="download" [size]="14" />
-              {{ i18n.t('cv.pdf') }}
-            </button>
+            <div class="generated-actions">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                [disabled]="!canEditGenerated(item)"
+                (click)="editGenerated(item)"
+                [attr.aria-label]="i18n.t('cv.editTailored')"
+              >
+                <app-icon name="pencil" [size]="14" />
+                {{ i18n.t('cv.edit') }}
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm" (click)="downloadPdf(item.id)">
+                <app-icon name="download" [size]="14" />
+                {{ i18n.t('cv.pdf') }}
+              </button>
+            </div>
           </li>
         }
       </ul>

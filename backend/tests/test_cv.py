@@ -59,5 +59,13 @@ async def test_cv_creation_writes_audit_log(auth_client, db_session):
     assert entries[0].changes == {"version": 1}
 
 
+async def test_export_cv_pdf(auth_client):
+    client, _, _ = auth_client
+    response = await client.post("/api/cv/pdf", json=CV_PAYLOAD)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+
+
 async def test_cv_requires_auth(client):
     assert (await client.get("/api/cv")).status_code == 401

@@ -1,20 +1,50 @@
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import log_audit
 from app.auth import get_current_user
+from app.config import settings
 from app.database import get_db
 from app.models.generated_cv import GeneratedCV
 from app.models.job import Job
 from app.models.master_cv import MasterCV
 from app.models.user import User
+from app.ratelimit import auth_key, limiter
 from app.schemas.generated_cv import GeneratedCVResponse
-from app.schemas.master_cv import MasterCVCreate, MasterCVResponse, MasterCVUpdate
+from app.schemas.master_cv import (
+    CVStructure,
+    MasterCVCreate,
+    MasterCVResponse,
+    MasterCVUpdate,
+)
+from app.services.cv_parser import CVParsingError, parse_cv_file
+from app.services.cv_tailor import TailoredCV
+from app.services.llm_config import get_llm_config
+from app.services.pdf_generator import generate_pdf
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
+
+_MAX_CV_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+_SUPPORTED_CV_EXTENSIONS = {".pdf", ".docx"}
+
+
+def _pdf_name(email: str) -> str:
+    """Best-effort display name: title-cased email local part (no name field)."""
+    local = email.split("@")[0] or ""
+    return " ".join(part.capitalize() for part in local.split(".") if part)
 
 
 async def get_owned_cv(cv_id: uuid.UUID, user: User, db: AsyncSession) -> MasterCV:
@@ -55,6 +85,48 @@ async def get_current(
             status_code=status.HTTP_404_NOT_FOUND, detail="No CV version exists yet"
         )
     return cv
+
+
+@router.post("/parse", response_model=CVStructure)
+@limiter.limit(settings.rate_limit_api, key_func=auth_key)
+async def parse_uploaded_cv(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Extract and structure an uploaded PDF/DOCX CV (never persisted).
+
+    Returns a CVStructure the frontend can pre-fill the editor with; the user
+    reviews it and saves via ``POST /api/cv``. Structuring is rule-based by
+    default and upgraded by the LLM when one is configured (ADR 011).
+    """
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in _SUPPORTED_CV_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported file type; upload a PDF or DOCX",
+        )
+    content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty"
+        )
+    if len(content) > _MAX_CV_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large (max 5 MB)",
+        )
+
+    try:
+        llm_config = await get_llm_config(db)
+        return await parse_cv_file(
+            file.filename or f"cv{suffix}", content, llm_config=llm_config
+        )
+    except CVParsingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
 
 
 @router.post("", response_model=MasterCVResponse, status_code=status.HTTP_201_CREATED)
@@ -142,6 +214,33 @@ async def get_generated_pdf(
         headers={
             "Content-Disposition": f'attachment; filename="tailored-cv-{generated.id}.pdf"'
         },
+    )
+
+
+@router.post("/pdf")
+@limiter.limit(settings.rate_limit_api, key_func=auth_key)
+async def export_cv_pdf(
+    request: Request,
+    payload: CVStructure,
+    user: User = Depends(get_current_user),
+):
+    """Render an (optionally edited) CV structure to a downloadable PDF.
+
+    Lets the user tweak a tailored CV in the editor and export the result
+    without going through the tailoring worker again. Nothing is persisted.
+    """
+    tailored = TailoredCV(
+        summary=payload.summary,
+        experience=[item.model_dump() for item in payload.experience],
+        education=[item.model_dump() for item in payload.education],
+        skills=payload.skills,
+        projects=[item.model_dump() for item in payload.projects],
+    )
+    pdf = generate_pdf(tailored, name=_pdf_name(user.email), email=user.email)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="cv.pdf"'},
     )
 
 

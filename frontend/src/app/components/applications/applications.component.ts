@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
+import { CdkDragDrop, DragDropModule, moveItemInArray, transferArrayItem } from '@angular/cdk/drag-drop';
 
 import {
   Application,
@@ -50,16 +50,27 @@ export class ApplicationsComponent implements OnInit {
   }
 
   /**
-   * Handles a drag-and-drop between columns. CDK already moved the item between
-   * the column data arrays; here we persist the new status and revert on error.
+   * Handles a drag-and-drop between columns. CDK does not mutate the column data
+   * arrays itself, so we move the item between them here; the new status is
+   * persisted through PUT /api/applications/:id and reverted on error.
    */
   onDrop(event: CdkDragDrop<Application[]>): void {
     if (event.previousContainer === event.container) {
-      // Intra-column reorder — not persisted.
+      // Intra-column reorder — visual only, not persisted.
+      moveItemInArray(event.container.data, event.previousIndex, event.currentIndex);
       return;
     }
     const application = event.item.data as Application;
     const targetStatus = event.container.id as ApplicationStatus;
+
+    transferArrayItem(
+      event.previousContainer.data,
+      event.container.data,
+      event.previousIndex,
+      event.currentIndex,
+    );
+    application.status = targetStatus;
+
     this.service.update(application.id, { status: targetStatus }).subscribe({
       next: () => {
         this.toast.success(this.i18n.t('applications.movedTo', { status: this.i18n.t(`pipeline.${targetStatus}`) }));

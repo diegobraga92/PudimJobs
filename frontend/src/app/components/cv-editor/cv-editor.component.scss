@@ -136,6 +136,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  .generated-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-shrink: 0;
+  }
 }
 
 @media (max-width: 1024px) {

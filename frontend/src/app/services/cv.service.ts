@@ -81,4 +81,19 @@ export class CvService {
   downloadPdf(id: string): Observable<Blob> {
     return this.http.get(`/api/cv/generated/${id}/pdf`, { responseType: 'blob' });
   }
+
+  /** Render an (optionally edited) CV structure to a PDF for download. */
+  exportPdf(structure: CVStructure): Observable<Blob> {
+    return this.http.post('/api/cv/pdf', structure, { responseType: 'blob' });
+  }
+
+  /**
+   * Upload a PDF/DOCX CV and get it back as a structured CVStructure
+   * (nothing is persisted — the caller pre-fills the editor for review).
+   */
+  parse(file: File): Observable<CVStructure> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<CVStructure>('/api/cv/parse', form);
+  }
 }

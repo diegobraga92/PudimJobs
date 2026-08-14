@@ -43,6 +43,8 @@ export class CvEditorComponent implements OnInit {
   error: string | null = null;
   message: string | null = null;
   saving = false;
+  importing = false;
+  exporting = false;
   mode: 'edit' | 'preview' = 'edit';
   cvName = 'Your Name';
 
@@ -111,6 +113,62 @@ export class CvEditorComponent implements OnInit {
     });
   }
 
+  /**
+   * Load a tailored CV version into the editor so the user can modify it
+   * before exporting a fresh PDF.
+   */
+  editGenerated(item: GeneratedCV): void {
+    const version = this.masterCvVersion(item);
+    if (!version) {
+      this.error = this.i18n.t('errors.failedLoadCV');
+      return;
+    }
+    this.loadIntoForm(version.structured_json);
+    this.mode = 'edit';
+    this.message = this.i18n.t('cv.editingTailored', { job: item.job_title ?? '' });
+    this.toast.success(
+      this.i18n.t('cv.editingTailoredToast', { job: item.job_title ?? '' })
+    );
+  }
+
+  /** Whether an "Edit" action is available for this generated CV. */
+  canEditGenerated(item: GeneratedCV): boolean {
+    return this.masterCvVersion(item) !== undefined;
+  }
+
+  private masterCvVersion(item: GeneratedCV): MasterCV | undefined {
+    if (!item.master_cv_id) {
+      return undefined;
+    }
+    return this.versions.find((v) => v.id === item.master_cv_id);
+  }
+
+  /** Export the current editor content as a PDF. */
+  exportPdf(): void {
+    if (this.exporting) {
+      return;
+    }
+    this.exporting = true;
+    this.message = null;
+    this.service.exportPdf(this.buildStructure()).subscribe({
+      next: (blob) => {
+        this.exporting = false;
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'cv.pdf';
+        anchor.click();
+        URL.revokeObjectURL(url);
+        this.toast.success(this.i18n.t('cv.pdfExported'));
+      },
+      error: () => {
+        this.exporting = false;
+        this.error = this.i18n.t('errors.failedExportPdf');
+        this.toast.error(this.i18n.t('errors.failedExportPdf'));
+      },
+    });
+  }
+
   get experience(): FormArray {
     return this.cvForm.get('experience') as FormArray;
   }
@@ -165,6 +223,40 @@ export class CvEditorComponent implements OnInit {
 
   removeProject(index: number): void {
     this.projects.removeAt(index);
+  }
+
+  /**
+   * Upload a PDF/DOCX file, parse it on the backend and pre-fill the editor
+   * so the user can review/edit before saving as a new version.
+   */
+  onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) {
+      return;
+    }
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext !== 'pdf' && ext !== 'docx') {
+      this.error = this.i18n.t('errors.unsupportedCvFile');
+      this.toast.error(this.i18n.t('errors.unsupportedCvFile'));
+      return;
+    }
+    this.importing = true;
+    this.message = null;
+    this.service.parse(file).subscribe({
+      next: (structure) => {
+        this.importing = false;
+        this.loadIntoForm(structure);
+        this.message = this.i18n.t('cv.imported');
+        this.toast.success(this.i18n.t('cv.importedToast'));
+      },
+      error: () => {
+        this.importing = false;
+        this.error = this.i18n.t('errors.failedParseCV');
+        this.toast.error(this.i18n.t('errors.failedParseCV'));
+      },
+    });
   }
 
   save(): void {

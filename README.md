@@ -287,11 +287,15 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
   rephrasing of bullets behind a feature flag (`TAILORING_LLM_ENABLED`)
 - PDF generation: Jinja2 template + weasyprint; tailored CVs stored as new
   (non-current) `master_cv` versions + `generated_cvs` rows
+- CV import: `POST /api/cv/parse` uploads a PDF/DOCX and returns a structured
+  `CVStructure` (rule-based parser, optional LLM upgrade — ADR 011); the
+  editor is pre-filled for review before saving
 - API: `POST /api/jobs/{id}/parse`, `POST /api/jobs/{id}/tailor`,
-  `GET /api/jobs/{id}/parsed`, `GET /api/cv/generated`,
-  `GET /api/cv/generated/{id}/pdf`
+  `GET /api/jobs/{id}/parsed`, `POST /api/cv/parse`,
+  `GET /api/cv/generated`, `GET /api/cv/generated/{id}/pdf`
 - Frontend: "Tailor CV for this job" button + parsed-JD panel on the job
-  detail page; generated-CV list with PDF download on the CV editor
+  detail page; generated-CV list with PDF download and "Import PDF/DOCX" on
+  the CV editor
 
 **Matching alerts & notifications**
 - Alert rules (saved searches): keywords, companies, tags, remote-only,
@@ -351,7 +355,7 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 - Job listing with keyword/company/tag/date search + manual add + detail view
   with "add to applications"
 - Master CV editor (summary, experience, education, skills, projects) with
-  version history
+  version history and PDF/DOCX import to pre-fill the form
 - Application pipeline (Kanban: saved → applied → interview → offer → rejected)
 - Admin dashboard (source health, scrape stats, dead-letter queue)
 
