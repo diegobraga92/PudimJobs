@@ -25,7 +25,12 @@
   </button>
 
   <div class="panel detail">
-    <h2>{{ job.title }}</h2>
+    <h2>
+      {{ job.title }}
+      @if (job.hidden) {
+        <span class="badge hidden-badge">{{ i18n.t('jobs.hiddenBadge') }}</span>
+      }
+    </h2>
     <p class="company">
       <app-icon name="home" [size]="14" />
       {{ job.company }}
@@ -69,6 +74,16 @@
         }
         <app-icon name="wand" [size]="16" />
         {{ tailoring ? i18n.t('jobDetail.tailoring') : i18n.t('jobDetail.tailorCv') }}
+      </button>
+
+      <button type="button" class="btn btn-ghost" (click)="toggleHidden()" [disabled]="saving">
+        <app-icon [name]="job.hidden ? 'eye' : 'eye-off'" [size]="16" />
+        {{ job.hidden ? i18n.t('jobDetail.unhide') : i18n.t('jobDetail.hide') }}
+      </button>
+
+      <button type="button" class="btn btn-danger" (click)="remove()">
+        <app-icon name="trash" [size]="16" />
+        {{ i18n.t('jobDetail.delete') }}
       </button>
     </div>
 

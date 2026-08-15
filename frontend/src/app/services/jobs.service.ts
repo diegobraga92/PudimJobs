@@ -9,6 +9,7 @@ export interface JobSummary {
   url: string | null;
   posted_date: string | null;
   tags: string[];
+  hidden: boolean;
   created_at: string;
 }
 
@@ -30,6 +31,8 @@ export interface JobFilters {
   date_from?: string;
   date_to?: string;
   tags?: string;
+  include_hidden?: boolean;
+  hide_applied?: boolean;
 }
 
 export type JobInput = Partial<JobDetail>;
@@ -58,6 +61,14 @@ export class JobsService {
 
   update(id: string, payload: JobInput): Observable<JobDetail> {
     return this.http.put<JobDetail>(`/api/jobs/${id}`, payload);
+  }
+
+  hide(id: string): Observable<JobDetail> {
+    return this.http.put<JobDetail>(`/api/jobs/${id}`, { hidden: true });
+  }
+
+  unhide(id: string): Observable<JobDetail> {
+    return this.http.put<JobDetail>(`/api/jobs/${id}`, { hidden: false });
   }
 
   delete(id: string): Observable<void> {

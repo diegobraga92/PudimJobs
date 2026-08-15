@@ -10,6 +10,8 @@ from app.auth import get_current_user
 from app.broker import enqueue_parse_jd, enqueue_tailor
 from app.config import settings
 from app.database import get_db
+from app.models.application import Application
+from app.models.enums import ApplicationStatus
 from app.models.job import Job
 from app.models.source import Source
 from app.models.user import User
@@ -52,6 +54,8 @@ async def list_jobs(
     date_from: date | None = None,
     date_to: date | None = None,
     tags: str | None = None,
+    include_hidden: bool = False,
+    hide_applied: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -60,6 +64,12 @@ async def list_jobs(
     The ``search_vector`` generated column weights title (A) > company (B) >
     description (C). Results are ordered by ``ts_rank`` when a keyword is
     given (with a per-result ``score``), otherwise by recency.
+
+    ``include_hidden`` opts into returning soft-hidden (dismissed) jobs;
+    ``hide_applied`` drops jobs the user already applied to (pipeline
+    statuses ``applied``/``interview``/``offer``/``rejected``) from the
+    listing, so the list can be kept clean while bookmarked ("saved") jobs
+    stay visible.
     """
     has_keyword = bool(q and q.strip())
     if has_keyword:
@@ -70,6 +80,27 @@ async def list_jobs(
         )
     else:
         stmt = select(Job).where(Job.user_id == user.id)
+
+    if not include_hidden:
+        stmt = stmt.where(Job.hidden.is_(False))
+
+    if hide_applied:
+        stmt = stmt.where(
+            ~select(Application.id)
+            .where(
+                Application.job_id == Job.id,
+                Application.user_id == user.id,
+                Application.status.in_(
+                    (
+                        ApplicationStatus.applied,
+                        ApplicationStatus.interview,
+                        ApplicationStatus.offer,
+                        ApplicationStatus.rejected,
+                    )
+                ),
+            )
+            .exists()
+        )
 
     if company:
         stmt = stmt.where(Job.company.ilike(f"%{company.strip()}%"))

@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     Computed,
     Date,
     DateTime,
@@ -12,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
@@ -55,6 +57,11 @@ class Job(Base):
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR, Computed(_SEARCH_VECTOR_EXPR), nullable=True
+    )
+    # Soft-hide flag: lets users dismiss "not interesting" jobs (or jobs they
+    # already applied to) so they stop cluttering the main listing.
+    hidden: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

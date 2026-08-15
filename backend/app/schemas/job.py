@@ -22,6 +22,7 @@ class JobUpdate(BaseModel):
     source_id: uuid.UUID | None = None
     posted_date: date | None = None
     tags: list[str] | None = None
+    hidden: bool | None = None
 
 
 class JobSummary(BaseModel):
@@ -33,6 +34,7 @@ class JobSummary(BaseModel):
     url: str | None
     posted_date: date | None
     tags: list[str]
+    hidden: bool = False
     created_at: datetime
     score: float = 0.0
 

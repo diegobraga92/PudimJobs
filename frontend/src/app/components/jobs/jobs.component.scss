@@ -25,6 +25,13 @@
   .search-submit {
     align-self: flex-start;
   }
+
+  .search-toggle {
+    align-self: center;
+    white-space: nowrap;
+    font-size: var(--text-sm);
+    margin-inline-start: var(--space-1);
+  }
 }
 
 .form {
@@ -67,8 +74,32 @@
   }
 
   &:focus-visible {
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
+
+  &.is-hidden {
+    opacity: 0.72;
+    background: var(--color-surface-muted);
+  }
+}
+
+.job-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.job-hide-btn {
+  flex-shrink: 0;
+  padding: 0.3rem;
+  line-height: 1;
+}
+
+.job-hidden-badge {
+  background: var(--color-border-strong);
+  color: var(--color-text-muted);
 }
 
 .job-title {

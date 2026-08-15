@@ -46,6 +46,11 @@ export class JobsComponent implements OnInit {
   searchForm;
   jobForm;
 
+  /** When on, jobs the user already applied to are filtered out of the list. */
+  hideApplied = false;
+  /** When on, soft-hidden (dismissed) jobs are included so they can be restored. */
+  showHidden = false;
+
   constructor(
     private fb: FormBuilder,
     private service: JobsService,
@@ -117,6 +122,8 @@ export class JobsComponent implements OnInit {
       date_from: value.date_from || undefined,
       date_to: value.date_to || undefined,
       tags: value.tags || undefined,
+      include_hidden: this.showHidden || undefined,
+      hide_applied: this.hideApplied || undefined,
     };
     this.service.list(filters).subscribe({
       next: (jobs) => {
@@ -160,6 +167,46 @@ export class JobsComponent implements OnInit {
   dismissOnboarding(): void {
     this.onboardingDismissed = true;
     localStorage.setItem(ONBOARDING_KEY, '1');
+  }
+
+  toggleHideApplied(): void {
+    this.hideApplied = !this.hideApplied;
+    this.search();
+  }
+
+  toggleShowHidden(): void {
+    this.showHidden = !this.showHidden;
+    this.search();
+  }
+
+  /** Hide/unhide from the card's corner action without opening the detail page. */
+  hideToggle(event: Event, job: JobSummary): void {
+    event.stopPropagation();
+    if (job.hidden) {
+      this.unhideJob(job);
+    } else {
+      this.hideJob(job);
+    }
+  }
+
+  hideJob(job: JobSummary): void {
+    this.service.hide(job.id).subscribe({
+      next: () => {
+        this.toast.success(this.i18n.t('jobs.jobHidden'));
+        this.search();
+      },
+      error: () => this.toast.error(this.i18n.t('errors.failedHideJob')),
+    });
+  }
+
+  unhideJob(job: JobSummary): void {
+    this.service.unhide(job.id).subscribe({
+      next: () => {
+        this.toast.success(this.i18n.t('jobs.jobUnhidden'));
+        this.search();
+      },
+      error: () => this.toast.error(this.i18n.t('errors.failedHideJob')),
+    });
   }
 
   openCreate(): void {

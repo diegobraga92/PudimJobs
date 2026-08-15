@@ -60,6 +60,27 @@
       [attr.aria-label]="i18n.t('jobs.aria.beforeDate')"
     />
   </div>
+
+  <label class="checkbox-row search-toggle">
+    <input
+      type="checkbox"
+      [checked]="hideApplied"
+      (change)="toggleHideApplied()"
+      [attr.aria-label]="i18n.t('jobs.hideApplied')"
+    />
+    {{ i18n.t('jobs.hideApplied') }}
+  </label>
+
+  <label class="checkbox-row search-toggle">
+    <input
+      type="checkbox"
+      [checked]="showHidden"
+      (change)="toggleShowHidden()"
+      [attr.aria-label]="i18n.t('jobs.showHidden')"
+    />
+    {{ i18n.t('jobs.showHidden') }}
+  </label>
+
   <button type="submit" class="btn btn-primary search-submit" [disabled]="loading">
     @if (loading) {
       <app-icon class="spinner" name="loader" [size]="16" />
@@ -165,14 +186,36 @@
 } @else {
   <div class="job-grid">
     @for (job of pagedJobs; track job.id) {
-      <button class="card job-card" (click)="open(job.id)">
-        <div class="job-title">
-          {{ job.title }}
-          @if (pipeline[job.id]) {
-            <span class="badge pipeline-badge" [class]="pipelineBadge(pipeline[job.id])">
-              {{ pipelineLabel(pipeline[job.id]) }}
-            </span>
-          }
+      <div
+        class="card job-card"
+        [class.is-hidden]="job.hidden"
+        role="button"
+        tabindex="0"
+        (click)="open(job.id)"
+        (keydown.enter)="open(job.id)"
+        (keydown.space)="open(job.id); $event.preventDefault()"
+      >
+        <div class="job-card-head">
+          <div class="job-title">
+            {{ job.title }}
+            @if (pipeline[job.id]) {
+              <span class="badge pipeline-badge" [class]="pipelineBadge(pipeline[job.id])">
+                {{ pipelineLabel(pipeline[job.id]) }}
+              </span>
+            }
+            @if (job.hidden) {
+              <span class="badge job-hidden-badge">{{ i18n.t('jobs.hiddenBadge') }}</span>
+            }
+          </div>
+          <button
+            type="button"
+            class="btn btn-icon btn-ghost job-hide-btn"
+            [attr.aria-label]="job.hidden ? i18n.t('jobs.unhide') : i18n.t('jobs.hide')"
+            [attr.title]="job.hidden ? i18n.t('jobs.unhide') : i18n.t('jobs.hide')"
+            (click)="hideToggle($event, job)"
+          >
+            <app-icon [name]="job.hidden ? 'eye' : 'eye-off'" [size]="16" />
+          </button>
         </div>
         <div class="job-company">
           <app-icon name="home" [size]="13" />
@@ -191,7 +234,7 @@
             }
           </div>
         }
-      </button>
+      </div>
     }
   </div>
 

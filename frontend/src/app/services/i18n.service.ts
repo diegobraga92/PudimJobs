@@ -113,6 +113,13 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'jobs.zeroResults': { en: '0 results', 'pt-BR': '0 resultados' },
   'jobs.rangeLabel': { en: '{start}–{end} of {total}', 'pt-BR': '{start}–{end} de {total}' },
   'jobs.jobAdded': { en: 'Job added successfully.', 'pt-BR': 'Vaga adicionada com sucesso.' },
+  'jobs.hideApplied': { en: 'Hide applied jobs', 'pt-BR': 'Ocultar vagas já candidatadas' },
+  'jobs.showHidden': { en: 'Show hidden jobs', 'pt-BR': 'Mostrar vagas ocultas' },
+  'jobs.hiddenBadge': { en: 'Hidden', 'pt-BR': 'Oculta' },
+  'jobs.hide': { en: 'Hide', 'pt-BR': 'Ocultar' },
+  'jobs.unhide': { en: 'Show job', 'pt-BR': 'Mostrar vaga' },
+  'jobs.jobHidden': { en: 'Job hidden.', 'pt-BR': 'Vaga ocultada.' },
+  'jobs.jobUnhidden': { en: 'Job is visible again.', 'pt-BR': 'Vaga visível novamente.' },
 
   // ---- Application pipeline statuses ---------------------------------------
   'pipeline.saved': { en: 'Saved', 'pt-BR': 'Salva' },
@@ -141,6 +148,17 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'jobDetail.notParsed': { en: 'Not parsed yet.', 'pt-BR': 'Ainda não analisada.' },
   'jobDetail.parseNow': { en: 'Parse now', 'pt-BR': 'Analisar agora' },
   'jobDetail.noDescription': { en: 'No description provided.', 'pt-BR': 'Nenhuma descrição fornecida.' },
+  'jobDetail.hide': { en: 'Hide job', 'pt-BR': 'Ocultar vaga' },
+  'jobDetail.unhide': { en: 'Show job', 'pt-BR': 'Mostrar vaga' },
+  'jobDetail.hidden': { en: 'Job hidden from your list.', 'pt-BR': 'Vaga ocultada da sua lista.' },
+  'jobDetail.unhidden': { en: 'Job is visible again.', 'pt-BR': 'Vaga visível novamente.' },
+  'jobDetail.delete': { en: 'Delete', 'pt-BR': 'Excluir' },
+  'jobDetail.deleteTitle': { en: 'Delete job?', 'pt-BR': 'Excluir vaga?' },
+  'jobDetail.deleteMessage': {
+    en: 'Delete "{title}" and all its applications? This cannot be undone.',
+    'pt-BR': 'Excluir "{title}" e todas as suas candidaturas? Esta ação não pode ser desfeita.',
+  },
+  'jobDetail.deleted': { en: 'Job deleted.', 'pt-BR': 'Vaga excluída.' },
 
   // ---- Sources -------------------------------------------------------------
   'sources.title': { en: 'Job Sources', 'pt-BR': 'Fontes de Vagas' },
@@ -444,6 +462,8 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   // ---- Errors / failures ---------------------------------------------------
   'errors.failedLoadJobs': { en: 'Failed to load jobs', 'pt-BR': 'Falha ao carregar as vagas' },
   'errors.failedCreateJob': { en: 'Failed to create job', 'pt-BR': 'Falha ao criar a vaga' },
+  'errors.failedHideJob': { en: 'Failed to update job visibility', 'pt-BR': 'Falha ao atualizar a visibilidade da vaga' },
+  'errors.failedDeleteJob': { en: 'Failed to delete job', 'pt-BR': 'Falha ao excluir a vaga' },
   'errors.failedLoadJob': { en: 'Failed to load job', 'pt-BR': 'Falha ao carregar a vaga' },
   'errors.failedEnqueueParsing': { en: 'Failed to enqueue parsing', 'pt-BR': 'Falha ao enfileirar a análise' },
   'errors.failedLoadSources': { en: 'Failed to load sources', 'pt-BR': 'Falha ao carregar as fontes' },
