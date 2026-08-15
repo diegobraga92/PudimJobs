@@ -296,6 +296,20 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     'pt-BR': '{job} carregado no editor — edite e depois exporte ou salve como nova versão.',
   },
   'cv.editingTailoredToast': { en: 'Tailored CV loaded for editing.', 'pt-BR': 'CV personalizado carregado para edição.' },
+  'cv.deleteVersion': { en: 'Delete version', 'pt-BR': 'Excluir versão' },
+  'cv.deleteVersionTitle': { en: 'Delete this CV version?', 'pt-BR': 'Excluir esta versão do CV?' },
+  'cv.deleteVersionMessage': {
+    en: 'Delete "{label}"? This cannot be undone.',
+    'pt-BR': 'Excluir "{label}"? Esta ação não pode ser desfeita.',
+  },
+  'cv.versionDeleted': { en: 'CV version deleted.', 'pt-BR': 'Versão do CV excluída.' },
+  'cv.deleteTailored': { en: 'Delete tailored CV', 'pt-BR': 'Excluir CV personalizado' },
+  'cv.deleteTailoredTitle': { en: 'Delete tailored CV?', 'pt-BR': 'Excluir CV personalizado?' },
+  'cv.deleteTailoredMessage': {
+    en: 'Delete the tailored CV for "{title}"? This cannot be undone.',
+    'pt-BR': 'Excluir o CV personalizado de "{title}"? Esta ação não pode ser desfeita.',
+  },
+  'cv.tailoredDeleted': { en: 'Tailored CV deleted.', 'pt-BR': 'CV personalizado excluído.' },
 
   // ---- Alerts --------------------------------------------------------------
   'alerts.title': { en: 'Job Alerts', 'pt-BR': 'Alertas de Vagas' },
@@ -483,6 +497,8 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'errors.failedDownloadPdf': { en: 'Failed to download PDF', 'pt-BR': 'Falha ao baixar o PDF' },
   'errors.failedExportPdf': { en: 'Failed to export PDF', 'pt-BR': 'Falha ao exportar o PDF' },
   'errors.failedSaveCV': { en: 'Failed to save CV', 'pt-BR': 'Falha ao salvar o CV' },
+  'errors.failedDeleteCV': { en: 'Failed to delete CV version', 'pt-BR': 'Falha ao excluir a versão do CV' },
+  'errors.failedDeleteGeneratedCV': { en: 'Failed to delete tailored CV', 'pt-BR': 'Falha ao excluir o CV personalizado' },
   'errors.failedParseCV': {
     en: 'Failed to parse the CV file',
     'pt-BR': 'Falha ao analisar o arquivo do CV',

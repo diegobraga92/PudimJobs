@@ -6,6 +6,7 @@ import { AuthService } from '../../services/auth.service';
 import { CVStructure, CvService, GeneratedCV, MasterCV } from '../../services/cv.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
 
@@ -57,6 +58,7 @@ export class CvEditorComponent implements OnInit {
     private fb: FormBuilder,
     private service: CvService,
     private auth: AuthService,
+    private confirm: ConfirmService,
     private toast: ToastService,
     readonly i18n: I18nService
   ) {
@@ -83,20 +85,41 @@ export class CvEditorComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.refreshVersions(true);
+    this.refreshGenerated();
+  }
+
+  /** Reload master CV versions; optionally re-load the current one into the editor. */
+  private refreshVersions(reloadForm: boolean): void {
     this.service.list().subscribe({
       next: (versions) => {
         this.versions = versions;
-        const current = versions.find((v) => v.is_current);
-        if (current) {
-          this.loadIntoForm(current.structured_json);
+        if (reloadForm) {
+          const current = versions.find((v) => v.is_current);
+          if (current) {
+            this.loadIntoForm(current.structured_json);
+          } else {
+            this.resetForm();
+          }
         }
       },
       error: () => (this.error = this.i18n.t('errors.failedLoadCV')),
     });
+  }
+
+  /** Reload the tailored (generated) CV list. */
+  private refreshGenerated(): void {
     this.service.generated().subscribe({
       next: (generated) => (this.generated = generated),
       error: () => undefined,
     });
+  }
+
+  private resetForm(): void {
+    this.cvForm.patchValue({ summary: '', skillsText: '' });
+    this.experience.clear();
+    this.education.clear();
+    this.projects.clear();
   }
 
   downloadPdf(id: string): void {
@@ -141,6 +164,58 @@ export class CvEditorComponent implements OnInit {
       return undefined;
     }
     return this.versions.find((v) => v.id === item.master_cv_id);
+  }
+
+  /** Delete a master CV version (after confirmation). */
+  async removeVersion(version: MasterCV): Promise<void> {
+    const confirmed = await this.confirm.confirm({
+      title: this.i18n.t('cv.deleteVersionTitle'),
+      message: this.i18n.t('cv.deleteVersionMessage', { label: version.label }),
+      confirmLabel: this.i18n.t('common.delete'),
+      destructive: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    this.service.deleteVersion(version.id).subscribe({
+      next: () => {
+        this.message = this.i18n.t('cv.versionDeleted');
+        this.toast.success(this.i18n.t('cv.versionDeleted'));
+        // Only re-load the editor when the current version went away, so an
+        // in-progress draft isn't wiped by deleting an older version.
+        this.refreshVersions(version.is_current);
+      },
+      error: () => {
+        this.error = this.i18n.t('errors.failedDeleteCV');
+        this.toast.error(this.i18n.t('errors.failedDeleteCV'));
+      },
+    });
+  }
+
+  /** Delete a tailored/generated CV (after confirmation). */
+  async removeGenerated(item: GeneratedCV): Promise<void> {
+    const title =
+      item.job_title ?? item.job_company ?? this.i18n.t('cv.tailoredCvs');
+    const confirmed = await this.confirm.confirm({
+      title: this.i18n.t('cv.deleteTailoredTitle'),
+      message: this.i18n.t('cv.deleteTailoredMessage', { title }),
+      confirmLabel: this.i18n.t('common.delete'),
+      destructive: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    this.service.deleteGenerated(item.id).subscribe({
+      next: () => {
+        this.message = this.i18n.t('cv.tailoredDeleted');
+        this.toast.success(this.i18n.t('cv.tailoredDeleted'));
+        this.refreshGenerated();
+      },
+      error: () => {
+        this.error = this.i18n.t('errors.failedDeleteGeneratedCV');
+        this.toast.error(this.i18n.t('errors.failedDeleteGeneratedCV'));
+      },
+    });
   }
 
   /** Export the current editor content as a PDF. */

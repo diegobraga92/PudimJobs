@@ -74,12 +74,20 @@ export class CvService {
     return this.http.put<MasterCV>(`/api/cv/${id}`, payload);
   }
 
+  deleteVersion(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/cv/${id}`);
+  }
+
   generated(): Observable<GeneratedCV[]> {
     return this.http.get<GeneratedCV[]>('/api/cv/generated');
   }
 
   downloadPdf(id: string): Observable<Blob> {
     return this.http.get(`/api/cv/generated/${id}/pdf`, { responseType: 'blob' });
+  }
+
+  deleteGenerated(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/cv/generated/${id}`);
   }
 
   /** Render an (optionally edited) CV structure to a PDF for download. */

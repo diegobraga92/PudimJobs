@@ -1,8 +1,11 @@
 """Tests for the master CV API (versioning + audit)."""
 
+import uuid
+
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
+from app.models.generated_cv import GeneratedCV
 
 CV_PAYLOAD = {
     "summary": "Backend engineer",
@@ -69,3 +72,87 @@ async def test_export_cv_pdf(auth_client):
 
 async def test_cv_requires_auth(client):
     assert (await client.get("/api/cv")).status_code == 401
+
+
+async def test_delete_current_cv_promotes_next_version(auth_client):
+    client, _, _ = auth_client
+    first = (await client.post("/api/cv", json={"structured_json": CV_PAYLOAD})).json()
+    second = (
+        await client.post(
+            "/api/cv", json={"structured_json": CV_PAYLOAD, "label": "Tailored"}
+        )
+    ).json()
+
+    response = await client.delete(f"/api/cv/{second['id']}")
+    assert response.status_code == 204
+
+    current = await client.get("/api/cv/current")
+    assert current.status_code == 200
+    assert current.json()["id"] == first["id"]
+    assert current.json()["is_current"] is True
+
+    versions = await client.get("/api/cv")
+    assert len(versions.json()) == 1
+
+
+async def test_delete_non_current_cv_keeps_current(auth_client):
+    client, _, _ = auth_client
+    first = (await client.post("/api/cv", json={"structured_json": CV_PAYLOAD})).json()
+    second = (
+        await client.post(
+            "/api/cv", json={"structured_json": CV_PAYLOAD, "label": "Tailored"}
+        )
+    ).json()
+
+    response = await client.delete(f"/api/cv/{first['id']}")
+    assert response.status_code == 204
+
+    current = await client.get("/api/cv/current")
+    assert current.status_code == 200
+    assert current.json()["id"] == second["id"]
+
+
+async def test_delete_last_cv_leaves_no_current(auth_client):
+    client, _, _ = auth_client
+    created = (await client.post("/api/cv", json={"structured_json": CV_PAYLOAD})).json()
+
+    response = await client.delete(f"/api/cv/{created['id']}")
+    assert response.status_code == 204
+
+    assert (await client.get("/api/cv/current")).status_code == 404
+    assert (await client.get("/api/cv")).json() == []
+
+
+async def test_delete_cv_version_unknown_404(auth_client):
+    client, _, _ = auth_client
+    response = await client.delete("/api/cv/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 404
+
+
+async def test_delete_generated_cv(auth_client, db_session):
+    client, user, _ = auth_client
+    job = (await client.post("/api/jobs", json={"title": "Engineer", "company": "Acme"})).json()
+    generated = GeneratedCV(
+        user_id=user.id,
+        job_id=uuid.UUID(job["id"]),
+        pdf=b"%PDF-1.4 fake",
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    listed = await client.get("/api/cv/generated")
+    assert len(listed.json()) == 1
+
+    response = await client.delete(f"/api/cv/generated/{generated.id}")
+    assert response.status_code == 204
+
+    assert (await client.get("/api/cv/generated")).json() == []
+
+
+async def test_delete_generated_cv_unknown_404(auth_client):
+    client, _, _ = auth_client
+    response = await client.delete(
+        "/api/cv/generated/00000000-0000-0000-0000-000000000000"
+    )
+    assert response.status_code == 404

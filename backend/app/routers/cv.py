@@ -217,6 +217,25 @@ async def get_generated_pdf(
     )
 
 
+@router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_generated_cv(
+    generated_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Delete a generated (tailored) CV and its stored PDF."""
+    result = await db.execute(
+        select(GeneratedCV).where(
+            GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id
+        )
+    )
+    generated = result.scalar_one_or_none()
+    if generated is None:
+        raise HTTPException(status_code=404, detail="Generated CV not found")
+    await db.delete(generated)
+    await db.commit()
+
+
 @router.post("/pdf")
 @limiter.limit(settings.rate_limit_api, key_func=auth_key)
 async def export_cv_pdf(
@@ -242,6 +261,50 @@ async def export_cv_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="cv.pdf"'},
     )
+
+
+@router.delete("/{cv_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_version(
+    cv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Delete a master CV version.
+
+    If the deleted version was the current one, the newest remaining version
+    is promoted to current so the app keeps a usable CV; if none remain,
+    ``GET /api/cv/current`` will simply return 404 again.
+    """
+    cv = await get_owned_cv(cv_id, user, db)
+    was_current = cv.is_current
+    deleted_version = cv.version
+
+    await db.delete(cv)
+
+    if was_current:
+        result = await db.execute(
+            select(MasterCV.id)
+            .where(MasterCV.user_id == user.id)
+            .order_by(MasterCV.version.desc())
+            .limit(1)
+        )
+        next_current_id = result.scalar_one_or_none()
+        if next_current_id is not None:
+            await db.execute(
+                update(MasterCV)
+                .where(MasterCV.id == next_current_id)
+                .values(is_current=True)
+            )
+
+    await log_audit(
+        db,
+        user_id=user.id,
+        action="deleted",
+        entity_type="master_cv",
+        entity_id=cv_id,
+        changes={"version": deleted_version},
+    )
+    await db.commit()
 
 
 @router.put("/{cv_id}", response_model=MasterCVResponse)
