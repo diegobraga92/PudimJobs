@@ -10,10 +10,15 @@ A React Native client for PudimJobs that mirrors the Angular web UI
 | Scaffold, design tokens, i18n, auth, drawer shell | ✅ Done |
 | Login screen | ✅ Done |
 | Jobs list + job detail (search, add, hide, pipeline badges, tailor, parse) | ✅ Done |
-| Applications kanban | Placeholder — next up |
-| Master CV editor (import/export PDF) | Placeholder — next up |
-| Sources, Alerts, Notifications | Placeholder — next up |
-| Admin panel (6 tabs) | Placeholder — next up |
+| Applications kanban (5 columns, move status, delete) | ✅ Done |
+| Master CV editor (edit/preview, import PDF/DOCX, export PDF, version history, tailored CVs) | ✅ Done |
+| Sources (CRUD + per-source auth panel) | ✅ Done |
+| Alerts (CRUD + active toggle) | ✅ Done |
+| Notifications (list, mark read / all read) | ✅ Done |
+| Admin panel (overview, sources, quality, DLQ, audit, LLM tabs) | ✅ Done |
+
+Remaining polish: e2e smoke test on a device/emulator against a running backend,
+and the Android release build (EAS).
 
 ## Stack
 

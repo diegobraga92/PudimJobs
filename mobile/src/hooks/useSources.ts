@@ -4,6 +4,7 @@ import {
   createSource,
   deleteSource,
   deleteSourceAuth,
+  getSourceAuth,
   listProviders,
   listSources,
   testSourceAuth,
@@ -23,6 +24,15 @@ export function useProviders() {
   return useQuery({
     queryKey: ['sources', 'providers'],
     queryFn: listProviders,
+  });
+}
+
+export function useSourceAuth(id: string) {
+  return useQuery({
+    queryKey: ['sources', id, 'auth'],
+    queryFn: () => getSourceAuth(id),
+    enabled: !!id,
+    retry: false,
   });
 }
 
