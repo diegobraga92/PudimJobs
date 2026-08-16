@@ -14,6 +14,7 @@
     "axios": "^1.19.0",
     "date-fns": "^4.4.0",
     "expo": "~57.0.13",
+    "expo-build-properties": "~57.0.11",
     "expo-document-picker": "~57.0.1",
     "expo-file-system": "~57.0.4",
     "expo-localization": "~57.0.1",

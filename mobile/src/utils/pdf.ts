@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import { EncodingType, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 import { API_BASE_URL } from '@/api/config';
@@ -24,30 +24,28 @@ export function blobToBase64(blob: unknown): Promise<string> {
   });
 }
 
-function cacheUri(fileName: string): string {
-  return `${FileSystem.cacheDirectory ?? ''}${fileName}`;
-}
-
 /** Saves a blob as a PDF in the cache dir and opens the Android share sheet. */
 export async function sharePdfBlob(blob: unknown, fileName: string): Promise<void> {
   const base64 = await blobToBase64(blob);
-  const uri = cacheUri(fileName);
-  await FileSystem.writeAsStringAsync(uri, base64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  const file = new File(Paths.cache, fileName);
+  file.write(base64, { encoding: EncodingType.Base64 });
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: fileName });
+    await Sharing.shareAsync(file.uri, { mimeType: 'application/pdf', dialogTitle: fileName });
   }
 }
 
 /** Downloads a PDF directly from an authed GET endpoint and shares it. */
 export async function sharePdfFromUrl(path: string, fileName: string): Promise<void> {
   const { token } = useAuthStore.getState();
-  const uri = cacheUri(fileName);
-  await FileSystem.downloadAsync(`${API_BASE_URL}${path}`, uri, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const file = await File.downloadFileAsync(
+    `${API_BASE_URL}${path}`,
+    new File(Paths.cache, fileName),
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      idempotent: true,
+    },
+  );
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: fileName });
+    await Sharing.shareAsync(file.uri, { mimeType: 'application/pdf', dialogTitle: fileName });
   }
 }

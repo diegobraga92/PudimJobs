@@ -1,6 +1,6 @@
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { RenderHTML } from 'react-native-render-html';
 
 import { AppHeader } from '@/components/layout/AppHeader';
@@ -26,10 +26,11 @@ export function JobDetailScreen() {
   const route = useRoute<RouteProp<JobsStackParamList, 'JobDetail'>>();
   const toast = useToast();
   const confirm = useConfirm();
+  const { width } = useWindowDimensions();
   const { id } = route.params;
 
   const { data: job, isPending, error } = useJob(id);
-  const parsed = useParsedJd(id, !!job && !job.hidden);
+  const parsed = useParsedJd(id, !!job);
 
   const createApplication = useCreateApplication();
   const updateJob = useUpdateJob(id);
@@ -151,7 +152,7 @@ export function JobDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.bg }]}>
-      <AppHeader title={i18n.t('jobDetail.title')} onMenuPress={back} />
+      <AppHeader title={job?.title ?? i18n.t('jobs.title')} back onLeftPress={back} />
       <ScrollView contentContainerStyle={styles.content} style={styles.flex}>
         {isPending ? (
           <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
@@ -282,7 +283,7 @@ export function JobDetailScreen() {
               {descriptionHtml ? (
                 <RenderHTML
                   source={{ html: descriptionHtml }}
-                  contentWidth={360}
+                  contentWidth={Math.max(width - 64, 240)}
                   baseStyle={{ color: theme.colors.text, fontSize: 15, lineHeight: 22 }}
                 />
               ) : (

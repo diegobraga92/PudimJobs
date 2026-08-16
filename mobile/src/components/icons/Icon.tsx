@@ -182,8 +182,3 @@ export function Icon({ name, size = 20, color, strokeWidth = 2 }: IconProps) {
   const Lucide = ICONS[name];
   return <Lucide width={size} height={size} size={size} color={resolvedColor} strokeWidth={strokeWidth} />;
 }
-
-/** Convenience: swap an icon component for its name (used by some admin rows). */
-export function IconComponent({ name, size, color }: IconProps) {
-  return <Icon name={name} size={size} color={color} />;
-}

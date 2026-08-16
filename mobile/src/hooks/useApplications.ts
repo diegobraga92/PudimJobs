@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
@@ -45,9 +46,11 @@ export function useDeleteApplication() {
 /** Maps job id → pipeline status so job cards can show "Applied / Interview / …". */
 export function usePipelineMap(): Record<string, ApplicationStatus> {
   const { data } = useApplications();
-  const map: Record<string, ApplicationStatus> = {};
-  for (const application of data ?? []) {
-    map[application.job_id] = application.status;
-  }
-  return map;
+  return useMemo(() => {
+    const map: Record<string, ApplicationStatus> = {};
+    for (const application of data ?? []) {
+      map[application.job_id] = application.status;
+    }
+    return map;
+  }, [data]);
 }

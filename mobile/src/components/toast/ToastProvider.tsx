@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, IconName } from '@/components/icons/Icon';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -44,6 +45,7 @@ const TONE_COLOR: Record<ToastType, string> = {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(1);
 
@@ -73,7 +75,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <View pointerEvents="box-none" style={styles.viewport}>
+      <View pointerEvents="box-none" style={[styles.viewport, { top: insets.top + 12 }]}>
         {toasts.map((toast) => (
           <View
             key={toast.id}
@@ -105,7 +107,6 @@ export function useToast(): ToastContextValue {
 const styles = StyleSheet.create({
   viewport: {
     position: 'absolute',
-    top: 48,
     right: 16,
     left: 16,
     zIndex: 1000,

@@ -93,14 +93,14 @@ export function SearchForm({
       </FormField>
 
       <View style={styles.row}>
-        <FormField label={i18n.t('jobs.aria.afterDate')}>
+        <FormField label={i18n.t('jobs.aria.afterDate')} style={styles.rowField}>
           <Input
             value={fields.date_from}
             onChangeText={(value) => set('date_from', value)}
             placeholder="YYYY-MM-DD"
           />
         </FormField>
-        <FormField label={i18n.t('jobs.aria.beforeDate')}>
+        <FormField label={i18n.t('jobs.aria.beforeDate')} style={styles.rowField}>
           <Input
             value={fields.date_to}
             onChangeText={(value) => set('date_to', value)}
@@ -137,6 +137,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: 12,
+  },
+  rowField: {
+    flex: 1,
   },
   toggles: {
     marginTop: 4,

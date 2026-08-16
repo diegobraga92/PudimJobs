@@ -52,10 +52,10 @@ export function AddJobForm({
       </FormField>
 
       <View style={styles.row}>
-        <FormField label={i18n.t('jobs.postedDate')}>
+        <FormField label={i18n.t('jobs.postedDate')} style={styles.rowField}>
           <Input value={fields.posted_date} onChangeText={(value) => set('posted_date', value)} placeholder="YYYY-MM-DD" />
         </FormField>
-        <FormField label={i18n.t('common.tags')}>
+        <FormField label={i18n.t('common.tags')} style={styles.rowField}>
           <Input value={fields.tags} onChangeText={(value) => set('tags', value)} placeholder="python, fastapi" />
         </FormField>
       </View>
@@ -96,6 +96,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: 12,
+  },
+  rowField: {
+    flex: 1,
   },
   actions: {
     flexDirection: 'row',

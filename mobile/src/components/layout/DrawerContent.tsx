@@ -39,7 +39,7 @@ export function DrawerContent(props: DrawerContentComponentProps) {
   const unread = notifications?.unread ?? 0;
 
   const online = health?.status === 'ok';
-  const activeIndex = state.index;
+  const activeRouteName = state.routes[state.index]?.name;
 
   const navigate = (route: NavItem['route']) => {
     navigation.navigate(route as never);
@@ -59,11 +59,11 @@ export function DrawerContent(props: DrawerContentComponentProps) {
       </View>
 
       <ScrollView style={styles.nav} contentContainerStyle={styles.navContent}>
-        {NAV_ITEMS.map((item, index) => {
+        {NAV_ITEMS.map((item) => {
           if (item.adminOnly && user?.role !== 'admin') {
             return null;
           }
-          const active = activeIndex === index;
+          const active = activeRouteName === item.route;
           return (
             <Pressable
               key={item.route}

@@ -5,17 +5,16 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
-import { apiClient } from '@/api/client';
-import { login } from '@/api/auth';
+import { me } from '@/api/auth';
 import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Icon } from '@/components/icons/Icon';
+import { useLogin } from '@/hooks/useAuth';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/theme/ThemeProvider';
-import { User } from '@/types';
 
 const loginSchema = z.object({
   email: z.string().min(1).email(),
@@ -28,11 +27,11 @@ export function LoginScreen() {
   const { theme } = useTheme();
   const i18n = useI18n();
   const setSession = useAuthStore((state) => state.setSession);
+  const loginMutation = useLogin();
 
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   const {
     control,
@@ -44,28 +43,25 @@ export function LoginScreen() {
   });
 
   const onSubmit = useCallback(
-    async (values: LoginForm) => {
-      if (loading) {
-        return;
-      }
-      setLoading(true);
+    (values: LoginForm) => {
       setError(null);
-      try {
-        const response = await login(values.email, values.password);
-        setSession(response.access_token);
-        // Warm the user profile cache immediately (mirrors adminGuard's auth.me()).
-        try {
-          const { data } = await apiClient.get<User>('/api/auth/me');
-          setSession(response.access_token, data);
-        } catch {
-          // Profile refresh is best-effort; the drawer loads it lazily.
-        }
-      } catch {
-        setError(i18n.t('login.invalidCredentials'));
-        setLoading(false);
-      }
+      loginMutation.mutate(values, {
+        onSuccess: async (response) => {
+          setSession(response.access_token);
+          // Warm the user profile immediately (mirrors adminGuard's auth.me()).
+          try {
+            const user = await me();
+            setSession(response.access_token, user);
+          } catch {
+            // Best-effort; the persisted profile is already in the store.
+          }
+        },
+        onError: () => {
+          setError(i18n.t('login.invalidCredentials'));
+        },
+      });
     },
-    [i18n, loading, setSession],
+    [i18n, loginMutation, setSession],
   );
 
   return (
@@ -105,7 +101,7 @@ export function LoginScreen() {
               />
               {submitted && errors.email ? (
                 <Text style={[styles.fieldError, { color: theme.colors.danger }]}>
-                  {errors.email.type === 'invalid_email' || errors.email.message === 'Invalid email'
+                  {errors.email.type === 'invalid_format' || errors.email.type === 'invalid_string'
                     ? i18n.t('login.emailInvalid')
                     : i18n.t('login.emailRequired')}
                 </Text>
@@ -151,11 +147,11 @@ export function LoginScreen() {
                 setSubmitted(true);
                 void handleSubmit(onSubmit)();
               }}
-              loading={loading}
+              loading={loginMutation.isPending}
               fullWidth
               accessibilityLabel={i18n.t('login.signIn')}
             >
-              {loading ? i18n.t('login.signingIn') : i18n.t('login.signIn')}
+              {loginMutation.isPending ? i18n.t('login.signingIn') : i18n.t('login.signIn')}
             </Button>
           </View>
         </ScrollView>

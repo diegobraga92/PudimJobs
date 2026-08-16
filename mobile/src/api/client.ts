@@ -34,18 +34,3 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   },
 );
-
-/** Extract a human-readable error message from an axios failure (HTTP fallback). */
-export function errorMessage(error: unknown, fallback: string): string {
-  // eslint-disable-next-line import/no-named-as-default-member
-  if (axios.isAxiosError(error)) {
-    const data = error.response?.data as { detail?: string } | undefined;
-    if (typeof data?.detail === 'string' && data.detail) {
-      return data.detail;
-    }
-    if (error.code === 'ERR_NETWORK') {
-      return 'network-error';
-    }
-  }
-  return fallback;
-}

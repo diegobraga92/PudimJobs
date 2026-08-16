@@ -78,20 +78,16 @@ export function JobsScreen() {
   };
 
   const toggleHideApplied = () => {
-    setHideApplied((current) => {
-      const next = !current;
-      setFilters((filters) => ({ ...filters, hide_applied: next || undefined }));
-      return next;
-    });
+    const next = !hideApplied;
+    setHideApplied(next);
+    setFilters((filters) => ({ ...filters, hide_applied: next || undefined }));
     setPage(1);
   };
 
   const toggleShowHidden = () => {
-    setShowHidden((current) => {
-      const next = !current;
-      setFilters((filters) => ({ ...filters, include_hidden: next || undefined }));
-      return next;
-    });
+    const next = !showHidden;
+    setShowHidden(next);
+    setFilters((filters) => ({ ...filters, include_hidden: next || undefined }));
     setPage(1);
   };
 
@@ -247,7 +243,7 @@ export function JobsScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.bg }]}>
       <AppHeader
         title={i18n.t('jobs.title')}
-        onMenuPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+        onLeftPress={() => navigation.dispatch(DrawerActions.openDrawer())}
         right={
           <Button
             size="sm"

@@ -74,12 +74,14 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             style={[styles.dialog, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
             onPress={() => undefined}
           >
-            <View style={[styles.iconWrap, { backgroundColor: options?.destructive ? theme.colors.dangerSoft : theme.colors.warningSoft }]}>
-              <Icon name="triangle-alert" size={24} color={options?.destructive ? theme.colors.danger : theme.colors.warning} />
-            </View>
-            <View style={styles.body}>
-              <Text style={[styles.title, { color: theme.colors.text }]}>{options?.title}</Text>
-              <Text style={[styles.message, { color: theme.colors.textMuted }]}>{options?.message}</Text>
+            <View style={styles.dialogHead}>
+              <View style={[styles.iconWrap, { backgroundColor: options?.destructive ? theme.colors.dangerSoft : theme.colors.warningSoft }]}>
+                <Icon name="triangle-alert" size={24} color={options?.destructive ? theme.colors.danger : theme.colors.warning} />
+              </View>
+              <View style={styles.body}>
+                <Text style={[styles.title, { color: theme.colors.text }]}>{options?.title}</Text>
+                <Text style={[styles.message, { color: theme.colors.textMuted }]}>{options?.message}</Text>
+              </View>
             </View>
             <View style={styles.actions}>
               <Pressable onPress={() => close(false)} style={styles.cancelBtn} accessibilityRole="button">
@@ -124,14 +126,16 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   dialog: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
     borderRadius: 14,
     borderWidth: 1,
     padding: 20,
     maxWidth: 420,
     width: '100%',
+  },
+  dialogHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
   },
   iconWrap: {
     width: 44,

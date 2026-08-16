@@ -3,19 +3,27 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icons/Icon';
+import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 
-/** Top app bar with the drawer (hamburger) toggle — mobile analog of the sidebar toggle. */
+/**
+ * Top app bar. With `back` it shows a back arrow (used on pushed detail
+ * screens); otherwise it shows the drawer (hamburger) toggle — the mobile
+ * analog of the web sidebar toggle.
+ */
 export function AppHeader({
   title,
-  onMenuPress,
+  onLeftPress,
   right,
+  back = false,
 }: {
   title: string;
-  onMenuPress?: () => void;
+  onLeftPress?: () => void;
   right?: ReactNode;
+  back?: boolean;
 }) {
   const { theme } = useTheme();
+  const i18n = useI18n();
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -26,12 +34,12 @@ export function AppHeader({
     >
       <View style={styles.inner}>
         <Pressable
-          onPress={onMenuPress}
+          onPress={onLeftPress}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel="Open navigation menu"
+          accessibilityLabel={back ? i18n.t('jobDetail.backToJobs') : i18n.t('layout.aria.openNav')}
         >
-          <Icon name="menu" size={22} color={theme.colors.text} />
+          <Icon name={back ? 'arrow-left' : 'menu'} size={22} color={theme.colors.text} />
         </Pressable>
         <Text style={[styles.title, { color: theme.colors.text }]} numberOfLines={1}>
           {title}

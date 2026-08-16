@@ -27,7 +27,7 @@ function WithAppBar({
   const navigation = useNavigation();
   return (
     <>
-      <AppHeader title={title} onMenuPress={() => navigation.dispatch(DrawerActions.openDrawer())} />
+      <AppHeader title={title} onLeftPress={() => navigation.dispatch(DrawerActions.openDrawer())} />
       {children}
     </>
   );

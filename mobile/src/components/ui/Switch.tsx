@@ -1,4 +1,4 @@
-import { StyleSheet, Switch as RNSwitch, SwitchProps } from 'react-native';
+import { Switch as RNSwitch, SwitchProps } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeProvider';
 
@@ -17,5 +17,3 @@ export function Switch({ ...props }: SwitchProps) {
     />
   );
 }
-
-export const switchStyles = StyleSheet.create({});
