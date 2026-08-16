@@ -17,7 +17,7 @@ import {
   unhideJob,
   updateJob,
 } from '@/api/jobs';
-import { EnqueueResult, JobFilters, JobInput } from '@/types';
+import { EnqueueResult, JobCreateInput, JobFilters, JobUpdateInput } from '@/types';
 
 export function useJobs(filters: JobFilters) {
   return useQuery({
@@ -47,7 +47,7 @@ export function useParsedJd(id: string, enabled = false) {
 export function useCreateJob() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: JobInput) => createJob(payload),
+    mutationFn: (payload: JobCreateInput) => createJob(payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['jobs'] });
       void queryClient.invalidateQueries({ queryKey: ['applications'] });
@@ -58,7 +58,7 @@ export function useCreateJob() {
 export function useUpdateJob(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: JobInput) => updateJob(id, payload),
+    mutationFn: (payload: JobUpdateInput) => updateJob(id, payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['jobs'] });
     },

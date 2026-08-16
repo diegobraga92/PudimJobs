@@ -26,9 +26,9 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      const { token, clear } = useAuthStore.getState();
+      const { token, expire } = useAuthStore.getState();
       if (token) {
-        clear();
+        expire();
       }
     }
     return Promise.reject(error);

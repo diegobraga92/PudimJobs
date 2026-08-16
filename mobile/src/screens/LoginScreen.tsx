@@ -23,10 +23,20 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>;
 
+function isRateLimited(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { response?: { status?: number } }).response?.status === 429
+  );
+}
+
 export function LoginScreen() {
   const { theme } = useTheme();
   const i18n = useI18n();
   const setSession = useAuthStore((state) => state.setSession);
+  const clearSession = useAuthStore((state) => state.clear);
+  const sessionExpired = useAuthStore((state) => state.sessionExpired);
   const loginMutation = useLogin();
 
   const [showPassword, setShowPassword] = useState(false);
@@ -45,6 +55,7 @@ export function LoginScreen() {
   const onSubmit = useCallback(
     (values: LoginForm) => {
       setError(null);
+      clearSession();
       loginMutation.mutate(values, {
         onSuccess: async (response) => {
           setSession(response.access_token);
@@ -56,12 +67,14 @@ export function LoginScreen() {
             // Best-effort; the persisted profile is already in the store.
           }
         },
-        onError: () => {
-          setError(i18n.t('login.invalidCredentials'));
+        onError: (error) => {
+          setError(
+            isRateLimited(error) ? i18n.t('errors.rateLimited') : i18n.t('login.invalidCredentials'),
+          );
         },
       });
     },
-    [i18n, loginMutation, setSession],
+    [clearSession, i18n, loginMutation, setSession],
   );
 
   return (
@@ -82,6 +95,12 @@ export function LoginScreen() {
           </View>
 
           <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            {sessionExpired ? (
+              <Alert tone="warning">
+                <Text>{i18n.t('errors.sessionExpired')}</Text>
+              </Alert>
+            ) : null}
+
             <FormField label={i18n.t('login.email')}>
               <Controller
                 control={control}

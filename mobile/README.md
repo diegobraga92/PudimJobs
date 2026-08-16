@@ -58,7 +58,20 @@ backend:
     - "${PJ_BACKEND_PORT:-8000}:8000"
 ```
 
-Native apps don't need CORS (that's browser-only).
+Native apps don't need CORS (that's browser-only). Note that the backend's CORS
+allow-list defaults to `localhost:4200/9400` — if you open the API's Swagger UI
+at `http://<LAN-IP>:8000/docs` from a browser on another host, add that origin
+to `PJ_CORS_ORIGINS` in `.env`.
+
+### Auth & smoke testing
+
+- The dev seed user is **`admin@pudimjobs.dev` / `admin123`** (see
+  `backend/app/seed.py`) — an `admin` role, so the Admin panel is visible.
+- JWTs expire after **24 hours** (`access_token_expire_minutes`). When a token
+  expires the app clears the session and shows a "session expired" notice on
+  the login screen.
+- Login is rate-limited to 5/minute; hitting the limit shows a "too many
+  attempts" message instead of a misleading "invalid credentials" error.
 
 ## Regenerating the i18n dictionary
 

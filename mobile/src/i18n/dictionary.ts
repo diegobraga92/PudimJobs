@@ -524,5 +524,21 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'errors.failedLoadLlm': { en: 'Failed to load LLM settings', 'pt-BR': 'Falha ao carregar as configurações do LLM' },
   'errors.failedSaveLlm': { en: 'Failed to save LLM settings', 'pt-BR': 'Falha ao salvar as configurações do LLM' },
   'errors.failedRunLlmTest': { en: 'Failed to run LLM test', 'pt-BR': 'Falha ao executar o teste do LLM' },
+  'errors.rateLimited': {
+    en: 'Too many attempts. Please try again later.',
+    'pt-BR': 'Muitas tentativas. Tente novamente mais tarde.',
+  },
+  'errors.sessionExpired': {
+    en: 'Your session has expired. Please sign in again.',
+    'pt-BR': 'Sua sessão expirou. Entre novamente.',
+  },
+  'errors.cvFileTooLarge': {
+    en: 'File too large (max 5 MB).',
+    'pt-BR': 'Arquivo muito grande (máx. 5 MB).',
+  },
+  'errors.invalidDate': {
+    en: 'Invalid date. Use YYYY-MM-DD.',
+    'pt-BR': 'Data inválida. Use AAAA-MM-DD.',
+  },
 
 };

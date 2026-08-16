@@ -24,9 +24,9 @@ export function QualityTab() {
         <View style={styles.metrics}>
           <Metric label={i18n.t('admin.statJobs')} value={overview.jobs_total} />
           <Metric label={i18n.t('admin.jobsAssessed')} value={overview.assessed} />
-          <Metric label={i18n.t('admin.avgCompleteness')} value={`${Math.round(overview.avg_completeness)}%`} />
+          <Metric label={i18n.t('admin.avgCompleteness')} value={`${Math.round(overview.avg_completeness * 100)}%`} />
           <Metric label={i18n.t('admin.duplicates')} value={overview.duplicates} />
-          <Metric label={i18n.t('admin.normalization')} value={`${Math.round(overview.normalization_coverage)}%`} />
+          <Metric label={i18n.t('admin.normalization')} value={`${Math.round(overview.normalization_coverage * 100)}%`} />
           <Metric label={i18n.t('admin.withIssues')} value={overview.jobs_with_issues} />
         </View>
       ) : null}
@@ -38,7 +38,7 @@ export function QualityTab() {
             <View key={item.source} style={[styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
               <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{item.source}</Text>
               <Text style={[styles.rowValue, { color: theme.colors.textMuted }]}>
-                {item.jobs} · {i18n.t('admin.avgCompleteness')} {Math.round(item.avg_completeness)}%
+                {item.jobs} · {i18n.t('admin.avgCompleteness')} {Math.round(item.avg_completeness * 100)}%
               </Text>
             </View>
           ))}
@@ -62,7 +62,7 @@ export function QualityTab() {
               {job.is_duplicate ? <Badge variant="danger">{i18n.t('admin.duplicates')}</Badge> : null}
             </View>
             <Text style={[styles.jobMeta, { color: theme.colors.textMuted }]}>
-              {job.company} · {i18n.t('admin.completeness')}: {Math.round(job.completeness_score)}%
+              {job.company} · {i18n.t('admin.completeness')}: {Math.round(job.completeness_score * 100)}%
             </Text>
             {job.issues.length > 0 ? (
               <Text style={[styles.issues, { color: theme.colors.warning }]}>

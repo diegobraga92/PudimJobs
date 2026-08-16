@@ -22,7 +22,7 @@ import { usePipelineMap } from '@/hooks/useApplications';
 import { useI18n } from '@/i18n/I18nProvider';
 import { JobsStackParamList } from '@/navigation/types';
 import { useTheme } from '@/theme/ThemeProvider';
-import { JobFilters, JobInput, JobSummary } from '@/types';
+import { JobCreateInput, JobFilters, JobSummary } from '@/types';
 import { parseList } from '@/utils/lists';
 
 const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
@@ -65,6 +65,14 @@ export function JobsScreen() {
   };
 
   const search = () => {
+    const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (
+      (searchFields.date_from && !validDate(searchFields.date_from)) ||
+      (searchFields.date_to && !validDate(searchFields.date_to))
+    ) {
+      toast.error(i18n.t('errors.invalidDate'));
+      return;
+    }
     setFilters({
       q: searchFields.q || undefined,
       company: searchFields.company || undefined,
@@ -129,7 +137,7 @@ export function JobsScreen() {
     if (!formFields.title.trim() || !formFields.company.trim()) {
       return;
     }
-    const payload: JobInput = {
+    const payload: JobCreateInput = {
       title: formFields.title,
       company: formFields.company,
       url: formFields.url || null,

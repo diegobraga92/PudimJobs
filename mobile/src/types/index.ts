@@ -33,6 +33,8 @@ export interface JobSummary {
   tags: string[];
   hidden: boolean;
   created_at: string;
+  /** Relevance score (0–1) present when the list is keyword-searched. */
+  score?: number;
 }
 
 export interface JobDetail extends JobSummary {
@@ -57,11 +59,26 @@ export interface JobFilters {
   hide_applied?: boolean;
 }
 
-export type JobInput = Partial<JobDetail>;
+/** Payload for creating a job (mirrors the backend JobCreate schema). */
+export interface JobCreateInput {
+  title: string;
+  company: string;
+  description?: string | null;
+  url?: string | null;
+  posted_date?: string | null;
+  tags?: string[];
+  source_id?: string | null;
+}
+
+/** Payload for updating a job (mirrors the backend JobUpdate schema). */
+export interface JobUpdateInput extends Partial<JobCreateInput> {
+  hidden?: boolean;
+}
 
 export interface EnqueueResult {
   enqueued: boolean;
   job_id: string;
+  cv_id?: string | null;
 }
 
 // ---- Applications ------------------------------------------------------
@@ -275,6 +292,7 @@ export interface LlmConfigInput {
 export interface LlmTestResult {
   ok: boolean;
   status_code: number | null;
+  model?: string;
   error?: string;
 }
 

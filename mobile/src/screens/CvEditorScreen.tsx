@@ -244,6 +244,12 @@ export function CvEditorScreen() {
       toast.error(i18n.t('errors.unsupportedCvFile'));
       return;
     }
+    // The backend caps uploads at 5 MB (HTTP 413 otherwise).
+    if (asset.size && asset.size > 5 * 1024 * 1024) {
+      setError(i18n.t('errors.cvFileTooLarge'));
+      toast.error(i18n.t('errors.cvFileTooLarge'));
+      return;
+    }
     setImporting(true);
     setMessage(null);
     try {

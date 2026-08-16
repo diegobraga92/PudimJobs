@@ -1,9 +1,10 @@
 import {
   EnqueueResult,
+  JobCreateInput,
   JobDetail,
   JobFilters,
-  JobInput,
   JobSummary,
+  JobUpdateInput,
   ParsedJD,
 } from '@/types';
 import { apiClient } from './client';
@@ -25,12 +26,12 @@ export async function getJob(id: string): Promise<JobDetail> {
   return data;
 }
 
-export async function createJob(payload: JobInput): Promise<JobDetail> {
+export async function createJob(payload: JobCreateInput): Promise<JobDetail> {
   const { data } = await apiClient.post<JobDetail>('/api/jobs', payload);
   return data;
 }
 
-export async function updateJob(id: string, payload: JobInput): Promise<JobDetail> {
+export async function updateJob(id: string, payload: JobUpdateInput): Promise<JobDetail> {
   const { data } = await apiClient.put<JobDetail>(`/api/jobs/${id}`, payload);
   return data;
 }

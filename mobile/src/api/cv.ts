@@ -6,11 +6,6 @@ export async function listCvs(): Promise<MasterCV[]> {
   return data;
 }
 
-export async function getCurrentCv(): Promise<MasterCV> {
-  const { data } = await apiClient.get<MasterCV>('/api/cv/current');
-  return data;
-}
-
 export async function createCv(payload: CVInput): Promise<MasterCV> {
   const { data } = await apiClient.post<MasterCV>('/api/cv', payload);
   return data;

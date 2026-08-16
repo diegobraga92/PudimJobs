@@ -358,6 +358,9 @@ function SourceAuthModal({ source, onClose }: { source: Source; onClose: () => v
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
   const hasAuth = current?.has_auth ?? false;
+  const secretMissing =
+    (authType === 'token' && !authToken.trim()) ||
+    (authType === 'api_key' && !authApiKey.trim());
 
   const save = () => {
     const payload: { auth_type: 'none' | 'token' | 'api_key'; token?: string; api_key?: string } = {
@@ -467,7 +470,7 @@ function SourceAuthModal({ source, onClose }: { source: Source; onClose: () => v
               <Icon name="activity" size={14} />
               {testAuth.isPending ? i18n.t('sources.testing') : i18n.t('sources.testConnection')}
             </Button>
-            <Button onPress={save} loading={saveAuth.isPending}>
+            <Button onPress={save} loading={saveAuth.isPending} disabled={secretMissing}>
               {saveAuth.isPending ? i18n.t('sources.saving') : i18n.t('common.save')}
             </Button>
           </View>
