@@ -65,6 +65,8 @@ PudimJobs/
 │   └── app/          #   config, database, models, routers, services, data, templates
 ├── frontend/         # Angular 17 application
 │   └── src/app/      #   components, services, routing, guards, interceptors
+├── mobile/           # React Native (Android-first) client — mirrors the web UI
+│   └── src/          #   screens, components, api, hooks, theme, i18n, navigation
 ├── scrapers/         # Scraper implementations & adapters (per-source)
 ├── workers/          # Celery app, tasks, event consumer, metrics
 ├── api/              # Event schemas/producer + hand-written OpenAPI specs

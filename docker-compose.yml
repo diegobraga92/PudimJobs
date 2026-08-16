@@ -43,6 +43,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    # Exposed on an optional host port so native mobile clients (Android
+    # emulator/device) can reach the API directly. The Angular frontend still
+    # proxies /api over the Docker network; this binding is for the React
+    # Native app (and Swagger UI / API tooling).
+    ports:
+      - "${PJ_BACKEND_PORT:-8000}:8000"
     # Internal only — the frontend proxies /api to it over the Docker network.
     # Mounted at /app/backend so the layout matches the Dockerfile's
     # COPY backend/ ./backend/ (same as the worker services).
