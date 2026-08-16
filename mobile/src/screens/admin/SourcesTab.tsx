@@ -9,7 +9,7 @@ import { useToast } from '@/components/toast/ToastProvider';
 import { useSourceHealth, useTriggerScrape } from '@/hooks/useAdmin';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
-import { shortDate } from '@/utils/dates';
+import { dateLocale, shortDate } from '@/utils/dates';
 
 /** Admin Sources tab — source health with manual scrape triggers. */
 export function SourcesTab() {
@@ -49,7 +49,7 @@ export function SourcesTab() {
             <Text style={[styles.name, { color: theme.colors.text }]}>{source.name}</Text>
             <Text style={[styles.meta, { color: theme.colors.textMuted }]}>
               {source.type} · {i18n.t('admin.lastScraped')}:{' '}
-              {source.last_scraped ? shortDate(source.last_scraped) : i18n.t('admin.never')}
+              {source.last_scraped ? shortDate(source.last_scraped, dateLocale(i18n.lang)) : i18n.t('admin.never')}
             </Text>
           </View>
           <Badge variant={source.health === 'healthy' ? 'success' : source.health === 'failing' ? 'danger' : 'warning'}>

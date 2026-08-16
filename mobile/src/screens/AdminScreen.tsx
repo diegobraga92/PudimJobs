@@ -101,7 +101,6 @@ const styles = StyleSheet.create({
   tabBar: {
     flexGrow: 0,
     borderBottomWidth: 1,
-    borderBottomColor: '#27364c',
   },
   tabBarContent: {
     gap: 8,

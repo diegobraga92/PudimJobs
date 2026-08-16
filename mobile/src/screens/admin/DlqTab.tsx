@@ -9,7 +9,7 @@ import { useToast } from '@/components/toast/ToastProvider';
 import { useDlq, useReplayRun } from '@/hooks/useAdmin';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
-import { shortDate } from '@/utils/dates';
+import { dateLocale, shortDate } from '@/utils/dates';
 
 /** Admin DLQ tab — failed scrape runs with replay. */
 export function DlqTab() {
@@ -52,8 +52,8 @@ export function DlqTab() {
             <Badge variant={run.status === 'failed' ? 'danger' : 'warning'}>{run.status}</Badge>
           </View>
           <Text style={[styles.meta, { color: theme.colors.textMuted }]}>
-            {i18n.t('admin.started')}: {shortDate(run.started_at)}
-            {run.finished_at ? ` · ${shortDate(run.finished_at)}` : ''}
+            {i18n.t('admin.started')}: {shortDate(run.started_at, dateLocale(i18n.lang))}
+            {run.finished_at ? ` · ${shortDate(run.finished_at, dateLocale(i18n.lang))}` : ''}
           </Text>
           {run.error ? <Text style={[styles.error, { color: theme.colors.danger }]} numberOfLines={2}>{run.error}</Text> : null}
           <View style={styles.actions}>

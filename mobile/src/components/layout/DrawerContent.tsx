@@ -52,10 +52,10 @@ export function DrawerContent(props: DrawerContentComponentProps) {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.sidebarBg }]}>
       <View style={styles.brandRow}>
-        <View style={styles.brandMark}>
+        <View style={[styles.brandMark, { backgroundColor: theme.colors.accent }]}>
           <Icon name="briefcase" size={22} color={theme.colors.onPrimary} />
         </View>
-        <Text style={styles.brandName}>PudimJobs</Text>
+        <Text style={[styles.brandName, { color: theme.colors.onPrimary }]}>PudimJobs</Text>
       </View>
 
       <ScrollView style={styles.nav} contentContainerStyle={styles.navContent}>
@@ -90,8 +90,8 @@ export function DrawerContent(props: DrawerContentComponentProps) {
                 {i18n.t(item.labelKey)}
               </Text>
               {item.route === 'Notifications' && unread > 0 ? (
-                <View style={styles.navBadge}>
-                  <Text style={styles.navBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+                <View style={[styles.navBadge, { backgroundColor: theme.colors.danger }]}>
+                  <Text style={[styles.navBadgeText, { color: theme.colors.onPrimary }]}>{unread > 99 ? '99+' : unread}</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -99,42 +99,42 @@ export function DrawerContent(props: DrawerContentComponentProps) {
         })}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { borderTopColor: theme.colors.sidebarHover }]}>
         {user ? (
           <View style={styles.userChip}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{user.email.charAt(0).toUpperCase()}</Text>
+            <View style={[styles.avatar, { backgroundColor: theme.colors.accent }]}>
+              <Text style={[styles.avatarText, { color: theme.colors.onPrimary }]}>{user.email.charAt(0).toUpperCase()}</Text>
             </View>
-            <Text style={styles.userEmail} numberOfLines={1}>
+            <Text style={[styles.userEmail, { color: theme.colors.sidebarText }]} numberOfLines={1}>
               {user.email}
             </Text>
           </View>
         ) : null}
 
         <View style={styles.statusRow}>
-          <View style={[styles.statusDot, online ? styles.statusDotOnline : null]} />
-          <Text style={styles.apiStatus}>
+          <View style={[styles.statusDot, { backgroundColor: online ? theme.colors.success : theme.colors.danger }]} />
+          <Text style={[styles.apiStatus, { color: theme.colors.sidebarText }]}>
             {online ? i18n.t('layout.apiOnline') : i18n.t('layout.apiUnreachable')}
           </Text>
         </View>
 
         <Pressable onPress={i18n.toggle} style={styles.footerButton} accessibilityRole="button">
           <Icon name="globe" size={16} color={theme.colors.sidebarText} />
-          <Text style={styles.footerButtonText}>
+          <Text style={[styles.footerButtonText, { color: theme.colors.sidebarText }]}>
             {i18n.lang === 'en' ? 'Português' : 'English'}
           </Text>
         </Pressable>
 
         <Pressable onPress={toggle} style={styles.footerButton} accessibilityRole="button">
           <Icon name={isDark ? 'sun' : 'moon'} size={16} color={theme.colors.sidebarText} />
-          <Text style={styles.footerButtonText}>
+          <Text style={[styles.footerButtonText, { color: theme.colors.sidebarText }]}>
             {isDark ? i18n.t('layout.lightMode') : i18n.t('layout.darkMode')}
           </Text>
         </Pressable>
 
         <Pressable onPress={signOut} style={styles.footerButton} accessibilityRole="button">
           <Icon name="log-out" size={16} color={theme.colors.sidebarText} />
-          <Text style={styles.footerButtonText}>{i18n.t('layout.signOut')}</Text>
+          <Text style={[styles.footerButtonText, { color: theme.colors.sidebarText }]}>{i18n.t('layout.signOut')}</Text>
         </Pressable>
       </View>
     </View>
@@ -157,12 +157,10 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 9999,
-    backgroundColor: '#2d6a9f',
     alignItems: 'center',
     justifyContent: 'center',
   },
   brandName: {
-    color: '#ffffff',
     fontSize: 19,
     fontWeight: '700',
   },
@@ -187,19 +185,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   navBadge: {
-    backgroundColor: '#c62828',
     borderRadius: 9999,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
   navBadgeText: {
-    color: '#ffffff',
     fontSize: 11,
     fontWeight: '700',
   },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: 20,
     paddingVertical: 16,
     gap: 6,
@@ -214,17 +209,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 9999,
-    backgroundColor: '#2d6a9f',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    color: '#ffffff',
     fontWeight: '700',
     fontSize: 15,
   },
   userEmail: {
-    color: '#c6d2e0',
     fontSize: 13,
     flex: 1,
   },
@@ -238,13 +230,8 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 9999,
-    backgroundColor: '#c62828',
-  },
-  statusDotOnline: {
-    backgroundColor: '#2e7d32',
   },
   apiStatus: {
-    color: '#c6d2e0',
     fontSize: 12,
   },
   footerButton: {
@@ -254,7 +241,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   footerButtonText: {
-    color: '#c6d2e0',
     fontSize: 14,
   },
 });

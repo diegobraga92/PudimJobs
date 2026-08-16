@@ -16,18 +16,26 @@ import {
 } from '@/hooks/useApplications';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
+import { ThemeColors } from '@/theme/tokens';
 import { Application, ApplicationStatus } from '@/types';
-import { mediumDate } from '@/utils/dates';
+import { dateLocale, mediumDate } from '@/utils/dates';
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
 
-const STATUS_DOT: Record<ApplicationStatus, string> = {
-  saved: '#1e56a0',
-  applied: '#b45309',
-  interview: '#b45309',
-  offer: '#2e7d32',
-  rejected: '#c62828',
-};
+/** Status-dot color derived from theme tokens (adapts to dark mode, like the web). */
+function statusDotColor(status: ApplicationStatus, colors: ThemeColors): string {
+  switch (status) {
+    case 'saved':
+      return colors.info;
+    case 'applied':
+    case 'interview':
+      return colors.warning;
+    case 'offer':
+      return colors.success;
+    case 'rejected':
+      return colors.danger;
+  }
+}
 
 /** Application pipeline — mirrors the web kanban (5 status columns + detail modal). */
 export function ApplicationsScreen() {
@@ -86,7 +94,7 @@ export function ApplicationsScreen() {
               style={[styles.column, { backgroundColor: theme.colors.kanbanColumn, borderColor: theme.colors.border }]}
             >
               <View style={styles.columnHead}>
-                <View style={[styles.statusDot, { backgroundColor: STATUS_DOT[status] }]} />
+                <View style={[styles.statusDot, { backgroundColor: statusDotColor(status, theme.colors) }]} />
                 <Text style={[styles.columnTitle, { color: theme.colors.text }]}>
                   {i18n.t(`pipeline.${status}`)}
                 </Text>
@@ -94,7 +102,7 @@ export function ApplicationsScreen() {
                   {columns[status].length}
                 </Text>
               </View>
-              <View style={styles.columnBody}>
+              <ScrollView nestedScrollEnabled style={styles.columnScroll} contentContainerStyle={styles.columnBody}>
                 {columns[status].length === 0 ? (
                   <Text style={[styles.dropHint, { color: theme.colors.textFaint }]}>
                     {i18n.t('applications.dropHere')}
@@ -120,14 +128,14 @@ export function ApplicationsScreen() {
                         <View style={styles.cardDateRow}>
                           <Icon name="calendar" size={12} color={theme.colors.textFaint} />
                           <Text style={[styles.cardDate, { color: theme.colors.textMuted }]}>
-                            {i18n.t('pipeline.applied')} {mediumDate(app.applied_date)}
+                            {i18n.t('pipeline.applied')} {mediumDate(app.applied_date, dateLocale(i18n.lang))}
                           </Text>
                         </View>
                       ) : null}
                     </Pressable>
                   ))
                 )}
-              </View>
+              </ScrollView>
             </View>
           ))}
         </ScrollView>
@@ -292,6 +300,9 @@ const styles = StyleSheet.create({
   },
   columnBody: {
     gap: 8,
+  },
+  columnScroll: {
+    flexShrink: 1,
   },
   dropHint: {
     fontSize: 13,

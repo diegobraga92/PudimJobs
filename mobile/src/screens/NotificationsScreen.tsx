@@ -10,7 +10,7 @@ import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications 
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { Notification } from '@/types';
-import { shortDate } from '@/utils/dates';
+import { dateLocale, shortDate } from '@/utils/dates';
 
 /** Notifications inbox — mirrors the web notifications page. */
 export function NotificationsScreen() {
@@ -82,7 +82,7 @@ export function NotificationsScreen() {
             <View style={styles.itemMeta}>
               <Icon name="bell" size={12} color={theme.colors.textFaint} />
               <Text style={[styles.metaText, { color: theme.colors.textMuted }]}>
-                {item.channel} · {shortDate(item.created_at)} · {item.status}
+                {item.channel} · {shortDate(item.created_at, dateLocale(i18n.lang))} · {item.status}
               </Text>
             </View>
           </View>

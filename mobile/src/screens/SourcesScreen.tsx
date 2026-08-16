@@ -26,7 +26,7 @@ import {
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { Source, SourceInput } from '@/types';
-import { shortDate } from '@/utils/dates';
+import { dateLocale, shortDate } from '@/utils/dates';
 
 const SOURCE_TYPES = ['career_page', 'aggregator', 'rss', 'discovery'] as const;
 
@@ -109,11 +109,16 @@ export function SourcesScreen() {
       toast.error(i18n.t('errors.failedSaveSource'));
       return;
     }
+    const rate = Number(form.rate_limit_seconds);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 86400) {
+      toast.error(i18n.t('errors.failedSaveSource'));
+      return;
+    }
     const payload: SourceInput = {
       name: form.name,
       url: form.url,
       type: form.type,
-      rate_limit_seconds: Number(form.rate_limit_seconds) || 30,
+      rate_limit_seconds: rate,
       respect_robots_txt: form.respect_robots_txt,
     };
     if (form.type === 'aggregator') {
@@ -312,7 +317,7 @@ export function SourcesScreen() {
 
           <Text style={[styles.metaText, { color: theme.colors.textMuted }]}>
             {source.type} · {i18n.t('common.jobs')}: {source.jobs_count ?? '—'} ·{' '}
-            {i18n.t('sources.lastScraped')}: {source.last_scraped ? shortDate(source.last_scraped) : '—'}
+            {i18n.t('sources.lastScraped')}: {source.last_scraped ? shortDate(source.last_scraped, dateLocale(i18n.lang)) : '—'}
           </Text>
 
           <View style={styles.sourceActions}>

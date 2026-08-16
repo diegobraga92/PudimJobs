@@ -10,7 +10,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { useAuditActions, useAuditLog } from '@/hooks/useAdmin';
 import { useTheme } from '@/theme/ThemeProvider';
 import { AuditFilters } from '@/types';
-import { shortDate } from '@/utils/dates';
+import { dateLocale, shortDate } from '@/utils/dates';
 
 /** Admin Audit tab — filterable audit log with expandable change details. */
 export function AuditTab() {
@@ -71,7 +71,7 @@ export function AuditTab() {
           </FormField>
         </View>
         <Button size="sm" onPress={apply}>
-          {i18n.t('admin.action')}
+          {i18n.t('jobs.search')}
         </Button>
       </View>
 
@@ -85,7 +85,7 @@ export function AuditTab() {
           const expanded = expandedId === entry.id;
           return (
             <View key={entry.id} style={[styles.entry, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-              <Text style={[styles.entryTime, { color: theme.colors.textMuted }]}>{shortDate(entry.timestamp)}</Text>
+              <Text style={[styles.entryTime, { color: theme.colors.textMuted }]}>{shortDate(entry.timestamp, dateLocale(i18n.lang))}</Text>
               <Text style={[styles.entryUser, { color: theme.colors.textSecondary }]}>{entry.email ?? entry.user_id ?? '—'}</Text>
               <Text style={[styles.actionTag, { color: theme.colors.primary }]}>{entry.action}</Text>
               <Text style={[styles.entryEntity, { color: theme.colors.textMuted }]}>

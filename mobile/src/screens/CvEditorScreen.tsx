@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/Input';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { TextArea } from '@/components/ui/TextArea';
 import { Icon } from '@/components/icons/Icon';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { useToast } from '@/components/toast/ToastProvider';
 import {
@@ -25,7 +26,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/theme/ThemeProvider';
 import { CVStructure, ExperienceItem, GeneratedCV, MasterCV } from '@/types';
-import { shortDate } from '@/utils/dates';
+import { shortDate, dateLocale } from '@/utils/dates';
 import { parseLines, parseList } from '@/utils/lists';
 import { sharePdfBlob, sharePdfFromUrl } from '@/utils/pdf';
 
@@ -135,7 +136,7 @@ export function CvEditorScreen() {
   const confirm = useConfirm();
   const user = useAuthStore((state) => state.user);
 
-  const { data: versions = [] } = useCvVersions();
+  const { data: versions = [], isPending: versionsPending } = useCvVersions();
   const { data: generated = [] } = useGeneratedCvs();
   const saveCv = useSaveCv();
   const deleteVersion = useDeleteCvVersion();
@@ -360,7 +361,7 @@ export function CvEditorScreen() {
             ]}
           />
           <View style={styles.headButtons}>
-            <Button variant="ghost" size="sm" onPress={() => void importCv()} loading={importing}>
+            <Button variant="ghost" size="sm" onPress={() => void importCv()} loading={importing} disabled={mode !== 'edit'}>
               {importing ? i18n.t('cv.importing') : i18n.t('cv.import')}
             </Button>
             <Button variant="ghost" size="sm" onPress={() => void exportPdfNow()} loading={exporting}>
@@ -510,7 +511,12 @@ export function CvEditorScreen() {
 
       <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('cv.versionHistory')}</Text>
-        {versions.length === 0 ? (
+        {versionsPending ? (
+          <View style={styles.historySkeleton}>
+            <Skeleton width="60%" height={14} />
+            <Skeleton width="40%" height={12} style={{ marginTop: 6 }} />
+          </View>
+        ) : versions.length === 0 ? (
           <Text style={[styles.muted, { color: theme.colors.textMuted }]}>{i18n.t('cv.noVersions')}</Text>
         ) : (
           versions.map((version) => (
@@ -522,7 +528,7 @@ export function CvEditorScreen() {
                   </Text>
                   {version.is_current ? <Badge variant="info">{i18n.t('cv.current')}</Badge> : null}
                 </View>
-                <Text style={[styles.historyDate, { color: theme.colors.textMuted }]}>{shortDate(version.updated_at)}</Text>
+                <Text style={[styles.historyDate, { color: theme.colors.textMuted }]}>{shortDate(version.updated_at, dateLocale(i18n.lang))}</Text>
               </View>
               <Button variant="ghost" size="sm" onPress={() => void removeVersion(version)}>
                 <Icon name="trash" size={14} />
@@ -632,6 +638,9 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 8,
     borderTopWidth: 1,
+  },
+  historySkeleton: {
+    gap: 4,
   },
   historyInfo: {
     flex: 1,
