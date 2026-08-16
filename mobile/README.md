@@ -5,17 +5,17 @@ A React Native client for PudimJobs that mirrors the Angular web UI
 
 ## Status
 
-| Area | Status |
-|------|--------|
-| Scaffold, design tokens, i18n, auth, drawer shell | ✅ Done |
-| Login screen | ✅ Done |
-| Jobs list + job detail (search, add, hide, pipeline badges, tailor, parse) | ✅ Done |
-| Applications kanban (5 columns, move status, delete) | ✅ Done |
+| Area                                                                                        | Status  |
+| ------------------------------------------------------------------------------------------- | ------- |
+| Scaffold, design tokens, i18n, auth, drawer shell                                           | ✅ Done |
+| Login screen                                                                                | ✅ Done |
+| Jobs list + job detail (search, add, hide, pipeline badges, tailor, parse)                  | ✅ Done |
+| Applications kanban (5 columns, move status, delete)                                        | ✅ Done |
 | Master CV editor (edit/preview, import PDF/DOCX, export PDF, version history, tailored CVs) | ✅ Done |
-| Sources (CRUD + per-source auth panel) | ✅ Done |
-| Alerts (CRUD + active toggle) | ✅ Done |
-| Notifications (list, mark read / all read) | ✅ Done |
-| Admin panel (overview, sources, quality, DLQ, audit, LLM tabs) | ✅ Done |
+| Sources (CRUD + per-source auth panel)                                                      | ✅ Done |
+| Alerts (CRUD + active toggle)                                                               | ✅ Done |
+| Notifications (list, mark read / all read)                                                  | ✅ Done |
+| Admin panel (overview, sources, quality, DLQ, audit, LLM tabs)                              | ✅ Done |
 
 Remaining polish: e2e smoke test on a device/emulator against a running backend,
 and the Android release build (EAS).
@@ -55,7 +55,7 @@ by default. For mobile development we added an optional binding:
 ```yaml
 backend:
   ports:
-    - "${PJ_BACKEND_PORT:-8000}:8000"
+    - '${PJ_BACKEND_PORT:-8000}:8000'
 ```
 
 Native apps don't need CORS (that's browser-only). Note that the backend's CORS
@@ -86,9 +86,23 @@ node mobile/scripts/extract-dictionary.js   # run from the repo root
 
 ```bash
 npm run typecheck   # tsc --noEmit
-npx eslint .        # lint
-npx jest            # unit tests
+npm run lint        # eslint .
+npm test            # jest
+npm run format      # prettier --write .   (format:check = verify only)
 npx expo export --platform android   # validate the production bundle
+```
+
+These checks (typecheck, lint, test, Android bundle export) run in CI via
+`.github/workflows/mobile-ci.yml`.
+
+## App icons
+
+The launcher icon, splash logo, and Android adaptive icons are generated from
+the web brand mark (`frontend/src/assets/icons/icon-512.svg`) by
+`mobile/scripts/generate-icons.js` (uses `sharp`):
+
+```bash
+node mobile/scripts/generate-icons.js   # run from the repo root
 ```
 
 ## Layout
@@ -102,10 +116,12 @@ mobile/
 │   ├── hooks/               # TanStack Query hooks per domain
 │   ├── i18n/                # generated dictionary + provider
 │   ├── navigation/          # auth stack, drawer, jobs stack
-│   ├── screens/             # Login, Jobs, JobDetail (+ placeholders)
+│   ├── screens/             # Login, Jobs, JobDetail (+ admin/, all web screens)
 │   ├── store/               # zustand session (keychain-backed)
 │   ├── theme/               # design tokens + dark mode provider
 │   ├── types/               # API types (mirrors the web services 1:1)
 │   └── utils/               # dates, list parsing, PDF share
-└── scripts/extract-dictionary.js
+└── scripts/
+    ├── extract-dictionary.js   # regenerate i18n from the web dictionary
+    └── generate-icons.js       # regenerate app icons from the web brand mark
 ```

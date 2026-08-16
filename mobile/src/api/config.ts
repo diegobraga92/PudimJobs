@@ -16,4 +16,7 @@ const ENV_URL = process.env.EXPO_PUBLIC_API_URL;
 const DEFAULT_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 const DEFAULT_PORT = '8000';
 
-export const API_BASE_URL = (ENV_URL || `http://${DEFAULT_HOST}:${DEFAULT_PORT}`).replace(/\/+$/, '');
+export const API_BASE_URL = (ENV_URL || `http://${DEFAULT_HOST}:${DEFAULT_PORT}`).replace(
+  /\/+$/,
+  '',
+);

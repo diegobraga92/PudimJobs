@@ -36,27 +36,55 @@ export function AddJobForm({
   const valid = fields.title.trim().length > 0 && fields.company.trim().length > 0;
 
   return (
-    <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-      <Text style={[styles.heading, { color: theme.colors.text }]}>{i18n.t('jobs.addJobManually')}</Text>
+    <View
+      style={[
+        styles.panel,
+        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+      ]}
+    >
+      <Text style={[styles.heading, { color: theme.colors.text }]}>
+        {i18n.t('jobs.addJobManually')}
+      </Text>
 
       <FormField label={i18n.t('common.title')}>
-        <Input value={fields.title} onChangeText={(value) => set('title', value)} placeholder={i18n.t('jobs.titlePlaceholder')} />
+        <Input
+          value={fields.title}
+          onChangeText={(value) => set('title', value)}
+          placeholder={i18n.t('jobs.titlePlaceholder')}
+        />
       </FormField>
 
       <FormField label={i18n.t('common.company')}>
-        <Input value={fields.company} onChangeText={(value) => set('company', value)} placeholder="Acme" />
+        <Input
+          value={fields.company}
+          onChangeText={(value) => set('company', value)}
+          placeholder="Acme"
+        />
       </FormField>
 
       <FormField label={i18n.t('common.url')}>
-        <Input value={fields.url} onChangeText={(value) => set('url', value)} placeholder="https://acme.example/jobs/1" autoCapitalize="none" />
+        <Input
+          value={fields.url}
+          onChangeText={(value) => set('url', value)}
+          placeholder="https://acme.example/jobs/1"
+          autoCapitalize="none"
+        />
       </FormField>
 
       <View style={styles.row}>
         <FormField label={i18n.t('jobs.postedDate')} style={styles.rowField}>
-          <Input value={fields.posted_date} onChangeText={(value) => set('posted_date', value)} placeholder="YYYY-MM-DD" />
+          <Input
+            value={fields.posted_date}
+            onChangeText={(value) => set('posted_date', value)}
+            placeholder="YYYY-MM-DD"
+          />
         </FormField>
         <FormField label={i18n.t('common.tags')} style={styles.rowField}>
-          <Input value={fields.tags} onChangeText={(value) => set('tags', value)} placeholder="python, fastapi" />
+          <Input
+            value={fields.tags}
+            onChangeText={(value) => set('tags', value)}
+            placeholder="python, fastapi"
+          />
         </FormField>
       </View>
 

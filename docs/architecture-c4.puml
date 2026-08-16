@@ -8,6 +8,7 @@ Person(admin, "Administrator", "Monitors health, DLQ, data quality, audit log")
 
 System_Boundary(ui, "Frontend") {
   Container(spa, "Angular SPA", "TypeScript / nginx", "Login, job search, CV editor, kanban, alerts, admin dashboards")
+  Container(mobile, "React Native App", "TypeScript / Expo (Android-first)", "Mobile mirror of the web UI: jobs, CV editor, kanban, sources, alerts, notifications, admin")
 }
 
 System_Boundary(be, "Backend") {
@@ -33,8 +34,11 @@ System_Boundary(obs, "Observability") {
 System_Ext(boards, "Job Boards / RSS feeds", "External websites")
 
 Rel(user, spa, "HTTPS /api", "JWT")
+Rel(user, mobile, "HTTPS /api", "JWT")
 Rel(admin, spa, "HTTPS /api", "JWT (role=admin)")
+Rel(admin, mobile, "HTTPS /api", "JWT (role=admin)")
 Rel(spa, api, "REST JSON", "")
+Rel(mobile, api, "REST JSON", "")
 Rel(api, pg, "asyncpg SQL", "user_id-scoped")
 Rel(api, rmq, "publish job.new", "kombu")
 Rel(api, redis, "rate limit / CB", "")

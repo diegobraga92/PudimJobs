@@ -69,7 +69,9 @@ export function LoginScreen() {
         },
         onError: (error) => {
           setError(
-            isRateLimited(error) ? i18n.t('errors.rateLimited') : i18n.t('login.invalidCredentials'),
+            isRateLimited(error)
+              ? i18n.t('errors.rateLimited')
+              : i18n.t('login.invalidCredentials'),
           );
         },
       });
@@ -94,7 +96,12 @@ export function LoginScreen() {
             </Text>
           </View>
 
-          <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <View
+            style={[
+              styles.card,
+              { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+            ]}
+          >
             {sessionExpired ? (
               <Alert tone="warning">
                 <Text>{i18n.t('errors.sessionExpired')}</Text>
@@ -221,4 +228,3 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 });
-

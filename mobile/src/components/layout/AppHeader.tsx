@@ -29,7 +29,11 @@ export function AppHeader({
     <View
       style={[
         styles.header,
-        { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border, paddingTop: insets.top },
+        {
+          backgroundColor: theme.colors.surface,
+          borderBottomColor: theme.colors.border,
+          paddingTop: insets.top,
+        },
       ]}
     >
       <View style={styles.inner}>

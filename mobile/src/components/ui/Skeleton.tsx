@@ -4,7 +4,15 @@ import { Animated, StyleSheet, type ViewStyle } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
 
 /** Pulsing placeholder block — mirrors the `.skeleton` class. */
-export function Skeleton({ width, height = 14, style }: { width?: number | `${number}%`; height?: number; style?: ViewStyle }) {
+export function Skeleton({
+  width,
+  height = 14,
+  style,
+}: {
+  width?: number | `${number}%`;
+  height?: number;
+  style?: ViewStyle;
+}) {
   const { theme } = useTheme();
   const [opacity] = useState(() => new Animated.Value(0.4));
 

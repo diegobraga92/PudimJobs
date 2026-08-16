@@ -58,4 +58,3 @@ export async function parseCvFile(uri: string, name: string): Promise<CVStructur
   });
   return data;
 }
-

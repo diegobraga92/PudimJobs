@@ -17,7 +17,10 @@ export function dateLocale(lang: Language): DateLocale {
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-function getFormatter(locale: DateLocale, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+function getFormatter(
+  locale: DateLocale,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
   const key = `${locale}|${JSON.stringify(options)}`;
   let formatter = formatters.get(key);
   if (!formatter) {
@@ -69,7 +72,10 @@ export function shortDate(value: string | null | undefined, locale: DateLocale =
  * CV preview date formatter. Accepts "YYYY", "YYYY-MM" or full ISO dates and
  * renders the short month name + year (mirrors CvPreviewComponent.formatDates).
  */
-export function formatMonthYear(value: string | null | undefined, locale: DateLocale = 'en-US'): string {
+export function formatMonthYear(
+  value: string | null | undefined,
+  locale: DateLocale = 'en-US',
+): string {
   if (!value) {
     return '—';
   }

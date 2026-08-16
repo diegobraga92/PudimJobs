@@ -29,12 +29,16 @@ export async function getDlq(): Promise<ScrapeRun[]> {
   return data;
 }
 
-export async function replayRun(runId: string): Promise<{ replayed: boolean; run_id: string; source_id: string }> {
+export async function replayRun(
+  runId: string,
+): Promise<{ replayed: boolean; run_id: string; source_id: string }> {
   const { data } = await apiClient.post(`/api/admin/dlq/${runId}/replay`, {});
   return data;
 }
 
-export async function triggerScrape(sourceId: string): Promise<{ enqueued: boolean; source_id: string }> {
+export async function triggerScrape(
+  sourceId: string,
+): Promise<{ enqueued: boolean; source_id: string }> {
   const { data } = await apiClient.post(`/api/admin/sources/${sourceId}/scrape`, {});
   return data;
 }

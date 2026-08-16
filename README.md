@@ -41,6 +41,7 @@ engineering decisions behind each component.
 | **Cache / broker** | Redis | Celery result backend, rate limiting |
 | **Search** | PostgreSQL Full-Text Search | Keyword search over jobs (Elasticsearch tradeoff documented) |
 | **Frontend** | Angular 17 + TypeScript | Source management, job search, CV editor, application pipeline |
+| **Mobile** | React Native (Expo SDK 57, Android-first) | Mobile mirror of the web UI: jobs, CV editor, kanban, sources, alerts, notifications, admin |
 | **Observability** | OpenTelemetry → Jaeger, Prometheus, Grafana, structlog | Traces, metrics, structured logs, RED + data-quality dashboards |
 | **Infrastructure** | Docker Compose (dev), Terraform + AWS (prod) | Local & cloud deployment |
 
@@ -93,6 +94,16 @@ make up
 # Grafana:       http://localhost:9300   (admin / admin)
 # Prometheus:    http://localhost:9409
 # Jaeger UI:     http://localhost:9668
+```
+
+**Mobile app (Android):** the React Native client in [`mobile/`](mobile/) talks
+to the FastAPI backend directly (see `mobile/README.md`). The backend is bound
+to an optional host port (`PJ_BACKEND_PORT`, default `8000`) so the app can
+reach `/api` from an emulator (`10.0.2.2`) or device. Dev seed credentials:
+`admin@pudimjobs.dev` / `admin123`.
+
+```bash
+cd mobile && npm install && npm run android
 ```
 
 `docker compose up` launches the backend with hot reload, so Python changes

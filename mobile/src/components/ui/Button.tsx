@@ -53,9 +53,7 @@ export function Button({
         : theme.colors.text;
 
   const borderColor =
-    variant === 'ghost' || variant === 'danger'
-      ? theme.colors.borderStrong
-      : backgroundColor;
+    variant === 'ghost' || variant === 'danger' ? theme.colors.borderStrong : backgroundColor;
 
   const pressedBg =
     variant === 'primary'
@@ -85,20 +83,27 @@ export function Button({
           paddingHorizontal: size === 'sm' ? 12 : 16,
         },
         fullWidth ? styles.fullWidth : null,
-        (disabled || loading) ? { opacity: 0.55 } : null,
+        disabled || loading ? { opacity: 0.55 } : null,
         style,
       ]}
     >
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'ghost' || variant === 'danger' ? theme.colors.text : theme.colors.onPrimary}
+          color={
+            variant === 'ghost' || variant === 'danger' ? theme.colors.text : theme.colors.onPrimary
+          }
         />
       ) : icon ? (
         icon
       ) : null}
       {children ? (
-        <Text style={[styles.label, { color: foreground, fontSize, fontWeight: size === 'sm' ? '500' : '600' }]}>
+        <Text
+          style={[
+            styles.label,
+            { color: foreground, fontSize, fontWeight: size === 'sm' ? '500' : '600' },
+          ]}
+        >
           {children}
         </Text>
       ) : null}

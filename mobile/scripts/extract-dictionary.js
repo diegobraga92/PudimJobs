@@ -7,7 +7,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const src = fs.readFileSync(path.join('frontend', 'src', 'app', 'services', 'i18n.service.ts'), 'utf8');
+const src = fs.readFileSync(
+  path.join('frontend', 'src', 'app', 'services', 'i18n.service.ts'),
+  'utf8',
+);
 const startMarker = 'export const DICTIONARY: Record<string, TranslationEntry> = {';
 const start = src.indexOf(startMarker);
 if (start === -1) {

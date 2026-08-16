@@ -61,35 +61,65 @@ export function LlmTab() {
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('admin.llmTitle')}</Text>
-      <Text style={[styles.intro, { color: theme.colors.textMuted }]}>{i18n.t('admin.llmIntro')}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+        {i18n.t('admin.llmTitle')}
+      </Text>
+      <Text style={[styles.intro, { color: theme.colors.textMuted }]}>
+        {i18n.t('admin.llmIntro')}
+      </Text>
 
-      <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+      <View
+        style={[
+          styles.panel,
+          { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+        ]}
+      >
         <View style={styles.toggleRow}>
-          <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>{i18n.t('admin.enableLlm')}</Text>
+          <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>
+            {i18n.t('admin.enableLlm')}
+          </Text>
           <Switch value={enabled} onValueChange={setEnabled} />
         </View>
 
         <FormField label={i18n.t('admin.baseUrl')}>
-          <Input value={baseUrl} onChangeText={setBaseUrl} placeholder="https://api.openai.com/v1" autoCapitalize="none" />
+          <Input
+            value={baseUrl}
+            onChangeText={setBaseUrl}
+            placeholder="https://api.openai.com/v1"
+            autoCapitalize="none"
+          />
         </FormField>
 
         <FormField label={i18n.t('admin.model')}>
           <Input value={model} onChangeText={setModel} placeholder="gpt-4o-mini" />
         </FormField>
 
-        <FormField label={`${i18n.t('admin.apiKey')}${config?.api_key_masked ? ` (${i18n.t('admin.stored')} ${config.api_key_masked})` : ` (${i18n.t('admin.notSet')})`}`}>
-          <Input value={apiKey} onChangeText={setApiKey} placeholder="sk-…" autoCapitalize="none" secureTextEntry />
+        <FormField
+          label={`${i18n.t('admin.apiKey')}${config?.api_key_masked ? ` (${i18n.t('admin.stored')} ${config.api_key_masked})` : ` (${i18n.t('admin.notSet')})`}`}
+        >
+          <Input
+            value={apiKey}
+            onChangeText={setApiKey}
+            placeholder="sk-…"
+            autoCapitalize="none"
+            secureTextEntry
+          />
         </FormField>
 
         {testResult ? (
           <Alert tone={testResult.ok ? 'success' : 'error'}>
-            {testResult.ok ? i18n.t('admin.llmOk') : testResult.error ?? i18n.t('admin.connectionFailed')}
+            {testResult.ok
+              ? i18n.t('admin.llmOk')
+              : (testResult.error ?? i18n.t('admin.connectionFailed'))}
           </Alert>
         ) : null}
 
         <View style={styles.actions}>
-          <Button variant="ghost" onPress={() => setLoadedId(null)} disabled={updateConfig.isPending}>
+          <Button
+            variant="ghost"
+            onPress={() => setLoadedId(null)}
+            disabled={updateConfig.isPending}
+          >
             {i18n.t('admin.reset')}
           </Button>
           <Button variant="ghost" onPress={test} loading={testConfig.isPending} disabled={!enabled}>

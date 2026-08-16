@@ -15,11 +15,22 @@ export function CvPreview({ cv, name }: { cv: CVStructure; name: string }) {
   const locale = dateLocale(i18n.lang);
 
   return (
-    <View style={[styles.sheet, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+    <View
+      style={[
+        styles.sheet,
+        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+      ]}
+    >
       <View style={styles.head}>
         <Text style={[styles.name, { color: theme.colors.primary }]}>{name}</Text>
         <Text style={[styles.summary, { color: theme.colors.textSecondary }]}>
-          {cv.summary ? cv.summary : <Text style={[styles.empty, { color: theme.colors.textFaint }]}>{i18n.t('cvPreview.summaryEmpty')}</Text>}
+          {cv.summary ? (
+            cv.summary
+          ) : (
+            <Text style={[styles.empty, { color: theme.colors.textFaint }]}>
+              {i18n.t('cvPreview.summaryEmpty')}
+            </Text>
+          )}
         </Text>
       </View>
 
@@ -31,7 +42,9 @@ export function CvPreview({ cv, name }: { cv: CVStructure; name: string }) {
                 key={skill}
                 style={[styles.skillChip, { borderColor: theme.colors.borderStrong }]}
               >
-                <Text style={[styles.skillChipText, { color: theme.colors.textSecondary }]}>{skill}</Text>
+                <Text style={[styles.skillChipText, { color: theme.colors.textSecondary }]}>
+                  {skill}
+                </Text>
               </View>
             ))}
           </View>
@@ -48,12 +61,14 @@ export function CvPreview({ cv, name }: { cv: CVStructure; name: string }) {
                   {formatDateRange(exp.start_date, exp.end_date, locale)}
                 </Text>
               </View>
-              <Text style={[styles.entrySub, { color: theme.colors.textSecondary }]}>{exp.company}</Text>
+              <Text style={[styles.entrySub, { color: theme.colors.textSecondary }]}>
+                {exp.company}
+              </Text>
               {exp.bullets.length > 0 ? (
                 <View style={styles.bullets}>
                   {exp.bullets.map((bullet, bulletIndex) => (
                     <Text key={bulletIndex} style={[styles.bullet, { color: theme.colors.text }]}>
-                      •  {bullet}
+                      • {bullet}
                     </Text>
                   ))}
                 </View>
@@ -69,9 +84,13 @@ export function CvPreview({ cv, name }: { cv: CVStructure; name: string }) {
             <View key={index} style={styles.entry}>
               <View style={styles.entryHead}>
                 <Text style={[styles.entryTitle, { color: theme.colors.text }]}>{edu.degree}</Text>
-                <Text style={[styles.dates, { color: theme.colors.textMuted }]}>{edu.year ?? ''}</Text>
+                <Text style={[styles.dates, { color: theme.colors.textMuted }]}>
+                  {edu.year ?? ''}
+                </Text>
               </View>
-              <Text style={[styles.entrySub, { color: theme.colors.textSecondary }]}>{edu.institution}</Text>
+              <Text style={[styles.entrySub, { color: theme.colors.textSecondary }]}>
+                {edu.institution}
+              </Text>
             </View>
           ))}
         </Section>
@@ -82,11 +101,19 @@ export function CvPreview({ cv, name }: { cv: CVStructure; name: string }) {
           {cv.projects.map((project, index) => (
             <View key={index} style={styles.entry}>
               <View style={styles.entryHead}>
-                <Text style={[styles.entryTitle, { color: theme.colors.text }]}>{project.name}</Text>
-                {project.link ? <Text style={[styles.dates, { color: theme.colors.textMuted }]}>{project.link}</Text> : null}
+                <Text style={[styles.entryTitle, { color: theme.colors.text }]}>
+                  {project.name}
+                </Text>
+                {project.link ? (
+                  <Text style={[styles.dates, { color: theme.colors.textMuted }]}>
+                    {project.link}
+                  </Text>
+                ) : null}
               </View>
               {project.description ? (
-                <Text style={[styles.projectDesc, { color: theme.colors.text }]}>{project.description}</Text>
+                <Text style={[styles.projectDesc, { color: theme.colors.text }]}>
+                  {project.description}
+                </Text>
               ) : null}
             </View>
           ))}

@@ -180,5 +180,13 @@ export function Icon({ name, size = 20, color, strokeWidth = 2 }: IconProps) {
   const { theme } = useTheme();
   const resolvedColor = color ?? theme.colors.text;
   const Lucide = ICONS[name];
-  return <Lucide width={size} height={size} size={size} color={resolvedColor} strokeWidth={strokeWidth} />;
+  return (
+    <Lucide
+      width={size}
+      height={size}
+      size={size}
+      color={resolvedColor}
+      strokeWidth={strokeWidth}
+    />
+  );
 }

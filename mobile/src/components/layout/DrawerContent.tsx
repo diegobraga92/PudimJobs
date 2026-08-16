@@ -91,7 +91,9 @@ export function DrawerContent(props: DrawerContentComponentProps) {
               </Text>
               {item.route === 'Notifications' && unread > 0 ? (
                 <View style={[styles.navBadge, { backgroundColor: theme.colors.danger }]}>
-                  <Text style={[styles.navBadgeText, { color: theme.colors.onPrimary }]}>{unread > 99 ? '99+' : unread}</Text>
+                  <Text style={[styles.navBadgeText, { color: theme.colors.onPrimary }]}>
+                    {unread > 99 ? '99+' : unread}
+                  </Text>
                 </View>
               ) : null}
             </Pressable>
@@ -103,7 +105,9 @@ export function DrawerContent(props: DrawerContentComponentProps) {
         {user ? (
           <View style={styles.userChip}>
             <View style={[styles.avatar, { backgroundColor: theme.colors.accent }]}>
-              <Text style={[styles.avatarText, { color: theme.colors.onPrimary }]}>{user.email.charAt(0).toUpperCase()}</Text>
+              <Text style={[styles.avatarText, { color: theme.colors.onPrimary }]}>
+                {user.email.charAt(0).toUpperCase()}
+              </Text>
             </View>
             <Text style={[styles.userEmail, { color: theme.colors.sidebarText }]} numberOfLines={1}>
               {user.email}
@@ -112,7 +116,12 @@ export function DrawerContent(props: DrawerContentComponentProps) {
         ) : null}
 
         <View style={styles.statusRow}>
-          <View style={[styles.statusDot, { backgroundColor: online ? theme.colors.success : theme.colors.danger }]} />
+          <View
+            style={[
+              styles.statusDot,
+              { backgroundColor: online ? theme.colors.success : theme.colors.danger },
+            ]}
+          />
           <Text style={[styles.apiStatus, { color: theme.colors.sidebarText }]}>
             {online ? i18n.t('layout.apiOnline') : i18n.t('layout.apiUnreachable')}
           </Text>
@@ -134,7 +143,9 @@ export function DrawerContent(props: DrawerContentComponentProps) {
 
         <Pressable onPress={signOut} style={styles.footerButton} accessibilityRole="button">
           <Icon name="log-out" size={16} color={theme.colors.sidebarText} />
-          <Text style={[styles.footerButtonText, { color: theme.colors.sidebarText }]}>{i18n.t('layout.signOut')}</Text>
+          <Text style={[styles.footerButtonText, { color: theme.colors.sidebarText }]}>
+            {i18n.t('layout.signOut')}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -244,4 +255,3 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
-

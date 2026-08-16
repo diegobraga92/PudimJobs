@@ -63,7 +63,12 @@ export function SearchForm({
   const set = (key: keyof SearchFields, value: string) => onChange({ ...fields, [key]: value });
 
   return (
-    <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+    <View
+      style={[
+        styles.panel,
+        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+      ]}
+    >
       <FormField label={i18n.t('jobs.searchKeywordsPlaceholder')}>
         <View style={styles.searchWrap}>
           <Icon name="search" size={17} color={theme.colors.textFaint} />
@@ -110,8 +115,16 @@ export function SearchForm({
       </View>
 
       <View style={styles.toggles}>
-        <TextSwitch label={i18n.t('jobs.hideApplied')} value={hideApplied} onValueChange={onToggleHideApplied} />
-        <TextSwitch label={i18n.t('jobs.showHidden')} value={showHidden} onValueChange={onToggleShowHidden} />
+        <TextSwitch
+          label={i18n.t('jobs.hideApplied')}
+          value={hideApplied}
+          onValueChange={onToggleHideApplied}
+        />
+        <TextSwitch
+          label={i18n.t('jobs.showHidden')}
+          value={showHidden}
+          onValueChange={onToggleShowHidden}
+        />
       </View>
 
       <Button onPress={onSearch} loading={searching} fullWidth>

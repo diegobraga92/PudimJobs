@@ -59,8 +59,13 @@ export function ApplicationsScreen() {
   }, [applications]);
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.bg }]} contentContainerStyle={styles.content}>
-      <Text style={[styles.title, { color: theme.colors.text }]}>{i18n.t('applications.title')}</Text>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.bg }]}
+      contentContainerStyle={styles.content}
+    >
+      <Text style={[styles.title, { color: theme.colors.text }]}>
+        {i18n.t('applications.title')}
+      </Text>
       <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
         {i18n.t('applications.total', { total: applications.length })}
       </Text>
@@ -70,7 +75,13 @@ export function ApplicationsScreen() {
       {isPending && applications.length === 0 ? (
         <View style={styles.skeletons}>
           {[1, 2, 3].map((item) => (
-            <View key={item} style={[styles.skeletonCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View
+              key={item}
+              style={[
+                styles.skeletonCard,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+              ]}
+            >
               <Skeleton width="50%" height={16} />
               <Skeleton width="70%" height={13} style={{ marginTop: 10 }} />
             </View>
@@ -87,14 +98,26 @@ export function ApplicationsScreen() {
       ) : null}
 
       {applications.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.board}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.board}
+        >
           {STATUSES.map((status) => (
             <View
               key={status}
-              style={[styles.column, { backgroundColor: theme.colors.kanbanColumn, borderColor: theme.colors.border }]}
+              style={[
+                styles.column,
+                { backgroundColor: theme.colors.kanbanColumn, borderColor: theme.colors.border },
+              ]}
             >
               <View style={styles.columnHead}>
-                <View style={[styles.statusDot, { backgroundColor: statusDotColor(status, theme.colors) }]} />
+                <View
+                  style={[
+                    styles.statusDot,
+                    { backgroundColor: statusDotColor(status, theme.colors) },
+                  ]}
+                />
                 <Text style={[styles.columnTitle, { color: theme.colors.text }]}>
                   {i18n.t(`pipeline.${status}`)}
                 </Text>
@@ -102,7 +125,11 @@ export function ApplicationsScreen() {
                   {columns[status].length}
                 </Text>
               </View>
-              <ScrollView nestedScrollEnabled style={styles.columnScroll} contentContainerStyle={styles.columnBody}>
+              <ScrollView
+                nestedScrollEnabled
+                style={styles.columnScroll}
+                contentContainerStyle={styles.columnBody}
+              >
                 {columns[status].length === 0 ? (
                   <Text style={[styles.dropHint, { color: theme.colors.textFaint }]}>
                     {i18n.t('applications.dropHere')}
@@ -115,20 +142,31 @@ export function ApplicationsScreen() {
                       accessibilityRole="button"
                       style={({ pressed }) => [
                         styles.card,
-                        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, opacity: pressed ? 0.9 : 1 },
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.border,
+                          opacity: pressed ? 0.9 : 1,
+                        },
                       ]}
                     >
-                      <Text style={[styles.cardTitle, { color: theme.colors.text }]} numberOfLines={2}>
+                      <Text
+                        style={[styles.cardTitle, { color: theme.colors.text }]}
+                        numberOfLines={2}
+                      >
                         {app.job_title}
                       </Text>
-                      <Text style={[styles.cardCompany, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                      <Text
+                        style={[styles.cardCompany, { color: theme.colors.textSecondary }]}
+                        numberOfLines={1}
+                      >
                         {app.job_company}
                       </Text>
                       {app.applied_date ? (
                         <View style={styles.cardDateRow}>
                           <Icon name="calendar" size={12} color={theme.colors.textFaint} />
                           <Text style={[styles.cardDate, { color: theme.colors.textMuted }]}>
-                            {i18n.t('pipeline.applied')} {mediumDate(app.applied_date, dateLocale(i18n.lang))}
+                            {i18n.t('pipeline.applied')}{' '}
+                            {mediumDate(app.applied_date, dateLocale(i18n.lang))}
                           </Text>
                         </View>
                       ) : null}
@@ -148,8 +186,13 @@ export function ApplicationsScreen() {
   );
 }
 
-
-function ApplicationModal({ application, onClose }: { application: Application; onClose: () => void }) {
+function ApplicationModal({
+  application,
+  onClose,
+}: {
+  application: Application;
+  onClose: () => void;
+}) {
   const { theme } = useTheme();
   const i18n = useI18n();
   const toast = useToast();
@@ -195,10 +238,17 @@ function ApplicationModal({ application, onClose }: { application: Application; 
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable
           onPress={() => undefined}
-          style={[styles.modalCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+          style={[
+            styles.modalCard,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
         >
-          <Text style={[styles.modalTitle, { color: theme.colors.text }]}>{application.job_title}</Text>
-          <Text style={[styles.modalCompany, { color: theme.colors.textMuted }]}>{application.job_company}</Text>
+          <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+            {application.job_title}
+          </Text>
+          <Text style={[styles.modalCompany, { color: theme.colors.textMuted }]}>
+            {application.job_company}
+          </Text>
 
           {application.job_url ? (
             <Pressable
@@ -206,13 +256,17 @@ function ApplicationModal({ application, onClose }: { application: Application; 
               accessibilityRole="link"
               style={styles.linkRow}
             >
-              <Text style={[styles.link, { color: theme.colors.accent }]}>{i18n.t('applications.viewPosting')}</Text>
+              <Text style={[styles.link, { color: theme.colors.accent }]}>
+                {i18n.t('applications.viewPosting')}
+              </Text>
               <Icon name="external-link" size={13} color={theme.colors.accent} />
             </Pressable>
           ) : null}
 
           {application.notes ? (
-            <Text style={[styles.notes, { color: theme.colors.textSecondary }]}>{application.notes}</Text>
+            <Text style={[styles.notes, { color: theme.colors.textSecondary }]}>
+              {application.notes}
+            </Text>
           ) : null}
 
           <Text style={[styles.modalLabel, { color: theme.colors.text }]}>
@@ -220,7 +274,10 @@ function ApplicationModal({ application, onClose }: { application: Application; 
           </Text>
           <Select<ApplicationStatus>
             value={application.status}
-            options={STATUSES.map((status) => ({ label: i18n.t(`pipeline.${status}`), value: status }))}
+            options={STATUSES.map((status) => ({
+              label: i18n.t(`pipeline.${status}`),
+              value: status,
+            }))}
             onValueChange={changeStatus}
           />
 
@@ -237,8 +294,6 @@ function ApplicationModal({ application, onClose }: { application: Application; 
     </Modal>
   );
 }
-
-
 
 const styles = StyleSheet.create({
   container: {

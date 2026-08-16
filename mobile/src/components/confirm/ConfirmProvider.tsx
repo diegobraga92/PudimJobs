@@ -71,21 +71,45 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       <Modal visible={visible} transparent animationType="fade" onRequestClose={() => close(false)}>
         <Pressable style={styles.backdrop} onPress={() => close(false)}>
           <Pressable
-            style={[styles.dialog, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+            style={[
+              styles.dialog,
+              { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+            ]}
             onPress={() => undefined}
           >
             <View style={styles.dialogHead}>
-              <View style={[styles.iconWrap, { backgroundColor: options?.destructive ? theme.colors.dangerSoft : theme.colors.warningSoft }]}>
-                <Icon name="triangle-alert" size={24} color={options?.destructive ? theme.colors.danger : theme.colors.warning} />
+              <View
+                style={[
+                  styles.iconWrap,
+                  {
+                    backgroundColor: options?.destructive
+                      ? theme.colors.dangerSoft
+                      : theme.colors.warningSoft,
+                  },
+                ]}
+              >
+                <Icon
+                  name="triangle-alert"
+                  size={24}
+                  color={options?.destructive ? theme.colors.danger : theme.colors.warning}
+                />
               </View>
               <View style={styles.body}>
                 <Text style={[styles.title, { color: theme.colors.text }]}>{options?.title}</Text>
-                <Text style={[styles.message, { color: theme.colors.textMuted }]}>{options?.message}</Text>
+                <Text style={[styles.message, { color: theme.colors.textMuted }]}>
+                  {options?.message}
+                </Text>
               </View>
             </View>
             <View style={styles.actions}>
-              <Pressable onPress={() => close(false)} style={styles.cancelBtn} accessibilityRole="button">
-                <Text style={[styles.cancelText, { color: theme.colors.text }]}>{options?.cancelLabel}</Text>
+              <Pressable
+                onPress={() => close(false)}
+                style={styles.cancelBtn}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.cancelText, { color: theme.colors.text }]}>
+                  {options?.cancelLabel}
+                </Text>
               </Pressable>
               <Pressable
                 onPress={() => close(true)}
@@ -93,7 +117,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 style={[
                   styles.confirmBtn,
                   {
-                    backgroundColor: options?.destructive ? theme.colors.danger : theme.colors.primary,
+                    backgroundColor: options?.destructive
+                      ? theme.colors.danger
+                      : theme.colors.primary,
                   },
                 ]}
               >

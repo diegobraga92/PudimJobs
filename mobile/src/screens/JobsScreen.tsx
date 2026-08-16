@@ -29,7 +29,14 @@ const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
 const PAGE_SIZE = 12;
 
 const EMPTY_SEARCH: SearchFields = { q: '', company: '', tags: '', date_from: '', date_to: '' };
-const EMPTY_FORM: AddJobFields = { title: '', company: '', url: '', posted_date: '', tags: '', description: '' };
+const EMPTY_FORM: AddJobFields = {
+  title: '',
+  company: '',
+  url: '',
+  posted_date: '',
+  tags: '',
+  description: '',
+};
 
 export function JobsScreen() {
   const { theme } = useTheme();
@@ -158,11 +165,7 @@ export function JobsScreen() {
 
   const header = (
     <View style={styles.content}>
-      {error ? (
-        <Alert tone="error">
-          {i18n.t('errors.failedLoadJobs')}
-        </Alert>
-      ) : null}
+      {error ? <Alert tone="error">{i18n.t('errors.failedLoadJobs')}</Alert> : null}
 
       {showForm ? (
         <AddJobForm
@@ -194,7 +197,10 @@ export function JobsScreen() {
           {[1, 2, 3, 4].map((item) => (
             <View
               key={item}
-              style={[styles.skeletonCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+              style={[
+                styles.skeletonCard,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+              ]}
             >
               <Skeleton width="70%" height={18} />
               <Skeleton width="45%" height={14} style={{ marginTop: 10 }} />
@@ -227,12 +233,7 @@ export function JobsScreen() {
   const footer =
     !isPending && jobs.length > 0 && pageCount > 1 ? (
       <View style={[styles.pagination, { borderTopColor: theme.colors.border }]}>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={page <= 1}
-          onPress={() => goToPage(page - 1)}
-        >
+        <Button variant="ghost" size="sm" disabled={page <= 1} onPress={() => goToPage(page - 1)}>
           {i18n.t('common.previous')}
         </Button>
         <Text style={[styles.range, { color: theme.colors.textMuted }]}>{rangeLabel}</Text>
@@ -321,4 +322,3 @@ const styles = StyleSheet.create({
     height: 12,
   },
 });
-

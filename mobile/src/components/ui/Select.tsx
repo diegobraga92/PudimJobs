@@ -44,7 +44,9 @@ export function Select<T extends string = string>({
           },
         ]}
       >
-        <Text style={[styles.value, { color: selected ? theme.colors.text : theme.colors.textFaint }]}>
+        <Text
+          style={[styles.value, { color: selected ? theme.colors.text : theme.colors.textFaint }]}
+        >
           {selected?.label ?? placeholder}
         </Text>
         <Icon name="chevron-down" size={16} color={theme.colors.textMuted} />
@@ -53,7 +55,10 @@ export function Select<T extends string = string>({
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
           <View
-            style={[styles.sheet, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+            style={[
+              styles.sheet,
+              { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+            ]}
           >
             <View style={styles.handle} />
             <FlatList
@@ -75,7 +80,10 @@ export function Select<T extends string = string>({
                     <Text
                       style={[
                         styles.optionLabel,
-                        { color: active ? theme.colors.primary : theme.colors.text, fontWeight: active ? '600' : '400' },
+                        {
+                          color: active ? theme.colors.primary : theme.colors.text,
+                          fontWeight: active ? '600' : '400',
+                        },
                       ]}
                     >
                       {item.label}

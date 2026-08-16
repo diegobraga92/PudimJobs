@@ -128,7 +128,6 @@ function displayNameFromEmail(email: string | undefined): string {
   );
 }
 
-
 export function CvEditorScreen() {
   const { theme } = useTheme();
   const i18n = useI18n();
@@ -169,13 +168,17 @@ export function CvEditorScreen() {
   const updateExperience = (index: number, key: keyof ExperienceForm, value: string) =>
     setForm((current) => ({
       ...current,
-      experience: current.experience.map((item, i) => (i === index ? { ...item, [key]: value } : item)),
+      experience: current.experience.map((item, i) =>
+        i === index ? { ...item, [key]: value } : item,
+      ),
     }));
 
   const updateEducation = (index: number, key: keyof EducationForm, value: string) =>
     setForm((current) => ({
       ...current,
-      education: current.education.map((item, i) => (i === index ? { ...item, [key]: value } : item)),
+      education: current.education.map((item, i) =>
+        i === index ? { ...item, [key]: value } : item,
+      ),
     }));
 
   const updateProject = (index: number, key: keyof ProjectForm, value: string) =>
@@ -197,15 +200,22 @@ export function CvEditorScreen() {
     update('projects', [...form.projects, { name: '', description: '', link: '' }]);
 
   const removeExperience = (index: number) =>
-    update('experience', form.experience.filter((_, i) => i !== index));
+    update(
+      'experience',
+      form.experience.filter((_, i) => i !== index),
+    );
 
   const removeEducation = (index: number) =>
-    update('education', form.education.filter((_, i) => i !== index));
+    update(
+      'education',
+      form.education.filter((_, i) => i !== index),
+    );
 
   const removeProject = (index: number) =>
-    update('projects', form.projects.filter((_, i) => i !== index));
-
-
+    update(
+      'projects',
+      form.projects.filter((_, i) => i !== index),
+    );
 
   const save = () => {
     setMessage(null);
@@ -354,7 +364,10 @@ export function CvEditorScreen() {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.bg }]} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.bg }]}
+      contentContainerStyle={styles.content}
+    >
       <View style={styles.head}>
         <Text style={[styles.title, { color: theme.colors.text }]}>{i18n.t('cv.title')}</Text>
         <View style={styles.headActions}>
@@ -362,15 +375,34 @@ export function CvEditorScreen() {
             value={mode}
             onChange={setMode}
             options={[
-              { label: i18n.t('cv.edit'), value: 'edit' as const, icon: <Icon name="pencil" size={15} /> },
-              { label: i18n.t('cv.preview'), value: 'preview' as const, icon: <Icon name="eye" size={15} /> },
+              {
+                label: i18n.t('cv.edit'),
+                value: 'edit' as const,
+                icon: <Icon name="pencil" size={15} />,
+              },
+              {
+                label: i18n.t('cv.preview'),
+                value: 'preview' as const,
+                icon: <Icon name="eye" size={15} />,
+              },
             ]}
           />
           <View style={styles.headButtons}>
-            <Button variant="ghost" size="sm" onPress={() => void importCv()} loading={importing} disabled={mode !== 'edit'}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => void importCv()}
+              loading={importing}
+              disabled={mode !== 'edit'}
+            >
               {importing ? i18n.t('cv.importing') : i18n.t('cv.import')}
             </Button>
-            <Button variant="ghost" size="sm" onPress={() => void exportPdfNow()} loading={exporting}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => void exportPdfNow()}
+              loading={exporting}
+            >
               {exporting ? i18n.t('cv.exporting') : i18n.t('cv.exportPdf')}
             </Button>
             <Button size="sm" onPress={save} loading={saveCv.isPending} disabled={mode !== 'edit'}>
@@ -384,8 +416,15 @@ export function CvEditorScreen() {
       {message ? <Alert tone="success">{message}</Alert> : null}
 
       {mode === 'edit' ? (
-        <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('cv.summary')}</Text>
+        <View
+          style={[
+            styles.panel,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            {i18n.t('cv.summary')}
+          </Text>
           <FormField>
             <TextArea
               value={form.summary}
@@ -395,7 +434,9 @@ export function CvEditorScreen() {
             />
           </FormField>
 
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('cv.skills')}</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            {i18n.t('cv.skills')}
+          </Text>
           <FormField>
             <Input
               value={form.skillsText}
@@ -404,7 +445,9 @@ export function CvEditorScreen() {
             />
           </FormField>
 
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('cv.experience')}</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            {i18n.t('cv.experience')}
+          </Text>
           {form.experience.map((item, index) => (
             <View key={index} style={[styles.subPanel, { borderColor: theme.colors.border }]}>
               <View style={styles.subHead}>
@@ -418,18 +461,32 @@ export function CvEditorScreen() {
               </View>
               <View style={styles.row}>
                 <FormField label={i18n.t('common.company')} style={styles.rowField}>
-                  <Input value={item.company} onChangeText={(value) => updateExperience(index, 'company', value)} />
+                  <Input
+                    value={item.company}
+                    onChangeText={(value) => updateExperience(index, 'company', value)}
+                  />
                 </FormField>
                 <FormField label={i18n.t('common.title')} style={styles.rowField}>
-                  <Input value={item.title} onChangeText={(value) => updateExperience(index, 'title', value)} />
+                  <Input
+                    value={item.title}
+                    onChangeText={(value) => updateExperience(index, 'title', value)}
+                  />
                 </FormField>
               </View>
               <View style={styles.row}>
                 <FormField label={i18n.t('cv.start')} style={styles.rowField}>
-                  <Input value={item.start_date} onChangeText={(value) => updateExperience(index, 'start_date', value)} placeholder="2020-01" />
+                  <Input
+                    value={item.start_date}
+                    onChangeText={(value) => updateExperience(index, 'start_date', value)}
+                    placeholder="2020-01"
+                  />
                 </FormField>
                 <FormField label={i18n.t('cv.end')} style={styles.rowField}>
-                  <Input value={item.end_date} onChangeText={(value) => updateExperience(index, 'end_date', value)} placeholder="2023-06" />
+                  <Input
+                    value={item.end_date}
+                    onChangeText={(value) => updateExperience(index, 'end_date', value)}
+                    placeholder="2023-06"
+                  />
                 </FormField>
               </View>
               <FormField label={i18n.t('cv.bullets')}>
@@ -447,9 +504,9 @@ export function CvEditorScreen() {
             {i18n.t('cv.addExperience')}
           </Button>
 
-
-
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('cv.education')}</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            {i18n.t('cv.education')}
+          </Text>
           {form.education.map((item, index) => (
             <View key={index} style={[styles.subPanel, { borderColor: theme.colors.border }]}>
               <View style={styles.subHead}>
@@ -462,14 +519,23 @@ export function CvEditorScreen() {
                 </Button>
               </View>
               <FormField label={i18n.t('cv.institution')}>
-                <Input value={item.institution} onChangeText={(value) => updateEducation(index, 'institution', value)} />
+                <Input
+                  value={item.institution}
+                  onChangeText={(value) => updateEducation(index, 'institution', value)}
+                />
               </FormField>
               <View style={styles.row}>
                 <FormField label={i18n.t('cv.degree')} style={styles.rowField}>
-                  <Input value={item.degree} onChangeText={(value) => updateEducation(index, 'degree', value)} />
+                  <Input
+                    value={item.degree}
+                    onChangeText={(value) => updateEducation(index, 'degree', value)}
+                  />
                 </FormField>
                 <FormField label={i18n.t('cv.year')} style={styles.rowField}>
-                  <Input value={item.year} onChangeText={(value) => updateEducation(index, 'year', value)} />
+                  <Input
+                    value={item.year}
+                    onChangeText={(value) => updateEducation(index, 'year', value)}
+                  />
                 </FormField>
               </View>
             </View>
@@ -479,7 +545,9 @@ export function CvEditorScreen() {
             {i18n.t('cv.addEducation')}
           </Button>
 
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('cv.projects')}</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            {i18n.t('cv.projects')}
+          </Text>
           {form.projects.map((item, index) => (
             <View key={index} style={[styles.subPanel, { borderColor: theme.colors.border }]}>
               <View style={styles.subHead}>
@@ -492,10 +560,17 @@ export function CvEditorScreen() {
                 </Button>
               </View>
               <FormField label={i18n.t('common.name')}>
-                <Input value={item.name} onChangeText={(value) => updateProject(index, 'name', value)} />
+                <Input
+                  value={item.name}
+                  onChangeText={(value) => updateProject(index, 'name', value)}
+                />
               </FormField>
               <FormField label={i18n.t('cv.link')}>
-                <Input value={item.link} onChangeText={(value) => updateProject(index, 'link', value)} autoCapitalize="none" />
+                <Input
+                  value={item.link}
+                  onChangeText={(value) => updateProject(index, 'link', value)}
+                  autoCapitalize="none"
+                />
               </FormField>
               <FormField label={i18n.t('common.description')}>
                 <TextArea
@@ -515,26 +590,45 @@ export function CvEditorScreen() {
         <CvPreview cv={toStructure(form)} name={cvName} />
       )}
 
-      <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('cv.versionHistory')}</Text>
+      <View
+        style={[
+          styles.panel,
+          { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+        ]}
+      >
+        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+          {i18n.t('cv.versionHistory')}
+        </Text>
         {versionsPending ? (
           <View style={styles.historySkeleton}>
             <Skeleton width="60%" height={14} />
             <Skeleton width="40%" height={12} style={{ marginTop: 6 }} />
           </View>
         ) : versions.length === 0 ? (
-          <Text style={[styles.muted, { color: theme.colors.textMuted }]}>{i18n.t('cv.noVersions')}</Text>
+          <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
+            {i18n.t('cv.noVersions')}
+          </Text>
         ) : (
           versions.map((version) => (
-            <View key={version.id} style={[styles.historyRow, { borderTopColor: theme.colors.border }]}>
+            <View
+              key={version.id}
+              style={[styles.historyRow, { borderTopColor: theme.colors.border }]}
+            >
               <View style={styles.historyInfo}>
                 <View style={styles.historyLabelRow}>
-                  <Text style={[styles.historyLabel, { color: version.is_current ? theme.colors.primary : theme.colors.text }]}>
+                  <Text
+                    style={[
+                      styles.historyLabel,
+                      { color: version.is_current ? theme.colors.primary : theme.colors.text },
+                    ]}
+                  >
                     {version.label}
                   </Text>
                   {version.is_current ? <Badge variant="info">{i18n.t('cv.current')}</Badge> : null}
                 </View>
-                <Text style={[styles.historyDate, { color: theme.colors.textMuted }]}>{shortDate(version.updated_at, dateLocale(i18n.lang))}</Text>
+                <Text style={[styles.historyDate, { color: theme.colors.textMuted }]}>
+                  {shortDate(version.updated_at, dateLocale(i18n.lang))}
+                </Text>
               </View>
               <Button variant="ghost" size="sm" onPress={() => void removeVersion(version)}>
                 <Icon name="trash" size={14} />
@@ -543,15 +637,26 @@ export function CvEditorScreen() {
           ))
         )}
 
-        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('cv.tailoredCvs')}</Text>
+        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+          {i18n.t('cv.tailoredCvs')}
+        </Text>
         {generated.length === 0 ? (
-          <Text style={[styles.muted, { color: theme.colors.textMuted }]}>{i18n.t('cv.noTailored')}</Text>
+          <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
+            {i18n.t('cv.noTailored')}
+          </Text>
         ) : (
           generated.map((item) => (
-            <View key={item.id} style={[styles.generatedRow, { borderTopColor: theme.colors.border }]}>
+            <View
+              key={item.id}
+              style={[styles.generatedRow, { borderTopColor: theme.colors.border }]}
+            >
               <View style={styles.generatedInfo}>
-                <Text style={[styles.generatedTitle, { color: theme.colors.text }]}>{item.job_title ?? '—'}</Text>
-                <Text style={[styles.muted, { color: theme.colors.textMuted }]}>{item.job_company ?? ''}</Text>
+                <Text style={[styles.generatedTitle, { color: theme.colors.text }]}>
+                  {item.job_title ?? '—'}
+                </Text>
+                <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
+                  {item.job_company ?? ''}
+                </Text>
               </View>
               <View style={styles.generatedActions}>
                 <Button
@@ -683,4 +788,3 @@ const styles = StyleSheet.create({
     gap: 4,
   },
 });
-

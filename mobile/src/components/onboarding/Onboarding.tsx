@@ -13,9 +13,24 @@ interface OnboardingStep {
 }
 
 const STEPS: OnboardingStep[] = [
-  { icon: 'globe', titleKey: 'onboarding.step1.title', descriptionKey: 'onboarding.step1.description', ctaKey: 'onboarding.step1.cta' },
-  { icon: 'file-text', titleKey: 'onboarding.step2.title', descriptionKey: 'onboarding.step2.description', ctaKey: 'onboarding.step2.cta' },
-  { icon: 'kanban', titleKey: 'onboarding.step3.title', descriptionKey: 'onboarding.step3.description', ctaKey: 'onboarding.step3.cta' },
+  {
+    icon: 'globe',
+    titleKey: 'onboarding.step1.title',
+    descriptionKey: 'onboarding.step1.description',
+    ctaKey: 'onboarding.step1.cta',
+  },
+  {
+    icon: 'file-text',
+    titleKey: 'onboarding.step2.title',
+    descriptionKey: 'onboarding.step2.description',
+    ctaKey: 'onboarding.step2.cta',
+  },
+  {
+    icon: 'kanban',
+    titleKey: 'onboarding.step3.title',
+    descriptionKey: 'onboarding.step3.description',
+    ctaKey: 'onboarding.step3.cta',
+  },
 ];
 
 /** First-run welcome panel — mirrors the web `app-onboarding` component. */
@@ -24,7 +39,12 @@ export function Onboarding({ onDismiss }: { onDismiss: () => void }) {
   const i18n = useI18n();
 
   return (
-    <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+    <View
+      style={[
+        styles.panel,
+        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+      ]}
+    >
       <View style={styles.head}>
         <View style={[styles.headIcon, { backgroundColor: theme.colors.primarySoft }]}>
           <Icon name="sparkle" size={26} color={theme.colors.primary} />
@@ -48,12 +68,21 @@ export function Onboarding({ onDismiss }: { onDismiss: () => void }) {
               { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceMuted },
             ]}
           >
-            <View style={[styles.stepIcon, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View
+              style={[
+                styles.stepIcon,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+              ]}
+            >
               <Icon name={step.icon} size={20} color={theme.colors.accent} />
             </View>
             <View style={styles.stepBody}>
-              <Text style={[styles.stepTitle, { color: theme.colors.text }]}>{i18n.t(step.titleKey)}</Text>
-              <Text style={[styles.stepDesc, { color: theme.colors.textMuted }]}>{i18n.t(step.descriptionKey)}</Text>
+              <Text style={[styles.stepTitle, { color: theme.colors.text }]}>
+                {i18n.t(step.titleKey)}
+              </Text>
+              <Text style={[styles.stepDesc, { color: theme.colors.textMuted }]}>
+                {i18n.t(step.descriptionKey)}
+              </Text>
             </View>
             <Button variant="ghost" size="sm" onPress={onDismiss}>
               {i18n.t(step.ctaKey)}

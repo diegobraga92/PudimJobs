@@ -42,9 +42,17 @@ export function DlqTab() {
 
   return (
     <View style={styles.list}>
-      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('admin.dlqTitle')}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+        {i18n.t('admin.dlqTitle')}
+      </Text>
       {runs.map((run) => (
-        <View key={run.id} style={[styles.runCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View
+          key={run.id}
+          style={[
+            styles.runCard,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
+        >
           <View style={styles.runHead}>
             <Text style={[styles.runId, { color: theme.colors.text }]} numberOfLines={1}>
               {run.source_id}
@@ -55,9 +63,18 @@ export function DlqTab() {
             {i18n.t('admin.started')}: {shortDate(run.started_at, dateLocale(i18n.lang))}
             {run.finished_at ? ` · ${shortDate(run.finished_at, dateLocale(i18n.lang))}` : ''}
           </Text>
-          {run.error ? <Text style={[styles.error, { color: theme.colors.danger }]} numberOfLines={2}>{run.error}</Text> : null}
+          {run.error ? (
+            <Text style={[styles.error, { color: theme.colors.danger }]} numberOfLines={2}>
+              {run.error}
+            </Text>
+          ) : null}
           <View style={styles.actions}>
-            <Button variant="ghost" size="sm" onPress={() => onReplay(run.id)} loading={replay.isPending}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => onReplay(run.id)}
+              loading={replay.isPending}
+            >
               <Icon name="refresh" size={14} />
               {i18n.t('admin.replay')}
             </Button>

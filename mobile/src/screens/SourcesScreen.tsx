@@ -158,7 +158,9 @@ export function SourcesScreen() {
           const wasEditing = !!editingId;
           setShowForm(false);
           setEditingId(null);
-          toast.success(wasEditing ? i18n.t('sources.sourceUpdated') : i18n.t('sources.sourceAdded'));
+          toast.success(
+            wasEditing ? i18n.t('sources.sourceUpdated') : i18n.t('sources.sourceAdded'),
+          );
         },
         onError: () => toast.error(i18n.t('errors.failedSaveSource')),
       },
@@ -182,9 +184,11 @@ export function SourcesScreen() {
     });
   };
 
-
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.bg }]} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.bg }]}
+      contentContainerStyle={styles.content}
+    >
       <View style={styles.head}>
         <Text style={[styles.title, { color: theme.colors.text }]}>{i18n.t('sources.title')}</Text>
         <Button size="sm" onPress={openCreate}>
@@ -196,23 +200,40 @@ export function SourcesScreen() {
       {error ? <Alert tone="error">{i18n.t('errors.failedLoadSources')}</Alert> : null}
 
       {showForm ? (
-        <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View
+          style={[
+            styles.panel,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
+        >
           <Text style={[styles.formTitle, { color: theme.colors.text }]}>
             {editingId ? i18n.t('sources.editSource') : i18n.t('sources.addSource')}
           </Text>
 
           <FormField label={i18n.t('common.name')}>
-            <Input value={form.name} onChangeText={(value) => update('name', value)} placeholder="Acme Careers" />
+            <Input
+              value={form.name}
+              onChangeText={(value) => update('name', value)}
+              placeholder="Acme Careers"
+            />
           </FormField>
 
           <FormField label={i18n.t('common.url')}>
-            <Input value={form.url} onChangeText={(value) => update('url', value)} placeholder="https://acme.example/careers" autoCapitalize="none" />
+            <Input
+              value={form.url}
+              onChangeText={(value) => update('url', value)}
+              placeholder="https://acme.example/careers"
+              autoCapitalize="none"
+            />
           </FormField>
 
           <FormField label={i18n.t('common.type')}>
             <Select
               value={form.type}
-              options={SOURCE_TYPES.map((type) => ({ label: i18n.t(`sources.type.${type}`), value: type }))}
+              options={SOURCE_TYPES.map((type) => ({
+                label: i18n.t(`sources.type.${type}`),
+                value: type,
+              }))}
               onValueChange={(value) => update('type', value)}
             />
           </FormField>
@@ -222,7 +243,9 @@ export function SourcesScreen() {
               <FormField label={i18n.t('sources.adapter')}>
                 <Select
                   value={adapter}
-                  options={[{ label: i18n.t('sources.genericHtmlList'), value: 'generic_html_list' }]}
+                  options={[
+                    { label: i18n.t('sources.genericHtmlList'), value: 'generic_html_list' },
+                  ]}
                   onValueChange={setAdapter}
                 />
               </FormField>
@@ -246,7 +269,8 @@ export function SourcesScreen() {
               <Select
                 value={discoveryProvider || null}
                 options={providers.map((provider) => ({
-                  label: provider.name + (provider.requires_key ? ` · ${i18n.t('common.apiKey')}` : ''),
+                  label:
+                    provider.name + (provider.requires_key ? ` · ${i18n.t('common.apiKey')}` : ''),
                   value: provider.name,
                 }))}
                 onValueChange={setDiscoveryProvider}
@@ -283,7 +307,11 @@ export function SourcesScreen() {
             <Button variant="ghost" onPress={cancelForm}>
               {i18n.t('common.cancel')}
             </Button>
-            <Button onPress={save} loading={saveSource.isPending} disabled={!form.name.trim() || !form.url.trim()}>
+            <Button
+              onPress={save}
+              loading={saveSource.isPending}
+              disabled={!form.name.trim() || !form.url.trim()}
+            >
               {editingId ? i18n.t('common.save') : i18n.t('sources.addSource')}
             </Button>
           </View>
@@ -305,19 +333,32 @@ export function SourcesScreen() {
       ) : null}
 
       {sources.map((source) => (
-        <View key={source.id} style={[styles.sourceCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View
+          key={source.id}
+          style={[
+            styles.sourceCard,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
+        >
           <View style={styles.sourceHead}>
-            <Pressable onPress={() => void Linking.openURL(source.url)} accessibilityRole="link" style={styles.sourceNameWrap}>
+            <Pressable
+              onPress={() => void Linking.openURL(source.url)}
+              accessibilityRole="link"
+              style={styles.sourceNameWrap}
+            >
               <Text style={[styles.sourceName, { color: theme.colors.accent }]} numberOfLines={1}>
                 {source.name}
               </Text>
             </Pressable>
-            <Badge variant={source.health === 'healthy' ? 'success' : 'danger'}>{source.health}</Badge>
+            <Badge variant={source.health === 'healthy' ? 'success' : 'danger'}>
+              {source.health}
+            </Badge>
           </View>
 
           <Text style={[styles.metaText, { color: theme.colors.textMuted }]}>
             {source.type} · {i18n.t('common.jobs')}: {source.jobs_count ?? '—'} ·{' '}
-            {i18n.t('sources.lastScraped')}: {source.last_scraped ? shortDate(source.last_scraped, dateLocale(i18n.lang)) : '—'}
+            {i18n.t('sources.lastScraped')}:{' '}
+            {source.last_scraped ? shortDate(source.last_scraped, dateLocale(i18n.lang)) : '—'}
           </Text>
 
           <View style={styles.sourceActions}>
@@ -337,11 +378,12 @@ export function SourcesScreen() {
         </View>
       ))}
 
-      {authSource ? <SourceAuthModal source={authSource} onClose={() => setAuthSource(null)} /> : null}
+      {authSource ? (
+        <SourceAuthModal source={authSource} onClose={() => setAuthSource(null)} />
+      ) : null}
     </ScrollView>
   );
 }
-
 
 function SourceAuthModal({ source, onClose }: { source: Source; onClose: () => void }) {
   const { theme } = useTheme();
@@ -359,8 +401,7 @@ function SourceAuthModal({ source, onClose }: { source: Source; onClose: () => v
 
   const hasAuth = current?.has_auth ?? false;
   const secretMissing =
-    (authType === 'token' && !authToken.trim()) ||
-    (authType === 'api_key' && !authApiKey.trim());
+    (authType === 'token' && !authToken.trim()) || (authType === 'api_key' && !authApiKey.trim());
 
   const save = () => {
     const payload: { auth_type: 'none' | 'token' | 'api_key'; token?: string; api_key?: string } = {
@@ -418,7 +459,9 @@ function SourceAuthModal({ source, onClose }: { source: Source; onClose: () => v
           contentContainerStyle={styles.modalContent}
         >
           <Text style={[styles.modalTitle, { color: theme.colors.text }]}>{source.name}</Text>
-          <Text style={[styles.modalSub, { color: theme.colors.textMuted }]}>{i18n.t('sources.authenticationTitle')}</Text>
+          <Text style={[styles.modalSub, { color: theme.colors.textMuted }]}>
+            {i18n.t('sources.authenticationTitle')}
+          </Text>
 
           <FormField label={i18n.t('sources.authType')}>
             <Select
@@ -456,7 +499,9 @@ function SourceAuthModal({ source, onClose }: { source: Source; onClose: () => v
 
           {testResult ? (
             <Alert tone={testResult.ok ? 'success' : 'error'}>
-              {testResult.ok ? i18n.t('sources.authOk') : testResult.error ?? i18n.t('sources.authFailed')}
+              {testResult.ok
+                ? i18n.t('sources.authOk')
+                : (testResult.error ?? i18n.t('sources.authFailed'))}
             </Alert>
           ) : null}
 
@@ -466,7 +511,12 @@ function SourceAuthModal({ source, onClose }: { source: Source; onClose: () => v
                 {i18n.t('sources.clearAuth')}
               </Button>
             ) : null}
-            <Button variant="ghost" onPress={test} loading={testAuth.isPending} disabled={authType === 'none' && !hasAuth}>
+            <Button
+              variant="ghost"
+              onPress={test}
+              loading={testAuth.isPending}
+              disabled={authType === 'none' && !hasAuth}
+            >
               <Icon name="activity" size={14} />
               {testAuth.isPending ? i18n.t('sources.testing') : i18n.t('sources.testConnection')}
             </Button>
@@ -479,7 +529,6 @@ function SourceAuthModal({ source, onClose }: { source: Source; onClose: () => v
     </Modal>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
@@ -595,4 +644,3 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
 });
-

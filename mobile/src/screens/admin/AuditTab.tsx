@@ -17,7 +17,12 @@ export function AuditTab() {
   const { theme } = useTheme();
   const i18n = useI18n();
   const { data: actions } = useAuditActions();
-  const [draft, setDraft] = useState<{ action: string; entity: string; dateFrom: string; dateTo: string }>({
+  const [draft, setDraft] = useState<{
+    action: string;
+    entity: string;
+    dateFrom: string;
+    dateTo: string;
+  }>({
     action: '',
     entity: '',
     dateFrom: '',
@@ -41,9 +46,16 @@ export function AuditTab() {
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('admin.auditLog')}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+        {i18n.t('admin.auditLog')}
+      </Text>
 
-      <View style={[styles.filters, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+      <View
+        style={[
+          styles.filters,
+          { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+        ]}
+      >
         <View style={styles.row}>
           <FormField label={i18n.t('admin.allActions')} style={styles.rowField}>
             <Select
@@ -64,10 +76,18 @@ export function AuditTab() {
         </View>
         <View style={styles.row}>
           <FormField label={i18n.t('admin.fromDate')} style={styles.rowField}>
-            <Input value={draft.dateFrom} onChangeText={(value) => setDraft((current) => ({ ...current, dateFrom: value }))} placeholder="YYYY-MM-DD" />
+            <Input
+              value={draft.dateFrom}
+              onChangeText={(value) => setDraft((current) => ({ ...current, dateFrom: value }))}
+              placeholder="YYYY-MM-DD"
+            />
           </FormField>
           <FormField label={i18n.t('admin.toDate')} style={styles.rowField}>
-            <Input value={draft.dateTo} onChangeText={(value) => setDraft((current) => ({ ...current, dateTo: value }))} placeholder="YYYY-MM-DD" />
+            <Input
+              value={draft.dateTo}
+              onChangeText={(value) => setDraft((current) => ({ ...current, dateTo: value }))}
+              placeholder="YYYY-MM-DD"
+            />
           </FormField>
         </View>
         <Button size="sm" onPress={apply}>
@@ -77,17 +97,30 @@ export function AuditTab() {
 
       {error ? <Alert tone="error">{i18n.t('errors.failedLoadAudit')}</Alert> : null}
 
-
       {entries.length === 0 ? (
-        <Text style={[styles.empty, { color: theme.colors.textMuted }]}>{i18n.t('admin.noAuditEntries')}</Text>
+        <Text style={[styles.empty, { color: theme.colors.textMuted }]}>
+          {i18n.t('admin.noAuditEntries')}
+        </Text>
       ) : (
         entries.map((entry) => {
           const expanded = expandedId === entry.id;
           return (
-            <View key={entry.id} style={[styles.entry, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-              <Text style={[styles.entryTime, { color: theme.colors.textMuted }]}>{shortDate(entry.timestamp, dateLocale(i18n.lang))}</Text>
-              <Text style={[styles.entryUser, { color: theme.colors.textSecondary }]}>{entry.email ?? entry.user_id ?? '—'}</Text>
-              <Text style={[styles.actionTag, { color: theme.colors.primary }]}>{entry.action}</Text>
+            <View
+              key={entry.id}
+              style={[
+                styles.entry,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+              ]}
+            >
+              <Text style={[styles.entryTime, { color: theme.colors.textMuted }]}>
+                {shortDate(entry.timestamp, dateLocale(i18n.lang))}
+              </Text>
+              <Text style={[styles.entryUser, { color: theme.colors.textSecondary }]}>
+                {entry.email ?? entry.user_id ?? '—'}
+              </Text>
+              <Text style={[styles.actionTag, { color: theme.colors.primary }]}>
+                {entry.action}
+              </Text>
               <Text style={[styles.entryEntity, { color: theme.colors.textMuted }]}>
                 {entry.entity_type}
                 {entry.entity_id ? ` · ${entry.entity_id.slice(0, 8)}` : ''}
@@ -173,4 +206,3 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
 });
-

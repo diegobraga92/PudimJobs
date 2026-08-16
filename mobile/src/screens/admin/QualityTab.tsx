@@ -19,26 +19,43 @@ export function QualityTab() {
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('admin.dataQuality')}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+        {i18n.t('admin.dataQuality')}
+      </Text>
       {overview ? (
         <View style={styles.metrics}>
           <Metric label={i18n.t('admin.statJobs')} value={overview.jobs_total} />
           <Metric label={i18n.t('admin.jobsAssessed')} value={overview.assessed} />
-          <Metric label={i18n.t('admin.avgCompleteness')} value={`${Math.round(overview.avg_completeness * 100)}%`} />
+          <Metric
+            label={i18n.t('admin.avgCompleteness')}
+            value={`${Math.round(overview.avg_completeness * 100)}%`}
+          />
           <Metric label={i18n.t('admin.duplicates')} value={overview.duplicates} />
-          <Metric label={i18n.t('admin.normalization')} value={`${Math.round(overview.normalization_coverage * 100)}%`} />
+          <Metric
+            label={i18n.t('admin.normalization')}
+            value={`${Math.round(overview.normalization_coverage * 100)}%`}
+          />
           <Metric label={i18n.t('admin.withIssues')} value={overview.jobs_with_issues} />
         </View>
       ) : null}
 
       {bySource.length > 0 ? (
         <View style={styles.bySource}>
-          <Text style={[styles.subTitle, { color: theme.colors.text }]}>{i18n.t('admin.sourceCol')}</Text>
+          <Text style={[styles.subTitle, { color: theme.colors.text }]}>
+            {i18n.t('admin.sourceCol')}
+          </Text>
           {bySource.map((item) => (
-            <View key={item.source} style={[styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View
+              key={item.source}
+              style={[
+                styles.row,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+              ]}
+            >
               <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{item.source}</Text>
               <Text style={[styles.rowValue, { color: theme.colors.textMuted }]}>
-                {item.jobs} · {i18n.t('admin.avgCompleteness')} {Math.round(item.avg_completeness * 100)}%
+                {item.jobs} · {i18n.t('admin.avgCompleteness')}{' '}
+                {Math.round(item.avg_completeness * 100)}%
               </Text>
             </View>
           ))}
@@ -46,23 +63,38 @@ export function QualityTab() {
       ) : null}
 
       <View style={styles.flaggedToggle}>
-        <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>{i18n.t('admin.flaggedOnly')}</Text>
+        <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>
+          {i18n.t('admin.flaggedOnly')}
+        </Text>
         <Switch value={flaggedOnly} onValueChange={setFlaggedOnly} />
       </View>
 
       {error ? <Alert tone="error">{i18n.t('errors.failedLoadQualityJobs')}</Alert> : null}
 
       {jobs.length === 0 ? (
-        <Text style={[styles.empty, { color: theme.colors.textMuted }]}>{i18n.t('admin.noAssessedJobs')}</Text>
+        <Text style={[styles.empty, { color: theme.colors.textMuted }]}>
+          {i18n.t('admin.noAssessedJobs')}
+        </Text>
       ) : (
         jobs.map((job) => (
-          <View key={job.job_id} style={[styles.jobCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <View
+            key={job.job_id}
+            style={[
+              styles.jobCard,
+              { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+            ]}
+          >
             <View style={styles.jobHead}>
-              <Text style={[styles.jobTitle, { color: theme.colors.text }]} numberOfLines={1}>{job.title}</Text>
-              {job.is_duplicate ? <Badge variant="danger">{i18n.t('admin.duplicates')}</Badge> : null}
+              <Text style={[styles.jobTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                {job.title}
+              </Text>
+              {job.is_duplicate ? (
+                <Badge variant="danger">{i18n.t('admin.duplicates')}</Badge>
+              ) : null}
             </View>
             <Text style={[styles.jobMeta, { color: theme.colors.textMuted }]}>
-              {job.company} · {i18n.t('admin.completeness')}: {Math.round(job.completeness_score * 100)}%
+              {job.company} · {i18n.t('admin.completeness')}:{' '}
+              {Math.round(job.completeness_score * 100)}%
             </Text>
             {job.issues.length > 0 ? (
               <Text style={[styles.issues, { color: theme.colors.warning }]}>
@@ -79,7 +111,12 @@ export function QualityTab() {
 function Metric({ label, value }: { label: string; value: string | number }) {
   const { theme } = useTheme();
   return (
-    <View style={[styles.metric, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+    <View
+      style={[
+        styles.metric,
+        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+      ]}
+    >
       <Text style={[styles.metricValue, { color: theme.colors.text }]}>{value}</Text>
       <Text style={[styles.metricLabel, { color: theme.colors.textMuted }]}>{label}</Text>
     </View>

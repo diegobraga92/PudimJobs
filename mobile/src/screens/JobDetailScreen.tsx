@@ -1,6 +1,14 @@
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { RenderHTML } from 'react-native-render-html';
 
 import { AppHeader } from '@/components/layout/AppHeader';
@@ -13,7 +21,14 @@ import { Icon } from '@/components/icons/Icon';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { useToast } from '@/components/toast/ToastProvider';
 import { useCreateApplication } from '@/hooks/useApplications';
-import { useJob, useParsedJd, useParseJob, useTailorCv, useUpdateJob, useDeleteJob } from '@/hooks/useJobs';
+import {
+  useJob,
+  useParsedJd,
+  useParseJob,
+  useTailorCv,
+  useUpdateJob,
+  useDeleteJob,
+} from '@/hooks/useJobs';
 import { useI18n } from '@/i18n/I18nProvider';
 import { JobsStackParamList } from '@/navigation/types';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -155,7 +170,12 @@ export function JobDetailScreen() {
       <AppHeader title={job?.title ?? i18n.t('jobs.title')} back onLeftPress={back} />
       <ScrollView contentContainerStyle={styles.content} style={styles.flex}>
         {isPending ? (
-          <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <View
+            style={[
+              styles.panel,
+              { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+            ]}
+          >
             <Skeleton width="55%" height={22} />
             <Skeleton width="30%" height={14} style={{ marginTop: 12 }} />
             <Skeleton width="40%" height={13} style={{ marginTop: 16 }} />
@@ -170,7 +190,12 @@ export function JobDetailScreen() {
 
         {!isPending && job ? (
           <>
-            <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View
+              style={[
+                styles.panel,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+              ]}
+            >
               <View style={styles.titleRow}>
                 <Text style={[styles.title, { color: theme.colors.text }]}>{job.title}</Text>
                 {job.hidden ? <Badge variant="neutral">{i18n.t('jobs.hiddenBadge')}</Badge> : null}
@@ -178,14 +203,17 @@ export function JobDetailScreen() {
 
               <View style={styles.metaRow}>
                 <Icon name="home" size={14} color={theme.colors.textMuted} />
-                <Text style={[styles.meta, { color: theme.colors.textSecondary }]}>{job.company}</Text>
+                <Text style={[styles.meta, { color: theme.colors.textSecondary }]}>
+                  {job.company}
+                </Text>
               </View>
 
               {job.posted_date ? (
                 <View style={styles.metaRow}>
                   <Icon name="calendar" size={13} color={theme.colors.textFaint} />
                   <Text style={[styles.metaMuted, { color: theme.colors.textMuted }]}>
-                    {i18n.t('jobs.postedPrefix')} {mediumDate(job.posted_date, dateLocale(i18n.lang))}
+                    {i18n.t('jobs.postedPrefix')}{' '}
+                    {mediumDate(job.posted_date, dateLocale(i18n.lang))}
                   </Text>
                 </View>
               ) : null}
@@ -231,16 +259,21 @@ export function JobDetailScreen() {
               {message ? <Alert tone="success">{message}</Alert> : null}
             </View>
 
-
-
-            <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View
+              style={[
+                styles.panel,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+              ]}
+            >
               <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
                 {i18n.t('jobDetail.parsedRequirements')}
               </Text>
               {parsed.data ? (
                 <View style={styles.parsed}>
                   <View style={styles.parsedRow}>
-                    <Text style={[styles.parsedLabel, { color: theme.colors.text }]}>{i18n.t('common.skills')}</Text>
+                    <Text style={[styles.parsedLabel, { color: theme.colors.text }]}>
+                      {i18n.t('common.skills')}
+                    </Text>
                     <View style={styles.tags}>
                       {parsed.data.skills.map((skill) => (
                         <Tag key={skill}>{skill}</Tag>
@@ -249,7 +282,9 @@ export function JobDetailScreen() {
                   </View>
                   {parsed.data.years_experience ? (
                     <View style={styles.parsedRow}>
-                      <Text style={[styles.parsedLabel, { color: theme.colors.text }]}>{i18n.t('common.experience')}</Text>
+                      <Text style={[styles.parsedLabel, { color: theme.colors.text }]}>
+                        {i18n.t('common.experience')}
+                      </Text>
                       <Text style={[styles.parsedValue, { color: theme.colors.textSecondary }]}>
                         {parsed.data.years_experience}+ {i18n.t('common.years')}
                       </Text>
@@ -257,7 +292,9 @@ export function JobDetailScreen() {
                   ) : null}
                   {parsed.data.education_level ? (
                     <View style={styles.parsedRow}>
-                      <Text style={[styles.parsedLabel, { color: theme.colors.text }]}>{i18n.t('common.education')}</Text>
+                      <Text style={[styles.parsedLabel, { color: theme.colors.text }]}>
+                        {i18n.t('common.education')}
+                      </Text>
                       <Text style={[styles.parsedValue, { color: theme.colors.textSecondary }]}>
                         {parsed.data.education_level}
                       </Text>
@@ -276,7 +313,12 @@ export function JobDetailScreen() {
               )}
             </View>
 
-            <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View
+              style={[
+                styles.panel,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+              ]}
+            >
               <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
                 {i18n.t('common.description')}
               </Text>

@@ -36,7 +36,12 @@ export function AdminScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.bg }]}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.tabBar, { borderBottomColor: theme.colors.border }]} contentContainerStyle={styles.tabBarContent}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={[styles.tabBar, { borderBottomColor: theme.colors.border }]}
+        contentContainerStyle={styles.tabBarContent}
+      >
         {TABS.map((tab) => {
           const active = tab.id === activeTab;
           return (
@@ -52,7 +57,9 @@ export function AdminScreen() {
       </ScrollView>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
-        <Text style={[styles.pageTitle, { color: theme.colors.text }]}>{i18n.t('admin.title')}</Text>
+        <Text style={[styles.pageTitle, { color: theme.colors.text }]}>
+          {i18n.t('admin.title')}
+        </Text>
         {activeTab === 'overview' ? <OverviewTab /> : null}
         {activeTab === 'sources' ? <SourcesTab /> : null}
         {activeTab === 'quality' ? <QualityTab /> : null}
@@ -89,7 +96,11 @@ function TabButton({
       ]}
     >
       <Icon name={icon} size={15} color={active ? theme.colors.primary : theme.colors.textMuted} />
-      <Text style={[styles.tabLabel, { color: active ? theme.colors.primary : theme.colors.textMuted }]}>{label}</Text>
+      <Text
+        style={[styles.tabLabel, { color: active ? theme.colors.primary : theme.colors.textMuted }]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -133,4 +144,3 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 });
-

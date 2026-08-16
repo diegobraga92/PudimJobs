@@ -19,7 +19,11 @@ export function JobsStack() {
         contentStyle: { backgroundColor: theme.colors.bg },
       }}
     >
-      <Stack.Screen name="JobList" component={JobsScreen} options={{ title: i18n.t('jobs.title') }} />
+      <Stack.Screen
+        name="JobList"
+        component={JobsScreen}
+        options={{ title: i18n.t('jobs.title') }}
+      />
       <Stack.Screen
         name="JobDetail"
         component={JobDetailScreen}

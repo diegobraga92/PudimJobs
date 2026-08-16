@@ -115,7 +115,9 @@ export function AlertsScreen() {
       { id: rule.id, payload: { active: !rule.active } },
       {
         onSuccess: () => {
-          toast.success(rule.active ? i18n.t('alerts.pausedToast') : i18n.t('alerts.activatedToast'));
+          toast.success(
+            rule.active ? i18n.t('alerts.pausedToast') : i18n.t('alerts.activatedToast'),
+          );
         },
         onError: () => toast.error(i18n.t('errors.failedUpdateRule')),
       },
@@ -139,9 +141,11 @@ export function AlertsScreen() {
     });
   };
 
-
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.bg }]} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.bg }]}
+      contentContainerStyle={styles.content}
+    >
       <View style={styles.head}>
         <Text style={[styles.title, { color: theme.colors.text }]}>{i18n.t('alerts.title')}</Text>
         <Button size="sm" onPress={openCreate}>
@@ -153,44 +157,81 @@ export function AlertsScreen() {
       {error ? <Alert tone="error">{i18n.t('errors.failedLoadAlerts')}</Alert> : null}
 
       {showForm ? (
-        <View style={[styles.panel, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View
+          style={[
+            styles.panel,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
+        >
           <Text style={[styles.formTitle, { color: theme.colors.text }]}>
             {editingId ? i18n.t('alerts.editAlert') : i18n.t('alerts.newAlert')}
           </Text>
 
           <FormField label={i18n.t('common.name')}>
-            <Input value={form.name} onChangeText={(value) => update('name', value)} placeholder="Senior Python jobs" />
+            <Input
+              value={form.name}
+              onChangeText={(value) => update('name', value)}
+              placeholder="Senior Python jobs"
+            />
           </FormField>
 
           <View style={styles.row}>
             <FormField label={i18n.t('alerts.keywords')} style={styles.rowField}>
-              <Input value={form.keywordsText} onChangeText={(value) => update('keywordsText', value)} placeholder="python, fastapi" />
+              <Input
+                value={form.keywordsText}
+                onChangeText={(value) => update('keywordsText', value)}
+                placeholder="python, fastapi"
+              />
             </FormField>
             <FormField label={i18n.t('alerts.companies')} style={styles.rowField}>
-              <Input value={form.companiesText} onChangeText={(value) => update('companiesText', value)} placeholder="Acme, Globex" />
+              <Input
+                value={form.companiesText}
+                onChangeText={(value) => update('companiesText', value)}
+                placeholder="Acme, Globex"
+              />
             </FormField>
           </View>
 
           <View style={styles.row}>
             <FormField label={i18n.t('alerts.tags')} style={styles.rowField}>
-              <Input value={form.tagsText} onChangeText={(value) => update('tagsText', value)} placeholder="backend, remote" />
+              <Input
+                value={form.tagsText}
+                onChangeText={(value) => update('tagsText', value)}
+                placeholder="backend, remote"
+              />
             </FormField>
             <FormField label={i18n.t('alerts.minYears')} style={styles.rowField}>
-              <Input value={form.minYears} onChangeText={(value) => update('minYears', value)} keyboardType="number-pad" placeholder="0" />
+              <Input
+                value={form.minYears}
+                onChangeText={(value) => update('minYears', value)}
+                keyboardType="number-pad"
+                placeholder="0"
+              />
             </FormField>
           </View>
 
           <FormField label={i18n.t('alerts.channels')}>
-            <Input value={form.channelsText} onChangeText={(value) => update('channelsText', value)} placeholder="in_app, email" />
+            <Input
+              value={form.channelsText}
+              onChangeText={(value) => update('channelsText', value)}
+              placeholder="in_app, email"
+            />
           </FormField>
 
           <View style={styles.toggles}>
             <View style={styles.toggleRow}>
-              <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>{i18n.t('alerts.remoteOnly')}</Text>
-              <Switch value={form.remote_only} onValueChange={(value) => update('remote_only', value)} />
+              <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>
+                {i18n.t('alerts.remoteOnly')}
+              </Text>
+              <Switch
+                value={form.remote_only}
+                onValueChange={(value) => update('remote_only', value)}
+              />
             </View>
             <View style={styles.toggleRow}>
-              <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>{i18n.t('alerts.active')}</Text>
+              <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>
+                {i18n.t('alerts.active')}
+              </Text>
               <Switch value={form.active} onValueChange={(value) => update('active', value)} />
             </View>
           </View>
@@ -207,7 +248,9 @@ export function AlertsScreen() {
       ) : null}
 
       {isPending ? (
-        <Text style={[styles.loading, { color: theme.colors.textMuted }]}>{i18n.t('alerts.loading')}</Text>
+        <Text style={[styles.loading, { color: theme.colors.textMuted }]}>
+          {i18n.t('alerts.loading')}
+        </Text>
       ) : null}
 
       {!isPending && rules.length === 0 ? (
@@ -225,10 +268,20 @@ export function AlertsScreen() {
       ) : null}
 
       {rules.map((rule) => (
-        <View key={rule.id} style={[styles.ruleCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View
+          key={rule.id}
+          style={[
+            styles.ruleCard,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
+        >
           <View style={styles.ruleHead}>
             <Text style={[styles.ruleName, { color: theme.colors.text }]}>{rule.name}</Text>
-            <Button size="sm" variant={rule.active ? 'success' : 'ghost'} onPress={() => toggleActive(rule)}>
+            <Button
+              size="sm"
+              variant={rule.active ? 'success' : 'ghost'}
+              onPress={() => toggleActive(rule)}
+            >
               {rule.active ? i18n.t('alerts.active') : i18n.t('alerts.paused')}
             </Button>
           </View>
@@ -242,10 +295,16 @@ export function AlertsScreen() {
           ) : null}
 
           <Text style={[styles.meta, { color: theme.colors.textMuted }]}>
-            {rule.companies.length > 0 ? `${i18n.t('alerts.companies')}: ${rule.companies.join(', ')}` : ''}
+            {rule.companies.length > 0
+              ? `${i18n.t('alerts.companies')}: ${rule.companies.join(', ')}`
+              : ''}
             {rule.companies.length > 0 && rule.channels.length > 0 ? ' · ' : ''}
-            {rule.channels.length > 0 ? `${i18n.t('alerts.channels')}: ${rule.channels.join(', ')}` : ''}
-            {rule.min_years_experience !== null ? ` · ${i18n.t('alerts.minYears')}: ${rule.min_years_experience}` : ''}
+            {rule.channels.length > 0
+              ? `${i18n.t('alerts.channels')}: ${rule.channels.join(', ')}`
+              : ''}
+            {rule.min_years_experience !== null
+              ? ` · ${i18n.t('alerts.minYears')}: ${rule.min_years_experience}`
+              : ''}
             {rule.remote_only ? ` · ${i18n.t('alerts.remoteOnly')}` : ''}
           </Text>
 
@@ -264,8 +323,6 @@ export function AlertsScreen() {
     </ScrollView>
   );
 }
-
-
 
 const styles = StyleSheet.create({
   container: {

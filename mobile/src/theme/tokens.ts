@@ -167,11 +167,41 @@ export const typography = {
 } as const;
 
 export const shadows = {
-  xs: { elevation: 1, shadowColor: '#0f172a', shadowOpacity: 0.06, shadowRadius: 2, shadowOffset: { width: 0, height: 1 } },
-  sm: { elevation: 2, shadowColor: '#0f172a', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
-  md: { elevation: 4, shadowColor: '#0f172a', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
-  lg: { elevation: 8, shadowColor: '#0f172a', shadowOpacity: 0.14, shadowRadius: 32, shadowOffset: { width: 0, height: 10 } },
-  cardHover: { elevation: 6, shadowColor: '#0f172a', shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 8 } },
+  xs: {
+    elevation: 1,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  sm: {
+    elevation: 2,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  md: {
+    elevation: 4,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  lg: {
+    elevation: 8,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.14,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  cardHover: {
+    elevation: 6,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+  },
 } as const;
 
 export interface Theme {

@@ -15,7 +15,13 @@ export function OverviewTab() {
     return (
       <View style={styles.grid}>
         {[1, 2, 3, 4].map((item) => (
-          <View key={item} style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <View
+            key={item}
+            style={[
+              styles.card,
+              { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+            ]}
+          >
             <Skeleton width="40%" height={22} />
             <Skeleton width="70%" height={13} style={{ marginTop: 8 }} />
           </View>
@@ -33,19 +39,39 @@ export function OverviewTab() {
       <StatCard label={i18n.t('admin.statSources')} value={stats.sources} />
       <StatCard label={i18n.t('admin.statJobs')} value={stats.jobs} />
       <StatCard label={i18n.t('admin.statJobs24h')} value={stats.jobs_last_24h} />
-      <StatCard label={i18n.t('admin.statFailedRuns')} value={stats.failed_runs} alert={stats.failed_runs > 0} />
+      <StatCard
+        label={i18n.t('admin.statFailedRuns')}
+        value={stats.failed_runs}
+        alert={stats.failed_runs > 0}
+      />
       <StatCard label={i18n.t('admin.statTotalRuns')} value={stats.total_runs} />
     </View>
   );
 }
 
-function StatCard({ label, value, alert = false }: { label: string; value: number; alert?: boolean }) {
+function StatCard({
+  label,
+  value,
+  alert = false,
+}: {
+  label: string;
+  value: number;
+  alert?: boolean;
+}) {
   const { theme } = useTheme();
   return (
     <View
-      style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: alert ? theme.colors.danger : theme.colors.border }]}
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.surface,
+          borderColor: alert ? theme.colors.danger : theme.colors.border,
+        },
+      ]}
     >
-      <Text style={[styles.value, { color: alert ? theme.colors.danger : theme.colors.text }]}>{value}</Text>
+      <Text style={[styles.value, { color: alert ? theme.colors.danger : theme.colors.text }]}>
+        {value}
+      </Text>
       <Text style={[styles.label, { color: theme.colors.textMuted }]}>{label}</Text>
     </View>
   );

@@ -42,17 +42,35 @@ export function SourcesTab() {
 
   return (
     <View style={styles.list}>
-      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{i18n.t('admin.sourceHealth')}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+        {i18n.t('admin.sourceHealth')}
+      </Text>
       {sources.map((source) => (
-        <View key={source.id} style={[styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View
+          key={source.id}
+          style={[
+            styles.row,
+            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+          ]}
+        >
           <View style={styles.info}>
             <Text style={[styles.name, { color: theme.colors.text }]}>{source.name}</Text>
             <Text style={[styles.meta, { color: theme.colors.textMuted }]}>
               {source.type} · {i18n.t('admin.lastScraped')}:{' '}
-              {source.last_scraped ? shortDate(source.last_scraped, dateLocale(i18n.lang)) : i18n.t('admin.never')}
+              {source.last_scraped
+                ? shortDate(source.last_scraped, dateLocale(i18n.lang))
+                : i18n.t('admin.never')}
             </Text>
           </View>
-          <Badge variant={source.health === 'healthy' ? 'success' : source.health === 'failing' ? 'danger' : 'warning'}>
+          <Badge
+            variant={
+              source.health === 'healthy'
+                ? 'success'
+                : source.health === 'failing'
+                  ? 'danger'
+                  : 'warning'
+            }
+          >
             {source.health}
           </Badge>
           <Button

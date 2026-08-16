@@ -56,11 +56,7 @@ export function JobCard({
             {job.title}
           </Text>
           <Pressable onPress={onToggleHidden} hitSlop={10} accessibilityRole="button">
-            <Icon
-              name={job.hidden ? 'eye' : 'eye-off'}
-              size={16}
-              color={theme.colors.textFaint}
-            />
+            <Icon name={job.hidden ? 'eye' : 'eye-off'} size={16} color={theme.colors.textFaint} />
           </Pressable>
         </View>
         <View style={styles.badges}>
@@ -90,12 +86,20 @@ export function JobCard({
       {job.tags.length > 0 ? (
         <View style={styles.tags}>
           {job.tags.slice(0, 6).map((tag) => (
-            <View key={tag} style={[styles.tag, { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border }]}>
+            <View
+              key={tag}
+              style={[
+                styles.tag,
+                { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border },
+              ]}
+            >
               <Text style={[styles.tagText, { color: theme.colors.textSecondary }]}>{tag}</Text>
             </View>
           ))}
           {job.tags.length > 6 ? (
-            <Text style={[styles.tagMore, { color: theme.colors.textFaint }]}>+{job.tags.length - 6}</Text>
+            <Text style={[styles.tagMore, { color: theme.colors.textFaint }]}>
+              +{job.tags.length - 6}
+            </Text>
           ) : null}
         </View>
       ) : null}

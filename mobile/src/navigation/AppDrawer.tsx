@@ -17,17 +17,14 @@ import { AppDrawerParamList } from './types';
 const Drawer = createDrawerNavigator<AppDrawerParamList>();
 
 /** Screen wrapper: renders the app bar with the drawer toggle above the content. */
-function WithAppBar({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function WithAppBar({ title, children }: { title: string; children: React.ReactNode }) {
   const navigation = useNavigation();
   return (
     <>
-      <AppHeader title={title} onLeftPress={() => navigation.dispatch(DrawerActions.openDrawer())} />
+      <AppHeader
+        title={title}
+        onLeftPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+      />
       {children}
     </>
   );
@@ -101,13 +98,41 @@ export function AppDrawer() {
         sceneStyle: { backgroundColor: theme.colors.bg },
       }}
     >
-      <Drawer.Screen name="Jobs" component={JobsStack} options={{ title: i18n.t('layout.nav.jobs') }} />
-      <Drawer.Screen name="Sources" component={WrappedSourcesScreen} options={{ title: i18n.t('layout.nav.sources') }} />
-      <Drawer.Screen name="MasterCv" component={WrappedCvScreen} options={{ title: i18n.t('layout.nav.masterCv') }} />
-      <Drawer.Screen name="Applications" component={WrappedApplicationsScreen} options={{ title: i18n.t('layout.nav.applications') }} />
-      <Drawer.Screen name="Alerts" component={WrappedAlertsScreen} options={{ title: i18n.t('layout.nav.alerts') }} />
-      <Drawer.Screen name="Notifications" component={WrappedNotificationsScreen} options={{ title: i18n.t('layout.nav.notifications') }} />
-      <Drawer.Screen name="Admin" component={WrappedAdminScreen} options={{ title: i18n.t('layout.nav.admin') }} />
+      <Drawer.Screen
+        name="Jobs"
+        component={JobsStack}
+        options={{ title: i18n.t('layout.nav.jobs') }}
+      />
+      <Drawer.Screen
+        name="Sources"
+        component={WrappedSourcesScreen}
+        options={{ title: i18n.t('layout.nav.sources') }}
+      />
+      <Drawer.Screen
+        name="MasterCv"
+        component={WrappedCvScreen}
+        options={{ title: i18n.t('layout.nav.masterCv') }}
+      />
+      <Drawer.Screen
+        name="Applications"
+        component={WrappedApplicationsScreen}
+        options={{ title: i18n.t('layout.nav.applications') }}
+      />
+      <Drawer.Screen
+        name="Alerts"
+        component={WrappedAlertsScreen}
+        options={{ title: i18n.t('layout.nav.alerts') }}
+      />
+      <Drawer.Screen
+        name="Notifications"
+        component={WrappedNotificationsScreen}
+        options={{ title: i18n.t('layout.nav.notifications') }}
+      />
+      <Drawer.Screen
+        name="Admin"
+        component={WrappedAdminScreen}
+        options={{ title: i18n.t('layout.nav.admin') }}
+      />
     </Drawer.Navigator>
   );
 }

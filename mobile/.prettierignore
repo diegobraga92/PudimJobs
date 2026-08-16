@@ -1,0 +1,10 @@
+# Generated files / build output
+node_modules/
+dist/
+.expo/
+android/
+ios/
+
+# Generated from the web frontend — formatting is owned by
+# scripts/extract-dictionary.js; prettier would drift it from the generator.
+src/i18n/dictionary.ts

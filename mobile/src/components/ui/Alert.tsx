@@ -24,13 +24,7 @@ const TONE_COLORS: Record<AlertTone, { fg: ColorKey; bg: ColorKey }> = {
 };
 
 /** Inline alert banner — mirrors the `.alert` / `.alert-error` / `.alert-success` classes. */
-export function Alert({
-  tone = 'info',
-  children,
-}: {
-  tone?: AlertTone;
-  children: ReactNode;
-}) {
+export function Alert({ tone = 'info', children }: { tone?: AlertTone; children: ReactNode }) {
   const { theme } = useTheme();
   const colors = TONE_COLORS[tone];
   return (

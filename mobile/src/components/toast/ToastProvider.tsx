@@ -1,4 +1,12 @@
-import { createContext, ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -84,7 +92,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
             ]}
           >
-            <Icon name={TONE_ICON[toast.type]} size={18} color={theme.colors[TONE_COLOR[toast.type] as 'success']} />
+            <Icon
+              name={TONE_ICON[toast.type]}
+              size={18}
+              color={theme.colors[TONE_COLOR[toast.type] as 'success']}
+            />
             <Text style={[styles.message, { color: theme.colors.text }]}>{toast.message}</Text>
             <Pressable onPress={() => dismiss(toast.id)} hitSlop={8} accessibilityRole="button">
               <Icon name="x" size={16} color={theme.colors.textFaint} />

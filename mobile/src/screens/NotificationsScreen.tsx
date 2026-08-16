@@ -6,7 +6,11 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Icon } from '@/components/icons/Icon';
 import { useToast } from '@/components/toast/ToastProvider';
-import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications } from '@/hooks/useNotifications';
+import {
+  useMarkAllNotificationsRead,
+  useMarkNotificationRead,
+  useNotifications,
+} from '@/hooks/useNotifications';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { Notification } from '@/types';
@@ -39,9 +43,14 @@ export function NotificationsScreen() {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.bg }]} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.bg }]}
+      contentContainerStyle={styles.content}
+    >
       <View style={styles.head}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>{i18n.t('notifications.title')}</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>
+          {i18n.t('notifications.title')}
+        </Text>
         <Button variant="ghost" size="sm" onPress={onMarkAllRead} disabled={unread === 0}>
           <Icon name="check" size={15} />
           {i18n.t('notifications.markAllRead')}
@@ -51,7 +60,9 @@ export function NotificationsScreen() {
       {error ? <Alert tone="error">{i18n.t('errors.failedLoadNotifications')}</Alert> : null}
 
       <View style={styles.summary}>
-        {unread > 0 ? <Badge variant="info">{i18n.t('notifications.unread', { count: unread })}</Badge> : null}
+        {unread > 0 ? (
+          <Badge variant="info">{i18n.t('notifications.unread', { count: unread })}</Badge>
+        ) : null}
         <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
           {i18n.t('notifications.total', { count: total })}
         </Text>
@@ -70,14 +81,24 @@ export function NotificationsScreen() {
           key={item.id}
           style={[
             styles.item,
-            { backgroundColor: item.read ? theme.colors.surface : theme.colors.unreadBg, borderColor: theme.colors.border },
+            {
+              backgroundColor: item.read ? theme.colors.surface : theme.colors.unreadBg,
+              borderColor: theme.colors.border,
+            },
           ]}
         >
-          <View style={[styles.unreadDot, { backgroundColor: item.read ? 'transparent' : theme.colors.primary }]} />
+          <View
+            style={[
+              styles.unreadDot,
+              { backgroundColor: item.read ? 'transparent' : theme.colors.primary },
+            ]}
+          />
           <View style={styles.itemMain}>
             <Text style={[styles.itemTitle, { color: theme.colors.text }]}>{item.title}</Text>
             {item.message ? (
-              <Text style={[styles.itemMessage, { color: theme.colors.textSecondary }]}>{item.message}</Text>
+              <Text style={[styles.itemMessage, { color: theme.colors.textSecondary }]}>
+                {item.message}
+              </Text>
             ) : null}
             <View style={styles.itemMeta}>
               <Icon name="bell" size={12} color={theme.colors.textFaint} />
@@ -161,4 +182,3 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 });
-
