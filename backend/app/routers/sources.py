@@ -1,8 +1,11 @@
+import asyncio
+import inspect
 import uuid
+from types import SimpleNamespace
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from scrapers.utils import fetch_html
+from scrapers.utils import fetch_html, is_allowed_by_robots, redact_sensitive
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,10 +19,25 @@ from app.models.source import Source
 from app.models.source_auth import SourceAuth
 from app.models.user import User
 from app.ratelimit import auth_key, limiter
-from app.schemas.source import SourceCreate, SourceResponse, SourceUpdate
+from app.schemas.source import (
+    SourceCreate,
+    SourceImportRequest,
+    SourceImportResponse,
+    SourceImportResult,
+    SourcePreviewJob,
+    SourcePreviewRequest,
+    SourcePreviewResponse,
+    SourceResponse,
+    SourceUpdate,
+)
 from app.schemas.source_auth import SourceAuthResponse, SourceAuthUpdate
 from app.services.secrets import encrypt_secret
 from app.services.source_auth import build_fetch_auth
+from app.services.source_config import (
+    adapter_metadata,
+    provider_metadata,
+    validate_source_config,
+)
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
@@ -56,6 +74,16 @@ def _attach_counts(
     ]
 
 
+def _validate_config(source_type, config: dict | None) -> None:
+    """Reject a config that cannot drive its scraper, as a 422."""
+    try:
+        validate_source_config(source_type, config)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
 @router.get("", response_model=list[SourceResponse])
 async def list_sources(
     db: AsyncSession = Depends(get_db),
@@ -74,16 +102,98 @@ async def list_providers(
     user: User = Depends(get_current_user),
 ):
     """Discovery provider metadata, driving the source form's provider dropdown."""
-    from scrapers.discovery import DISCOVERY_PROVIDERS
+    return provider_metadata()
 
-    return [
-        {
-            "name": cls.provider_name,
-            "family": cls.family,
-            "requires_key": cls.requires_key,
-        }
-        for cls in DISCOVERY_PROVIDERS.values()
-    ]
+
+@router.get("/adapters")
+async def list_adapters(
+    user: User = Depends(get_current_user),
+):
+    """Aggregator adapter metadata, driving the form's adapter dropdown."""
+    return adapter_metadata()
+
+
+@router.post("/import", response_model=SourceImportResponse)
+async def import_sources(
+    payload: SourceImportRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Bulk-create sources from a catalog, idempotently per user.
+
+    Credentials are never imported (add them with ``PUT /api/sources/{id}/auth``)
+    and re-running the same catalog skips what the user already has — matched on
+    ``url`` + ``type`` — so it is safe to repeat.
+    """
+    existing = await db.execute(
+        select(Source.url, Source.type).where(Source.user_id == user.id)
+    )
+    known = {(row.url, row.type) for row in existing.all()}
+
+    results: list[SourceImportResult] = []
+    created = skipped = invalid = 0
+    for index, item in enumerate(payload.sources):
+        try:
+            validate_source_config(item.type, item.config)
+        except ValueError as exc:
+            invalid += 1
+            results.append(
+                SourceImportResult(
+                    index=index,
+                    status="invalid",
+                    name=item.name,
+                    url=item.url,
+                    reason=str(exc),
+                )
+            )
+            continue
+
+        key = (item.url, item.type)
+        if key in known:
+            skipped += 1
+            results.append(
+                SourceImportResult(
+                    index=index,
+                    status="skipped",
+                    name=item.name,
+                    url=item.url,
+                    reason="already exists",
+                )
+            )
+            continue
+
+        created += 1
+        known.add(key)
+        if payload.dry_run:
+            results.append(
+                SourceImportResult(
+                    index=index,
+                    status="created",
+                    name=item.name,
+                    url=item.url,
+                    reason="dry run",
+                )
+            )
+            continue
+
+        source = Source(user_id=user.id, **item.model_dump())
+        db.add(source)
+        await db.flush()
+        results.append(
+            SourceImportResult(
+                index=index,
+                status="created",
+                name=item.name,
+                url=item.url,
+                source_id=source.id,
+            )
+        )
+
+    if not payload.dry_run:
+        await db.commit()
+    return SourceImportResponse(
+        created=created, skipped=skipped, invalid=invalid, results=results
+    )
 
 
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
@@ -92,6 +202,7 @@ async def create_source(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    _validate_config(payload.type, payload.config)
     source = Source(user_id=user.id, **payload.model_dump())
     db.add(source)
     await db.commit()
@@ -116,7 +227,13 @@ async def update_source(
     user: User = Depends(get_current_user),
 ):
     source = await get_owned_source(source_id, user, db)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    if "config" in updates or "type" in updates:
+        # `config` is replaced wholesale, so validate exactly what will be stored.
+        effective_type = updates.get("type") or source.type
+        effective_config = updates.get("config", source.config)
+        _validate_config(effective_type, effective_config)
+    for field, value in updates.items():
         setattr(source, field, value)
     await db.commit()
     await db.refresh(source)
@@ -256,3 +373,138 @@ async def test_source_auth(
         }
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI
         return {"ok": False, "status_code": None, "error": str(exc)[:300]}
+
+
+async def _discover_detail_urls(scraper, page) -> list[str]:
+    """Detail URLs for a page, tolerating scrapers without the hook.
+
+    Mirrors ``workers.tasks.scrape._discover`` (the backend image does not mount
+    ``workers/``, so the logic is duplicated rather than imported).
+    """
+    discover = getattr(scraper, "discover_urls", None)
+    if not callable(discover):
+        return []
+    result = discover(page)
+    if inspect.isawaitable(result):
+        result = await result
+    return list(result or [])
+
+
+async def _run_preview(
+    *,
+    source_type,
+    url: str,
+    config: dict,
+    api_key: str | None = None,
+    auth=None,
+    respect_robots: bool = False,
+) -> SourcePreviewResponse:
+    """Fetch + parse once and return a sample — without persisting anything."""
+    from scrapers.registry import get_scraper
+
+    try:
+        scraper = get_scraper(
+            SimpleNamespace(type=source_type, config=config), api_key
+        )
+    except ValueError as exc:
+        return SourcePreviewResponse(fetched_url=url, error=str(exc))
+
+    fetch_url = url
+    max_samples = settings.scraper_preview_max_jobs
+    timeout = settings.scraper_preview_timeout_seconds
+    try:
+        # `first_fetch_url` renders provider templates, so a config mistake
+        # (e.g. a missing `tenant`) surfaces here and must be reported, not
+        # raised: the preview is how users discover such mistakes.
+        fetch_url = getattr(scraper, "first_fetch_url", lambda value: value)(url)
+        if respect_robots and not is_allowed_by_robots(fetch_url):
+            return SourcePreviewResponse(
+                fetched_url=fetch_url, error="robots.txt disallows this source"
+            )
+        page = await asyncio.wait_for(
+            scraper.fetch(fetch_url, auth=auth), timeout=timeout
+        )
+        raw_jobs = []
+        detail_urls = await _discover_detail_urls(scraper, page)
+        if detail_urls:
+            for detail_url in detail_urls[:max_samples]:
+                if respect_robots and not is_allowed_by_robots(detail_url):
+                    continue
+                detail_page = await asyncio.wait_for(
+                    scraper.fetch(detail_url, auth=auth), timeout=timeout
+                )
+                raw_jobs.extend(scraper.parse(detail_page))
+        else:
+            raw_jobs.extend(scraper.parse(page))
+        normalized = scraper.normalize(raw_jobs)
+    except TimeoutError:
+        return SourcePreviewResponse(
+            fetched_url=fetch_url,
+            error=f"timed out after {timeout:g}s — the site may be slow or JS-rendered",
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+        return SourcePreviewResponse(
+            fetched_url=fetch_url,
+            status_code=getattr(getattr(exc, "response", None), "status_code", None),
+            error=redact_sensitive(str(exc))[:300],
+        )
+
+    sample = [
+        SourcePreviewJob(
+            title=item.get("title") or "",
+            company=item.get("company") or "",
+            url=item.get("url"),
+            posted_date=item.get("posted_date"),
+            tags=item.get("tags") or [],
+        )
+        for item in normalized[:max_samples]
+    ]
+    return SourcePreviewResponse(
+        fetched_url=fetch_url,
+        status_code=page.status_code,
+        jobs_found=len(normalized),
+        sample_jobs=sample,
+        truncated=len(normalized) > len(sample),
+    )
+
+
+@router.post("/preview", response_model=SourcePreviewResponse)
+@limiter.limit(settings.rate_limit_preview, key_func=auth_key)
+async def preview_source_config(
+    request: Request,
+    payload: SourcePreviewRequest,
+    user: User = Depends(get_current_user),
+):
+    """Dry-run a URL/type/config so selectors can be tuned before saving.
+
+    Nothing is persisted: no source, no jobs and no ``scrape_runs`` row.
+    """
+    return await _run_preview(
+        source_type=payload.type, url=payload.url, config=payload.config or {}
+    )
+
+
+@router.post("/{source_id}/preview", response_model=SourcePreviewResponse)
+@limiter.limit(settings.rate_limit_preview, key_func=auth_key)
+async def preview_source(
+    request: Request,
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Dry-run a saved source, with its stored config and credentials."""
+    source = await get_owned_source(source_id, user, db)
+    record = await _get_auth_record(source_id, db)
+    auth = None
+    api_key = None
+    if record is not None and record.credentials_encrypted:
+        auth = build_fetch_auth(record)
+        api_key = auth.api_key if auth else None
+    return await _run_preview(
+        source_type=source.type,
+        url=source.url,
+        config=source.config or {},
+        api_key=api_key,
+        auth=auth,
+        respect_robots=source.respect_robots_txt,
+    )

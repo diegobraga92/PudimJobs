@@ -7,7 +7,7 @@ import random
 import re
 import socket
 import time
-from datetime import date
+from datetime import UTC, date, datetime
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -215,6 +215,80 @@ def _split_selectors(value: object) -> list[str] | None:
     if isinstance(value, str):
         return [s.strip() for s in value.split(",") if s.strip()]
     return None
+
+
+def resolve_path(data: object, path: object, *, default: object = None) -> object:
+    """Resolve a dotted/indexed path inside a JSON payload (``a.b[0].c``).
+
+    Used by the config-driven providers/adapters (``json_list``,
+    ``embedded_json_list``) so new boards are described by source config instead
+    of code. Dict keys (``a.b``), list indices (``a[0]`` or ``a.0``) and an
+    empty/``None`` path (which returns ``data`` unchanged) are supported. A
+    missing key, an out-of-range index, a non-container hop and a non-string
+    path all yield ``default`` instead of raising.
+    """
+    if not path:
+        return data
+    if not isinstance(path, str):
+        return default
+    current: object = data
+    tokens = path.replace("[", ".").replace("]", "").split(".")
+    for token in (part for part in tokens if part):
+        if isinstance(current, dict):
+            if token not in current:
+                return default
+            current = current[token]
+        elif isinstance(current, list):
+            try:
+                index = int(token)
+            except ValueError:
+                return default
+            if not -len(current) <= index < len(current):
+                return default
+            current = current[index]
+        else:
+            return default
+    return current
+
+
+def coerce_date(value: object) -> date | None:
+    """Best-effort ``date`` from a JSON payload value.
+
+    Handles ``date``/``datetime`` instances, ISO strings (with or without a time
+    component, e.g. ``2026-08-01T10:00:00``) and epoch seconds. Anything else —
+    including booleans — returns ``None``.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=UTC).date()
+        except (OverflowError, OSError, ValueError):
+            return None
+    return _parse_date(str(value))
+
+
+def as_tag_list(value: object) -> list[str]:
+    """Normalize a payload value into tags (list, or comma-separated string)."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()]
+
+
+def as_optional_str(value: object) -> str | None:
+    """A trimmed string from a payload value, or ``None`` when empty."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def parse_json_ld_jobs(html_content: str) -> list[RawJob]:

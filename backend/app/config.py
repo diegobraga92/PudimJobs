@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # Rate limiting (slowapi)
     rate_limit_login: str = "5/minute"
     rate_limit_api: str = "120/minute"
+    # Source preview runs a scraper synchronously inside the API process, so it
+    # is throttled harder than the rest of the API.
+    rate_limit_preview: str = "20/minute"
 
     # Celery / workers
     celery_broker_url: str = "amqp://pudimjobs:pudimjobs_dev@localhost:5672/"
@@ -70,6 +73,10 @@ class Settings(BaseSettings):
     # SSRF hardening: cap each response body and the redirect chain length.
     scraper_max_response_bytes: int = 2_000_000  # 2 MB
     scraper_max_redirects: int = 5
+    # Source preview: jobs returned in the sample, and how long the in-process
+    # run may take before the request gives up.
+    scraper_preview_max_jobs: int = 5
+    scraper_preview_timeout_seconds: float = 20.0
     # Bot identity used when matching robots.txt rules (not the HTTP request UA,
     # which stays browser-like for anti-bot compatibility).
     scraper_bot_user_agent: str = "PudimJobsBot/0.1"

@@ -27,6 +27,7 @@ os.environ.setdefault("CELERY_BROKER_URL", "amqp://pudimjobs:pudimjobs_dev@local
 # Permissive rate limits so integration tests don't trip the limiter.
 os.environ.setdefault("RATE_LIMIT_LOGIN", "1000/minute")
 os.environ.setdefault("RATE_LIMIT_API", "100000/minute")
+os.environ.setdefault("RATE_LIMIT_PREVIEW", "100000/minute")
 
 import pytest
 from httpx import ASGITransport, AsyncClient

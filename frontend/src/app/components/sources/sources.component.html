@@ -45,14 +45,23 @@
     @if (sourceForm.get('type')?.value === 'aggregator') {
       <div class="form-field">
         <label for="source-adapter">{{ i18n.t('sources.adapter') }}</label>
-        <select
-          id="source-adapter"
-          class="select"
-          [(ngModel)]="adapter"
-          [ngModelOptions]="{ standalone: true }"
-        >
-          <option value="generic_html_list">{{ i18n.t('sources.genericHtmlList') }}</option>
-        </select>
+        @if (adaptersLoading) {
+          <span class="muted">{{ i18n.t('sources.loadingAdapters') }}</span>
+        } @else {
+          <select
+            id="source-adapter"
+            class="select"
+            [(ngModel)]="adapter"
+            [ngModelOptions]="{ standalone: true }"
+          >
+            @for (item of adapters; track item.name) {
+              <option [value]="item.name">{{ item.name }}</option>
+            }
+          </select>
+        }
+        @if (selectedAdapter?.description) {
+          <p class="muted xs">{{ selectedAdapter?.description }}</p>
+        }
       </div>
 
       <div class="form-field">
@@ -121,6 +130,38 @@
       </div>
     }
 
+    @if (
+      sourceForm.get('type')?.value === 'aggregator' ||
+      sourceForm.get('type')?.value === 'discovery'
+    ) {
+      <div class="contract-hints">
+        @if (requiredKeys.length) {
+          <p class="muted xs">
+            {{ i18n.t('sources.requiredConfig') }}:
+            <code>{{ requiredKeys.join(', ') }}</code>
+          </p>
+        }
+        @for (group of requiredAnyKeys; track $index) {
+          <p class="muted xs">
+            {{ i18n.t('sources.requiredConfig') }}:
+            <code>{{ group.join(' or ') }}</code>
+          </p>
+        }
+        @if (optionalKeys.length) {
+          <p class="muted xs">
+            {{ i18n.t('sources.optionalConfig') }}:
+            <code>{{ optionalKeys.join(', ') }}</code>
+          </p>
+        }
+        @if (hasExampleConfig) {
+          <button type="button" class="btn btn-ghost btn-sm" (click)="applyExampleConfig()">
+            <app-icon name="file-text" [size]="14" />
+            {{ i18n.t('sources.useExampleConfig') }}
+          </button>
+        }
+      </div>
+    }
+
     <div class="ethics-section">
       <h4>
         <app-icon name="shield-check" [size]="14" />
@@ -151,6 +192,49 @@
           {{ i18n.t('sources.respectRobotsHint') }}
         </p>
       </div>
+    </div>
+
+    <div class="preview-section">
+      <div class="preview-actions">
+        <button type="button" class="btn btn-ghost" [disabled]="previewing" (click)="preview()">
+          <app-icon name="list-filter" [size]="14" />
+          {{ previewing ? i18n.t('sources.previewing') : i18n.t('sources.preview') }}
+        </button>
+        <span class="muted xs">{{ i18n.t('sources.previewHint') }}</span>
+      </div>
+
+      @if (previewResult) {
+        @if (previewResult.error) {
+          <p class="muted xs">
+            {{ i18n.t('sources.previewError', { error: previewResult.error }) }}
+          </p>
+        } @else {
+          <p class="muted xs">
+            {{
+              i18n.t('sources.previewSummary', {
+                status: previewResult.status_code ?? '—',
+                count: previewResult.jobs_found
+              })
+            }}
+            @if (previewResult.truncated) {
+              · {{ i18n.t('sources.previewTruncated') }}
+            }
+          </p>
+          @if (previewResult.sample_jobs.length) {
+            <ul class="preview-jobs">
+              @for (job of previewResult.sample_jobs; track $index) {
+                <li>
+                  <strong>{{ job.title }}</strong>
+                  <span class="muted"> · {{ job.company }}</span>
+                  @if (job.posted_date) {
+                    <span class="muted"> · {{ job.posted_date }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        }
+      }
     </div>
 
     <div class="form-actions">

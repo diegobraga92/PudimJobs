@@ -4,12 +4,14 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { FormsModule } from '@angular/forms';
 
 import {
+  AggregatorAdapter,
   AuthTestResult,
   DiscoveryProvider,
   Source,
   SourceAuth,
   SourceAuthInput,
   SourceInput,
+  SourcePreview,
   SourcesService,
 } from '../../services/sources.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
@@ -35,12 +37,18 @@ export class SourcesComponent implements OnInit {
 
   /** Aggregator adapter + JSON config (shown when type === 'aggregator'). */
   adapter = 'generic_html_list';
+  adapters: AggregatorAdapter[] = [];
+  adaptersLoading = false;
   configJson = '';
 
   /** Discovery provider + config (shown when type === 'discovery'). */
   providers: DiscoveryProvider[] = [];
   providersLoading = false;
   discoveryProvider = '';
+
+  /** Dry-run of the current form values (nothing is saved). */
+  previewing = false;
+  previewResult: SourcePreview | null = null;
 
   /** Per-source authentication panel state. */
   authSource: Source | null = null;
@@ -74,6 +82,7 @@ export class SourcesComponent implements OnInit {
   ngOnInit(): void {
     this.refresh();
     this.loadProviders();
+    this.loadAdapters();
   }
 
   private loadProviders(): void {
@@ -89,9 +98,109 @@ export class SourcesComponent implements OnInit {
     });
   }
 
+  private loadAdapters(): void {
+    this.adaptersLoading = true;
+    this.service.listAdapters().subscribe({
+      next: (adapters) => {
+        this.adapters = adapters;
+        this.adaptersLoading = false;
+      },
+      error: () => {
+        this.adaptersLoading = false;
+      },
+    });
+  }
+
   /** The provider currently selected in the form (for hints/warnings). */
   get selectedProvider(): DiscoveryProvider | undefined {
     return this.providers.find((provider) => provider.name === this.discoveryProvider);
+  }
+
+  /** The adapter currently selected in the form. */
+  get selectedAdapter(): AggregatorAdapter | undefined {
+    return this.adapters.find((adapter) => adapter.name === this.adapter);
+  }
+
+  /** Config contract of whatever the form currently dispatches on. */
+  private get selectedContract(): AggregatorAdapter | DiscoveryProvider | undefined {
+    return this.selectedProvider ?? this.selectedAdapter;
+  }
+
+  /** Keys the selected provider/adapter must receive. */
+  get requiredKeys(): string[] {
+    return this.selectedContract?.required_config ?? [];
+  }
+
+  /** Alternation groups, e.g. `[["url", "url_tpl"]]` → "url or url_tpl". */
+  get requiredAnyKeys(): string[][] {
+    return this.selectedContract?.required_any ?? [];
+  }
+
+  /** Keys that are accepted but optional. */
+  get optionalKeys(): string[] {
+    return this.selectedContract?.optional_config ?? [];
+  }
+
+  /** True when the backend publishes a usable example for the current choice. */
+  get hasExampleConfig(): boolean {
+    const example = this.selectedContract?.example_config;
+    return !!example && Object.keys(example).length > 0;
+  }
+
+  /** Prefill the config textarea with the backend's example for this choice. */
+  applyExampleConfig(): void {
+    const example = this.selectedContract?.example_config;
+    if (!example) {
+      return;
+    }
+    const config: Record<string, unknown> = { ...example };
+    if (this.sourceForm.get('type')?.value === 'discovery') {
+      delete config['provider'];
+    }
+    if (this.sourceForm.get('type')?.value === 'aggregator') {
+      delete config['adapter'];
+    }
+    this.configJson = JSON.stringify(config, null, 2);
+    this.previewResult = null;
+  }
+
+  /**
+   * Dry-run the current form values. Nothing is persisted: the API fetches and
+   * parses once and returns a sample, so selectors can be tuned before saving.
+   */
+  preview(): void {
+    if (this.previewing) {
+      return;
+    }
+    const url = this.sourceForm.get('url')?.value as string;
+    const type = this.sourceForm.get('type')?.value as string;
+    if (!url || this.sourceForm.get('url')?.invalid) {
+      this.error = this.i18n.t('errors.invalidSourceUrl');
+      this.toast.error(this.i18n.t('errors.invalidSourceUrl'));
+      return;
+    }
+    if (type === 'discovery' && !this.discoveryProvider) {
+      this.error = this.i18n.t('errors.chooseProvider');
+      this.toast.error(this.i18n.t('errors.chooseProvider'));
+      return;
+    }
+    const built = this.buildConfig(type);
+    if (!built) {
+      return;
+    }
+    this.previewing = true;
+    this.previewResult = null;
+    this.service.preview({ url, type, config: built }).subscribe({
+      next: (result) => {
+        this.previewing = false;
+        this.previewResult = result;
+      },
+      error: () => {
+        this.previewing = false;
+        this.error = this.i18n.t('errors.failedPreviewSource');
+        this.toast.error(this.i18n.t('errors.failedPreviewSource'));
+      },
+    });
   }
 
   refresh(): void {
@@ -121,6 +230,7 @@ export class SourcesComponent implements OnInit {
     this.adapter = 'generic_html_list';
     this.configJson = '';
     this.discoveryProvider = '';
+    this.previewResult = null;
     this.showForm = true;
   }
 
@@ -142,12 +252,55 @@ export class SourcesComponent implements OnInit {
     } else {
       this.configJson = source.config ? JSON.stringify(source.config, null, 2) : '';
     }
+    this.previewResult = null;
     this.showForm = true;
   }
 
   cancelForm(): void {
     this.showForm = false;
     this.editingId = null;
+    this.previewResult = null;
+  }
+
+  /**
+   * The `config` to send for the current form state, or null when the JSON is
+   * invalid (an error toast is shown). Shared by save() and preview() so the dry
+   * run exercises exactly what would be stored.
+   */
+  private buildConfig(type: string): Record<string, unknown> | null {
+    const parsed = this.parseConfigJson(type);
+    if (parsed === null) {
+      return null;
+    }
+    if (type === 'aggregator') {
+      return { ...parsed, adapter: this.adapter };
+    }
+    if (type === 'discovery') {
+      return { ...parsed, provider: this.discoveryProvider };
+    }
+    return parsed;
+  }
+
+  private parseConfigJson(type: string): Record<string, unknown> | null {
+    const raw = this.configJson.trim();
+    if (!raw) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('config must be a JSON object');
+      }
+      return parsed as Record<string, unknown>;
+    } catch {
+      const key =
+        type === 'discovery'
+          ? 'errors.invalidDiscoveryJson'
+          : 'errors.invalidAggregatorJson';
+      this.error = this.i18n.t(key);
+      this.toast.error(this.i18n.t(key));
+      return null;
+    }
   }
 
   save(): void {
@@ -168,37 +321,16 @@ export class SourcesComponent implements OnInit {
       rate_limit_seconds: raw.rate_limit_seconds,
       respect_robots_txt: raw.respect_robots_txt,
     };
-    if (raw.type === 'aggregator') {
-      const config: Record<string, unknown> = { adapter: this.adapter };
-      if (this.configJson.trim()) {
-        try {
-          Object.assign(config, JSON.parse(this.configJson.trim()));
-        } catch {
-          this.error = this.i18n.t('errors.invalidAggregatorJson');
-          this.toast.error(this.i18n.t('errors.invalidAggregatorJson'));
-          return;
-        }
-      }
-      config['adapter'] = this.adapter;
-      payload.config = config;
+    if (raw.type === 'discovery' && !this.discoveryProvider) {
+      this.error = this.i18n.t('errors.chooseProvider');
+      this.toast.error(this.i18n.t('errors.chooseProvider'));
+      return;
     }
-    if (raw.type === 'discovery') {
-      if (!this.discoveryProvider) {
-        this.error = this.i18n.t('errors.chooseProvider');
-        this.toast.error(this.i18n.t('errors.chooseProvider'));
+    if (raw.type === 'aggregator' || raw.type === 'discovery') {
+      const config = this.buildConfig(raw.type);
+      if (!config) {
         return;
       }
-      const config: Record<string, unknown> = { provider: this.discoveryProvider };
-      if (this.configJson.trim()) {
-        try {
-          Object.assign(config, JSON.parse(this.configJson.trim()));
-        } catch {
-          this.error = this.i18n.t('errors.invalidDiscoveryJson');
-          this.toast.error(this.i18n.t('errors.invalidDiscoveryJson'));
-          return;
-        }
-      }
-      config['provider'] = this.discoveryProvider;
       payload.config = config;
     }
     const request = this.editingId

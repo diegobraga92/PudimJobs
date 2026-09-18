@@ -7,6 +7,9 @@ Providers come in two families:
 
 - ``ats``         — fetch a board's public JSON endpoint and parse jobs directly
                     (one stage).
+- ``json``        — config-driven JSON list (``json_list``): the source config
+                    says where the items and fields live, so onboarding a new
+                    board needs no code.
 - ``search_api``  — query a search API (needs an encrypted API key), extract
                     result links, then fetch + parse each job detail page
                     (two stages).
@@ -19,7 +22,8 @@ provider so the registry can dispatch it like any other scraper.
 
 import json
 from abc import ABC, abstractmethod
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
+from xml.etree import ElementTree
 
 import httpx
 from bs4 import BeautifulSoup
@@ -27,7 +31,16 @@ from bs4 import BeautifulSoup
 from app.config import settings
 from scrapers.base import AbstractScraper
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
-from scrapers.utils import fetch_html, parse_job_detail, parse_json_ld_jobs
+from scrapers.utils import (
+    as_optional_str,
+    as_tag_list,
+    assert_safe_url,
+    coerce_date,
+    fetch_html,
+    parse_job_detail,
+    parse_json_ld_jobs,
+    resolve_path,
+)
 
 
 def _date_prefix(value: object) -> str | None:
@@ -57,11 +70,27 @@ def _tags(*values: object) -> list[str]:
     return [str(v) for v in values if v]
 
 
+def _label(container: object) -> str | None:
+    """The ``label`` of an ATS facet payload (e.g. ``{"label": "Full-time"}``)."""
+    if isinstance(container, dict):
+        return as_optional_str(container.get("label"))
+    return None
+
+
+def _xml_text(node: ElementTree.Element, tag: str) -> str | None:
+    """Trimmed text of the first ``tag`` child of an XML ``node`` (or None)."""
+    found = node.find(tag)
+    if found is None or not found.text:
+        return None
+    text = found.text.strip()
+    return text or None
+
+
 class DiscoveryProvider(ABC):
     """Base class for all discovery providers."""
 
     provider_name: str = ""
-    family: str = ""  # "ats" | "search_api"
+    family: str = ""  # "ats" | "json" | "search_api"
     requires_key: bool = False
 
     def __init__(self, config: dict | None = None, api_key: str | None = None):
@@ -89,6 +118,18 @@ class DiscoveryProvider(ABC):
     def next_page_url(self, page: ScrapedPage) -> str | None:
         """The next results page URL, or None (default: single page)."""
         return None
+
+    @classmethod
+    def config_metadata(cls) -> dict:
+        """The provider's config contract, published by ``/api/sources/providers``.
+
+        Drives the Sources form hints and create/update validation
+        (``app.services.source_config``).
+        """
+        return _DISCOVERY_CONFIG_METADATA.get(
+            cls.provider_name,
+            {"required": (), "required_any": (), "optional": (), "example": {}},
+        )
 
     def normalize(self, raw_jobs: list[RawJob]) -> list[dict]:
         return [
@@ -227,6 +268,353 @@ class WorkableProvider(ATSProvider):
                 )
             )
         return [j for j in jobs if j.title and j.url]
+
+
+class SmartRecruitersProvider(ATSProvider):
+    """SmartRecruiters public postings API (``companies/{company}/postings``).
+
+    Verified live: the payload is ``{offset, limit, totalFound, content: [...]}``
+    where each item carries ``name``, ``company.{identifier,name}``,
+    ``releasedDate``, ``location.fullLocation`` and facet dicts
+    (``typeOfEmployment``/``department``/``function``). The public job page is
+    ``https://jobs.smartrecruiters.com/{identifier}/{id}``. ``max_results`` caps
+    the API ``limit`` (default 100).
+    """
+
+    provider_name = "smartrecruiters"
+    endpoint_tpl = "https://api.smartrecruiters.com/v1/companies/{company}/postings"
+
+    def results_url(self) -> str:
+        """The postings URL, with ``limit`` taken from ``max_results``."""
+        limit = int(self.config.get("max_results") or 100)
+        return f"{super().results_url()}?limit={limit}"
+
+    def _jobs_from_payload(self, data):
+        jobs: list[RawJob] = []
+        for item in data.get("content", []):
+            company_obj = item.get("company") if isinstance(item.get("company"), dict) else {}
+            identifier = company_obj.get("identifier") or self.config.get("company") or ""
+            location = item.get("location") if isinstance(item.get("location"), dict) else {}
+            jobs.append(
+                RawJob(
+                    title=item.get("name") or "",
+                    company=str(company_obj.get("name") or identifier).strip(),
+                    url=(
+                        f"https://jobs.smartrecruiters.com/{identifier}/{item.get('id')}"
+                        if item.get("id")
+                        else None
+                    ),
+                    posted_date=coerce_date(item.get("releasedDate")),
+                    tags=_tags(
+                        _label(item.get("typeOfEmployment")),
+                        _label(item.get("department")),
+                        _label(item.get("function")),
+                        location.get("fullLocation"),
+                    ),
+                    external_id=str(item["id"]) if item.get("id") else None,
+                )
+            )
+        return [j for j in jobs if j.title and j.url]
+
+
+class RecruiteeProvider(ATSProvider):
+    """Recruitee public offers API (``{company}.recruitee.com/api/offers/``).
+
+    Verified live: ``{"offers": [...]}`` with ``title``, ``careers_url``,
+    ``company_name``, ``city``/``country_code``, ``created_at`` (``2026-09-14
+    07:17:14 UTC``), ``tags`` and ``department``.
+    """
+
+    provider_name = "recruitee"
+    endpoint_tpl = "https://{company}.recruitee.com/api/offers/"
+
+    def _jobs_from_payload(self, data):
+        jobs: list[RawJob] = []
+        for item in data.get("offers", []):
+            location = as_optional_str(item.get("city")) or as_optional_str(
+                item.get("location")
+            )
+            country = as_optional_str(item.get("country_code"))
+            if location and country:
+                location = f"{location}, {country}"
+
+            raw_description = item.get("description")
+            description = None
+            if raw_description:
+                description = _strip_html(str(raw_description))[:2000] or None
+
+            jobs.append(
+                RawJob(
+                    title=item.get("title") or "",
+                    company=item.get("company_name") or self.config.get("company") or "",
+                    url=item.get("careers_url") or item.get("careers_apply_url"),
+                    posted_date=coerce_date(
+                        item.get("created_at") or item.get("published_at")
+                    ),
+                    description=description,
+                    tags=as_tag_list(item.get("tags"))
+                    + _tags(item.get("department"), location),
+                    external_id=str(item["id"]) if item.get("id") else None,
+                )
+            )
+        return [j for j in jobs if j.title and j.url]
+
+
+class PersonioProvider(ATSProvider):
+    """Personio XML feed (``{company}.jobs.personio.de/xml``).
+
+    The feed exposes ``position`` elements with ``id``, ``name``,
+    ``subcompany``, ``office`` (+ ``additionalOffices``), ``createdAt``, facet
+    tags and ``jobDescriptions``. It carries **no** public job URL, so
+    ``url_tpl`` is required in the source config (``{id}`` and config keys are
+    interpolated), e.g. ``https://{company}.jobs.personio.de/job/{id}`` — confirm
+    the tenant's pattern with the source preview before relying on it.
+    """
+
+    provider_name = "personio"
+    endpoint_tpl = "https://{company}.jobs.personio.de/xml"
+
+    def parse(self, page: ScrapedPage) -> list[RawJob]:
+        url_tpl = self.config.get("url_tpl")
+        if not url_tpl:
+            raise ValueError(
+                "personio requires a 'url_tpl' entry in the source config: the XML "
+                "feed has no job URL (e.g. https://{company}.jobs.personio.de/job/{id})"
+            )
+        try:
+            root = ElementTree.fromstring(page.html_content or "")
+        except ElementTree.ParseError as exc:
+            raise ValueError(f"personio: feed is not valid XML ({exc})") from exc
+
+        jobs: list[RawJob] = []
+        for position in root.findall("position"):
+            position_id = _xml_text(position, "id")
+            if not position_id:
+                continue
+            try:
+                url = str(url_tpl).format(id=position_id, **self.config)
+            except (KeyError, IndexError, ValueError) as exc:
+                raise ValueError(
+                    f"personio could not render url_tpl {str(url_tpl)!r}: {exc}"
+                ) from exc
+
+            extra_offices = [
+                node.text.strip()
+                for node in position.findall("additionalOffices/office")
+                if node.text and node.text.strip()
+            ]
+            location = ", ".join(
+                part for part in [_xml_text(position, "office"), *extra_offices] if part
+            )
+            description = (
+                _strip_html(
+                    " ".join(
+                        node.text or ""
+                        for node in position.findall(
+                            "jobDescriptions/jobDescription/value"
+                        )
+                    )
+                )[:2000]
+                or None
+            )
+            jobs.append(
+                RawJob(
+                    title=_xml_text(position, "name") or "",
+                    company=_xml_text(position, "subcompany")
+                    or self.config.get("company")
+                    or "",
+                    url=url,
+                    posted_date=coerce_date(_xml_text(position, "createdAt")),
+                    description=description,
+                    tags=_tags(
+                        _xml_text(position, "department"),
+                        _xml_text(position, "recruitingCategory"),
+                        _xml_text(position, "employmentType"),
+                        _xml_text(position, "seniority"),
+                        location,
+                    ),
+                    external_id=position_id,
+                )
+            )
+
+        jobs = [job for job in jobs if job.title and job.url]
+        max_results = int(self.config.get("max_results") or 0)
+        return jobs[:max_results] if max_results > 0 else jobs
+
+
+class WorkdayProvider(ATSProvider):
+    """Workday CXS job API — public JSON, reached with a POST.
+
+    Config: ``host`` (e.g. ``acme.wd1.myworkdayjobs.com``), ``tenant`` and
+    ``site`` — both taken from the careers URL
+    (``https://{host}/en-US/{site}``) — plus optional ``query``, ``locale``
+    (default ``en-US``) and ``company`` for display. Verified live: the response
+    is ``{total, jobPostings: [{title, externalPath, locationsText, postedOn,
+    bulletFields}]}`` and the job page is
+    ``https://{host}/{locale}/{site}{externalPath}``. ``postedOn`` is a relative
+    label ("Posted Today"), so ``posted_date`` stays empty.
+    """
+
+    provider_name = "workday"
+    endpoint_tpl = "https://{host}/wday/cxs/{tenant}/{site}/jobs"
+    job_tpl = "https://{host}/{locale}/{site}{external_path}"
+
+    def _request_payload(self) -> dict:
+        """The CXS search body (no facets, single page, capped by max_results)."""
+        return {
+            "appliedFacets": {},
+            "limit": int(self.config.get("max_results") or 20),
+            "offset": 0,
+            "searchText": str(self.config.get("query") or ""),
+        }
+
+    async def fetch(self, url: str, *, auth: FetchAuth | None = None) -> ScrapedPage:
+        """POST the CXS search payload (the pipeline only supplies the URL)."""
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if auth and auth.headers:
+            headers.update(auth.headers)
+        assert_safe_url(url)
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.post(url, headers=headers, json=self._request_payload())
+            resp.raise_for_status()
+            if len(resp.content) > settings.scraper_max_response_bytes:
+                raise ValueError(
+                    "Response exceeds "
+                    f"scraper_max_response_bytes ({settings.scraper_max_response_bytes})"
+                )
+            return ScrapedPage(
+                html_content=resp.text,
+                status_code=resp.status_code,
+                final_url=url,
+            )
+
+    def _jobs_from_payload(self, data):
+        jobs: list[RawJob] = []
+        for item in data.get("jobPostings", []):
+            external_path = item.get("externalPath") or ""
+            bullets = [str(value) for value in (item.get("bulletFields") or []) if value]
+            url = None
+            if external_path:
+                url = self.job_tpl.format(
+                    host=self.config.get("host", ""),
+                    locale=self.config.get("locale", "en-US"),
+                    site=self.config.get("site", ""),
+                    external_path=external_path,
+                )
+            jobs.append(
+                RawJob(
+                    title=item.get("title") or "",
+                    company=self.config.get("company") or self.config.get("tenant") or "",
+                    url=url,
+                    posted_date=coerce_date(item.get("postedOn")),
+                    tags=_tags(item.get("locationsText"), *bullets),
+                    external_id=bullets[0] if bullets else None,
+                )
+            )
+        return [j for j in jobs if j.title and j.url]
+
+
+class JsonListProvider(DiscoveryProvider):
+    """Config-driven provider for boards exposing a JSON array of jobs.
+
+    Selected with ``config["provider"] = "json_list"``, the whole mapping lives
+    in the source config, so onboarding a new board needs no code::
+
+        {
+          "provider": "json_list",
+          "url_tpl": "https://api.example/jobs?tag={tag}",
+          "tag": "python",
+          "items_path": "data.items",
+          "id_path": "id",
+          "title_path": "position",
+          "url_path": "url",
+          "company_path": "company",
+          "location_path": "location",
+          "date_path": "date",
+          "tags_path": "tags",
+          "description_path": "description",
+          "max_results": 50
+        }
+
+    ``url`` is an alternative to ``url_tpl`` when no substitution is needed; both
+    are formatted with the source config, so any config key can be interpolated.
+    Omitting ``items_path`` means the payload *is* the array (a single object is
+    also accepted). Every field path is optional — missing ones simply yield
+    empty values — and items without a title or URL are skipped. Relative URLs
+    are resolved against the fetched page.
+    """
+
+    provider_name = "json_list"
+    family = "json"
+    requires_key = False
+
+    def results_url(self) -> str:
+        url = self.config.get("url") or self.config.get("url_tpl")
+        if not url:
+            raise ValueError(
+                "json_list requires a 'url' or 'url_tpl' entry in the source config"
+            )
+        try:
+            return str(url).format(**self.config)
+        except (KeyError, IndexError, ValueError) as exc:
+            raise ValueError(
+                f"json_list could not build the fetch URL from {str(url)!r}: {exc}"
+            ) from exc
+
+    def parse(self, page: ScrapedPage) -> list[RawJob]:
+        try:
+            payload = json.loads(page.html_content or "")
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"json_list: response is not valid JSON ({exc.msg})") from exc
+
+        items = resolve_path(payload, self.config.get("items_path"))
+        if isinstance(items, dict):
+            items = [items]
+        if not isinstance(items, list):
+            raise ValueError(
+                "json_list: 'items_path' must point to a JSON array of jobs "
+                f"(got {type(items).__name__})"
+            )
+
+        company_fallback = str(self.config.get("company") or "").strip()
+        jobs = [
+            self._job_from_item(item, company_fallback, page.final_url)
+            for item in items
+            if isinstance(item, dict)
+        ]
+        jobs = [job for job in jobs if job.title and job.url]
+        max_results = int(self.config.get("max_results") or 0)
+        return jobs[:max_results] if max_results > 0 else jobs
+
+    def _job_from_item(
+        self, item: dict, company_fallback: str, base_url: str
+    ) -> RawJob:
+        def field(key: str) -> object:
+            path = self.config.get(key)
+            if not path:
+                return None
+            return resolve_path(item, path)
+
+        url = as_optional_str(field("url_path"))
+        location = as_optional_str(field("location_path"))
+        tags = as_tag_list(field("tags_path"))
+        if location:
+            tags.append(location)
+
+        raw_description = field("description_path")
+        description = None
+        if raw_description:
+            description = _strip_html(str(raw_description))[:2000] or None
+
+        return RawJob(
+            title=str(field("title_path") or "").strip(),
+            company=str(field("company_path") or "").strip() or company_fallback,
+            url=urljoin(base_url, url) if url else None,
+            posted_date=coerce_date(field("date_path")),
+            description=description,
+            tags=tags,
+            external_id=as_optional_str(field("id_path")),
+        )
 
 
 class TwoStageProvider(DiscoveryProvider):
@@ -414,17 +802,29 @@ class BrightDataProvider(SearchApiProvider):
 
     The API key is sent as ``Authorization: Bearer`` and the target search URL
     is POSTed as JSON to ``api.brightdata.com/serp/req``, returning *rendered*
-    HTML. Result links are extracted with per-engine CSS selectors (overridable
-    via ``result_selector`` in the source config). Bright Data's exact endpoint
-    and params should be confirmed against their current docs; they are
-    config-adjustable (``customer``, ``zone``, ``country``, ``locale``).
+    HTML. By default the target is the LinkedIn/Indeed search URL built from
+    ``engine`` + ``query``/``location``; set ``url`` (or ``url_tpl``, interpolated
+    with the source config) to render any other search/jobs page — then also set
+    ``result_selector`` unless the engine default happens to match. Result links
+    are extracted with per-engine CSS selectors (``result_selector`` overrides
+    them). Bright Data's exact endpoint and params should be confirmed against
+    their current docs; they are config-adjustable (``customer``, ``zone``,
+    ``country``, ``locale``).
     """
 
     provider_name = "brightdata"
     key_header = "Authorization"
 
     def _target_url(self) -> str:
-        """The LinkedIn/Indeed search URL Bright Data renders for us."""
+        """The URL Bright Data renders for us (config override, else the engine)."""
+        override = self.config.get("url") or self.config.get("url_tpl")
+        if override:
+            try:
+                return str(override).format(**self.config)
+            except (KeyError, IndexError, ValueError) as exc:
+                raise ValueError(
+                    f"brightdata could not render the target URL {str(override)!r}: {exc}"
+                ) from exc
         engine = self.config.get("engine", "linkedin")
         query = self.config.get("query", "")
         location = self.config.get("location", "")
@@ -492,6 +892,129 @@ class BrightDataProvider(SearchApiProvider):
         return "a[href*='/jobs/view']"
 
 
+_DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
+    "ashby": {
+        "required": ("org",),
+        "optional": ("company", "max_results"),
+        "example": {"org": "acme", "company": "Acme"},
+    },
+    "greenhouse": {
+        "required": ("board_token",),
+        "optional": ("company", "max_results"),
+        "example": {"board_token": "acme", "company": "Acme"},
+    },
+    "lever": {
+        "required": ("company",),
+        "optional": ("max_results",),
+        "example": {"company": "acme"},
+    },
+    "workable": {
+        "required": ("org",),
+        "optional": ("company", "max_results"),
+        "example": {"org": "acme", "company": "Acme"},
+    },
+    "smartrecruiters": {
+        "required": ("company",),
+        "optional": ("max_results",),
+        "example": {"company": "acme", "max_results": 50},
+    },
+    "recruitee": {
+        "required": ("company",),
+        "optional": ("max_results",),
+        "example": {"company": "acme"},
+    },
+    "personio": {
+        "required": ("company", "url_tpl"),
+        "optional": ("max_results",),
+        "example": {
+            "company": "acme",
+            "url_tpl": "https://{company}.jobs.personio.de/job/{id}",
+        },
+    },
+    "workday": {
+        "required": ("host", "tenant", "site"),
+        "optional": ("query", "locale", "company", "max_results"),
+        "example": {
+            "host": "acme.wd1.myworkdayjobs.com",
+            "tenant": "acme",
+            "site": "AcmeCareers",
+            "company": "Acme",
+        },
+    },
+    "json_list": {
+        "required": (),
+        "required_any": (("url", "url_tpl"),),
+        "optional": (
+            "items_path",
+            "id_path",
+            "title_path",
+            "url_path",
+            "company_path",
+            "company",
+            "location_path",
+            "date_path",
+            "tags_path",
+            "description_path",
+            "max_results",
+        ),
+        "example": {
+            "url": "https://api.example/jobs",
+            "items_path": "data.items",
+            "title_path": "position",
+            "url_path": "url",
+            "company_path": "company",
+            "date_path": "date",
+        },
+    },
+    "google_cse": {
+        "required": ("query", "cx"),
+        "optional": ("count", "max_results", "detail_strategy", "selectors"),
+        "example": {"query": "site:jobs.example python", "cx": "0123456789:abc"},
+    },
+    "bing": {
+        "required": ("query",),
+        "optional": ("count", "max_results", "detail_strategy", "selectors"),
+        "example": {"query": "site:jobs.example python", "count": 20},
+    },
+    "brave": {
+        "required": ("query",),
+        "optional": ("count", "max_results", "detail_strategy", "selectors"),
+        "example": {"query": "site:jobs.example python", "count": 20},
+    },
+    "serpapi": {
+        "required": ("query",),
+        "optional": (
+            "engine",
+            "location",
+            "num",
+            "max_results",
+            "detail_strategy",
+            "selectors",
+        ),
+        "example": {"engine": "google_jobs", "query": "python", "location": "Brazil"},
+    },
+    "brightdata": {
+        "required": (),
+        "optional": (
+            "engine",
+            "query",
+            "location",
+            "url",
+            "url_tpl",
+            "customer",
+            "zone",
+            "country",
+            "locale",
+            "result_selector",
+            "max_results",
+            "detail_strategy",
+            "selectors",
+        ),
+        "example": {"engine": "linkedin", "query": "python", "location": "Brazil"},
+    },
+}
+
+
 DISCOVERY_PROVIDERS: dict[str, type[DiscoveryProvider]] = {
     cls.provider_name: cls
     for cls in (
@@ -499,6 +1022,11 @@ DISCOVERY_PROVIDERS: dict[str, type[DiscoveryProvider]] = {
         GreenhouseProvider,
         LeverProvider,
         WorkableProvider,
+        SmartRecruitersProvider,
+        RecruiteeProvider,
+        PersonioProvider,
+        WorkdayProvider,
+        JsonListProvider,
         GoogleCseProvider,
         BingProvider,
         BraveProvider,

@@ -36,10 +36,47 @@ export interface SourceAuthInput {
   api_key?: string;
 }
 
-export interface DiscoveryProvider {
+/** Config contract published per provider/adapter (drives hints + validation). */
+export interface ConfigContract {
+  required_config: string[];
+  /** Alternation groups: at least one key of each group must be present. */
+  required_any: string[][];
+  optional_config: string[];
+  example_config: Record<string, unknown>;
+}
+
+export interface DiscoveryProvider extends ConfigContract {
   name: string;
   family: string;
   requires_key: boolean;
+}
+
+export interface AggregatorAdapter extends ConfigContract {
+  name: string;
+  description: string | null;
+}
+
+export interface SourcePreviewJob {
+  title: string;
+  company: string;
+  url: string | null;
+  posted_date: string | null;
+  tags: string[];
+}
+
+export interface SourcePreview {
+  fetched_url: string;
+  status_code: number | null;
+  jobs_found: number;
+  sample_jobs: SourcePreviewJob[];
+  truncated: boolean;
+  error: string | null;
+}
+
+export interface SourcePreviewInput {
+  url: string;
+  type: string;
+  config?: Record<string, unknown> | null;
 }
 
 export interface AuthTestResult {
@@ -87,5 +124,18 @@ export class SourcesService {
   /** Discovery provider metadata (drives the source form's provider dropdown). */
   listProviders(): Observable<DiscoveryProvider[]> {
     return this.http.get<DiscoveryProvider[]>('/api/sources/providers');
+  }
+
+  /** Aggregator adapter metadata (drives the source form's adapter dropdown). */
+  listAdapters(): Observable<AggregatorAdapter[]> {
+    return this.http.get<AggregatorAdapter[]>('/api/sources/adapters');
+  }
+
+  /**
+   * Dry-run a URL/type/config: fetches and parses once, persisting nothing, so
+   * selectors can be tuned before saving the source.
+   */
+  preview(payload: SourcePreviewInput): Observable<SourcePreview> {
+    return this.http.post<SourcePreview>('/api/sources/preview', payload);
   }
 }
