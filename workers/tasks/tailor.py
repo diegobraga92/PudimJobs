@@ -1,21 +1,31 @@
-"""CV tailoring Celery task.
+"""CV tailoring Celery task (ADR 016).
 
-Runs the rule-based tailoring engine over a job + master CV, optionally
-rephrases bullets with an LLM, renders a PDF, and stores both a new CV version
-and a ``GeneratedCV`` row.
+Produces one or two *self-contained* tailored-CV artifacts for a job:
+
+* ``rule`` — always, from the deterministic engine (strengthened: the summary
+  leads with the JD-matched strengths and a no-match fallback is signalled); and
+* ``llm`` — when enabled, a full LLM rewrite kept alongside the rule variant so
+  the user can compare and choose.
+
+Each artifact is a ``generated_cvs`` row owning its own ``structured_json`` and
+rendered PDF, and is scored with the deterministic ATS scorer (comparable across
+variants). The master CV is never modified, so tailored output no longer leaks
+into the master version history.
 """
 
 import asyncio
 import uuid
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import select
 
+from app.config import settings
 from app.database import async_session_factory
-from app.models import Application, GeneratedCV, Job, MasterCV, User
-from app.services.cv_tailor import enhance_with_llm, tailor_cv
+from app.models import Application, CVVariant, GeneratedCV, Job, MasterCV, User
+from app.services.ats_scorer import derive_keywords, score_ats
+from app.services.cv_tailor import TailoredCV, generate_tailored_cv_with_llm, tailor_cv
 from app.services.jd_parser import parse_jd, parsed_jd_to_dict
-from app.services.llm_config import get_llm_config
+from app.services.llm_config import LlmRuntimeConfig, get_llm_config
 from app.services.pdf_generator import generate_pdf
 from workers.celery_app import celery_app
 
@@ -30,22 +40,25 @@ def _pdf_name(user: User | None) -> str:
     return " ".join(part.capitalize() for part in local.split(".") if part)
 
 
-async def _find_generated(session, cv: MasterCV, job: Job) -> GeneratedCV | None:
-    """Return an existing tailored artifact for this job + source CV version."""
+async def _find_generated(
+    session, cv: MasterCV, job: Job, variant: CVVariant
+) -> GeneratedCV | None:
+    """Return an existing artifact for this job + source CV version + variant."""
     result = await session.execute(
         select(GeneratedCV).where(
             GeneratedCV.user_id == cv.user_id,
             GeneratedCV.job_id == job.id,
             GeneratedCV.source_master_cv_id == cv.id,
+            GeneratedCV.variant == variant,
         )
     )
     return result.scalar_one_or_none()
 
 
 async def _link_application(
-    session, application_id: str | None, cv: MasterCV, job: Job, master_cv_id: uuid.UUID
+    session, application_id: str | None, cv: MasterCV, job: Job, generated_cv_id: uuid.UUID
 ) -> None:
-    """Point an application at the CV version it was tailored with.
+    """Point an application at the CV artifact it was sent with.
 
     Best-effort and guarded: a missing, foreign, or mismatched id is ignored, so
     a stale request can never cross-link another user's pipeline. Does not
@@ -57,7 +70,55 @@ async def _link_application(
     if application is None or application.user_id != cv.user_id or application.job_id != job.id:
         logger.warning("cv_tailor_application_link_skipped", application_id=application_id)
         return
-    application.cv_version = master_cv_id
+    application.generated_cv_id = generated_cv_id
+
+
+async def _store_variant(
+    session,
+    *,
+    cv: MasterCV,
+    job: Job,
+    user: User | None,
+    variant: CVVariant,
+    structure: dict,
+    jd_skills: list[str],
+    jd_keywords: list[str],
+    jd_text: str,
+    llm_self_score: int | None = None,
+) -> GeneratedCV:
+    """Render, deterministically score and persist one tailored artifact."""
+    tailored = TailoredCV.from_structure(structure)
+    pdf_bytes = generate_pdf(tailored, name=_pdf_name(user), email=user.email if user else "")
+    # Both variants use the *deterministic* scorer so their scores are comparable;
+    # the LLM's own estimate is recorded separately when it provided one.
+    report = await score_ats(
+        structure,
+        jd_skills=jd_skills,
+        jd_keywords=jd_keywords,
+        jd_text=jd_text,
+        job_title=job.title,
+    )
+    if llm_self_score is not None:
+        report["llm_self_score"] = llm_self_score
+    generated = GeneratedCV(
+        user_id=cv.user_id,
+        source_master_cv_id=cv.id,
+        job_id=job.id,
+        variant=variant,
+        structured_json=structure,
+        pdf=pdf_bytes,
+        ats_score=report["score"],
+        ats_report=report,
+    )
+    session.add(generated)
+    await session.commit()
+    await session.refresh(generated)
+    return generated
+
+
+def _llm_variant_wanted(config: LlmRuntimeConfig) -> bool:
+    """The full-LLM variant needs the feature flag *and* a usable LLM config."""
+    return settings.tailoring_llm_variant_enabled and config.enabled and bool(config.api_key)
 
 
 async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None = None) -> dict:
@@ -87,105 +148,114 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
             job.parsed_jd = parsed_jd_to_dict(parsed)
             await session.commit()
         jd_skills = job.parsed_jd.get("skills", []) or []
+        jd_text = job.description or ""
+        jd_keywords = derive_keywords(jd_text) if jd_text else []
 
-        # Serialize version allocation per user so two concurrent tailoring
-        # runs can't collide on the (user_id, version) unique constraint.
-        await session.execute(
-            select(func.pg_advisory_xact_lock(func.hashtextextended(str(cv.user_id), 0)))
-        )
+        llm_config = await get_llm_config(session)
+
+        # Which variants should exist after this run.
+        wanted: list[CVVariant] = [CVVariant.rule]
+        if _llm_variant_wanted(llm_config):
+            wanted.append(CVVariant.llm)
+
+        existing: dict[CVVariant, GeneratedCV] = {}
+        for variant in wanted:
+            found = await _find_generated(session, cv, job, variant)
+            if found is not None:
+                existing[variant] = found
 
         # Idempotency: re-tailoring the same job against the same source CV
-        # version reuses the existing artifact instead of minting a new one.
-        existing = await _find_generated(session, cv, job)
-        if existing is not None:
-            await _link_application(session, application_id, cv, job, existing.master_cv_id)
-            await session.commit()  # releases the advisory lock
-            logger.info(
-                "cv_tailored_reused",
-                job_id=job_id,
-                generated_cv_id=str(existing.id),
-            )
+        # version reuses the artifacts instead of minting new ones.
+        if len(existing) == len(wanted):
+            rule = existing[CVVariant.rule]
+            await _link_application(session, application_id, cv, job, rule.id)
+            await session.commit()
+            logger.info("cv_tailored_reused", job_id=job_id, generated_cv_id=str(rule.id))
             return {
-                "generated_cv_id": str(existing.id),
-                "master_cv_id": str(existing.master_cv_id),
+                "generated_cv_id": str(rule.id),
+                "variant": rule.variant.value,
+                "generated_cv_ids": {
+                    variant.value: str(row.id) for variant, row in existing.items()
+                },
+                "llm_generated_cv_id": (
+                    str(existing[CVVariant.llm].id) if CVVariant.llm in existing else None
+                ),
                 "relevance": None,
                 "matched_skills": [],
                 "missing_skills": [],
+                "used_fallback": False,
                 "already_exists": True,
             }
 
-        # Rule-based tailoring (sync).
+        # Deterministic variant (always produced).
         tailored = tailor_cv(cv.structured_json, jd_skills, annotations=cv.annotations)
+        products: dict[CVVariant, GeneratedCV] = dict(existing)
+        if CVVariant.rule not in products:
+            products[CVVariant.rule] = await _store_variant(
+                session,
+                cv=cv,
+                job=job,
+                user=user,
+                variant=CVVariant.rule,
+                structure=tailored.as_structure(),
+                jd_skills=jd_skills,
+                jd_keywords=jd_keywords,
+                jd_text=jd_text,
+            )
 
-        # Optional LLM rephrasing of selected bullet points (DB config, env fallback).
-        llm_config = await get_llm_config(session)
-        if tailored.experience and llm_config.enabled and llm_config.api_key:
-            for block in tailored.experience:
-                if block.get("bullets"):
-                    block["bullets"] = await enhance_with_llm(
-                        block["bullets"], jd_skills, config=llm_config
-                    )
+        # Optional full-LLM variant, kept alongside the deterministic one. A
+        # failure here degrades gracefully — the rule artifact still ships.
+        if CVVariant.llm in wanted and CVVariant.llm not in products:
+            rewritten = await generate_tailored_cv_with_llm(
+                cv.structured_json,
+                jd_text=jd_text,
+                jd_title=job.title,
+                jd_skills=jd_skills,
+                config=llm_config,
+            )
+            if rewritten is not None:
+                structure, self_score = rewritten
+                products[CVVariant.llm] = await _store_variant(
+                    session,
+                    cv=cv,
+                    job=job,
+                    user=user,
+                    variant=CVVariant.llm,
+                    structure=structure,
+                    jd_skills=jd_skills,
+                    jd_keywords=jd_keywords,
+                    jd_text=jd_text,
+                    llm_self_score=self_score,
+                )
 
-        # New CV version (not auto-promoted; the user reviews before saving).
-        # `next_version` is computed under the advisory lock acquired above.
-        result = await session.execute(
-            select(func.max(MasterCV.version)).where(MasterCV.user_id == cv.user_id)
-        )
-        next_version = (result.scalar() or 0) + 1
-        new_cv = MasterCV(
-            user_id=cv.user_id,
-            label=f"Tailored for {job.title} at {job.company}",
-            version=next_version,
-            is_current=False,
-            structured_json={
-                "full_name": tailored.full_name,
-                "email": tailored.email,
-                "phone": tailored.phone,
-                "location": tailored.location,
-                "links": tailored.links,
-                "summary": tailored.summary,
-                "experience": tailored.experience,
-                "education": tailored.education,
-                "skills": tailored.skills,
-                "projects": tailored.projects,
-                "certifications": tailored.certifications,
-                "languages": tailored.languages,
-            },
-        )
-        session.add(new_cv)
-        await session.commit()
-        await session.refresh(new_cv)
-
-        # Render PDF and persist the generated artifact.
-        pdf_bytes = generate_pdf(tailored, name=_pdf_name(user), email=user.email if user else "")
-        generated = GeneratedCV(
-            user_id=cv.user_id,
-            master_cv_id=new_cv.id,
-            source_master_cv_id=cv.id,
-            job_id=job.id,
-            pdf=pdf_bytes,
-        )
-        session.add(generated)
-        await session.commit()
-        await session.refresh(generated)
-
-        # Point the application (if any) at the tailored version it just got.
-        await _link_application(session, application_id, cv, job, new_cv.id)
+        # Auto-link the deterministic variant only; the LLM variant is linked when
+        # the user explicitly picks it (ADR 016).
+        rule = products[CVVariant.rule]
+        await _link_application(session, application_id, cv, job, rule.id)
         await session.commit()
 
         logger.info(
             "cv_tailored",
             job_id=job_id,
-            master_cv_id=str(new_cv.id),
+            generated_cv_id=str(rule.id),
+            variants=sorted(variant.value for variant in products),
             matched=len(tailored.matched_skills),
             relevance=tailored.relevance,
         )
         return {
-            "generated_cv_id": str(generated.id),
-            "master_cv_id": str(new_cv.id),
+            "generated_cv_id": str(rule.id),
+            "variant": CVVariant.rule.value,
+            "generated_cv_ids": {
+                variant.value: str(row.id) for variant, row in products.items()
+            },
+            "llm_generated_cv_id": (
+                str(products[CVVariant.llm].id) if CVVariant.llm in products else None
+            ),
             "relevance": round(tailored.relevance, 3),
             "matched_skills": tailored.matched_skills,
             "missing_skills": tailored.missing_skills,
+            "used_fallback": tailored.used_fallback,
+            "already_exists": False,
         }
 
 

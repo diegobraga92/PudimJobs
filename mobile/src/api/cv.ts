@@ -20,10 +20,28 @@ export async function deleteCvVersion(id: string): Promise<void> {
   await apiClient.delete(`/api/cv/${id}`);
 }
 
+/**
+ * Edits a tailored CV in place. The artifact owns its content (ADR 016), so
+ * this re-renders its PDF and clears the stale ATS cache; the master CV is
+ * never touched.
+ */
+export async function updateGeneratedCv(id: string, structure: CVStructure): Promise<GeneratedCV> {
+  const { data } = await apiClient.put<GeneratedCV>(`/api/cv/generated/${id}`, {
+    structured_json: structure,
+  });
+  return data;
+}
+
 export async function listGeneratedCvs(jobId?: string): Promise<GeneratedCV[]> {
   const { data } = await apiClient.get<GeneratedCV[]>('/api/cv/generated', {
     params: jobId ? { job_id: jobId } : undefined,
   });
+  return data;
+}
+
+/** One tailored CV artifact, including its own content and cached ATS report. */
+export async function getGeneratedCv(id: string): Promise<GeneratedCV> {
+  const { data } = await apiClient.get<GeneratedCV>(`/api/cv/generated/${id}`);
   return data;
 }
 

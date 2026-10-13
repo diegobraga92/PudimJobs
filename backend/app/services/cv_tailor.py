@@ -1,17 +1,27 @@
-"""Rule-based CV tailoring engine.
+"""Rule-based CV tailoring engine + optional full-LLM variant.
 
 Given a job's parsed requirements and the master CV, selects the most relevant
-experience/project blocks, reorders them, and surfaces a tailored skills list.
-Optionally rephrases selected bullet points with an LLM (feature-flagged).
+experience/project blocks, reorders them, surfaces a tailored skills list and
+leads the summary with the JD-matched strengths. Two optional LLM layers exist:
+
+* ``enhance_with_llm`` rephrases individual bullets (ADR 006), and
+* ``generate_tailored_cv_with_llm`` rewrites the whole CV as a *second* artifact
+  kept alongside the deterministic one (ADR 016).
+
+Both degrade gracefully: a disabled or failing LLM never fails the run.
 """
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
 
 import httpx
+from pydantic import ValidationError
 
 from app.config import settings
+from app.schemas.master_cv import CVStructure
+from app.services.cv_schema import CV_JSON_SCHEMA, strip_code_fence
 from app.services.llm_config import LlmRuntimeConfig
 from app.services.skill_matcher import match_skills
 
@@ -53,6 +63,49 @@ class TailoredCV:
     matched_skills: list[str] = field(default_factory=list)
     missing_skills: list[str] = field(default_factory=list)
     relevance: float = 0.0
+    # True when nothing matched the JD and the top blocks were kept as a
+    # placeholder (surfaced so the UI/result can say "nothing matched" instead of
+    # silently presenting an untailored CV).
+    used_fallback: bool = False
+
+    def as_structure(self) -> dict:
+        """Serialise to the ``CVStructure`` shape used by models and the PDF."""
+        return {
+            "full_name": self.full_name,
+            "email": self.email,
+            "phone": self.phone,
+            "location": self.location,
+            "links": self.links,
+            "summary": self.summary,
+            "experience": self.experience,
+            "education": self.education,
+            "skills": self.skills,
+            "projects": self.projects,
+            "certifications": self.certifications,
+            "languages": self.languages,
+        }
+
+    @classmethod
+    def from_structure(cls, structure: dict) -> "TailoredCV":
+        """Rebuild a ``TailoredCV`` from a persisted CV structure (PDF rendering)."""
+
+        def _strings(key: str) -> list[str]:
+            return [str(value) for value in structure.get(key, []) or []]
+
+        return cls(
+            summary=str(structure.get("summary", "") or ""),
+            experience=list(structure.get("experience") or []),
+            education=list(structure.get("education") or []),
+            skills=_strings("skills"),
+            projects=list(structure.get("projects") or []),
+            full_name=str(structure.get("full_name", "") or ""),
+            email=str(structure.get("email", "") or ""),
+            phone=str(structure.get("phone", "") or ""),
+            location=str(structure.get("location", "") or ""),
+            links=_strings("links"),
+            certifications=_strings("certifications"),
+            languages=_strings("languages"),
+        )
 
 
 def _block_text(block: dict) -> str:
@@ -100,6 +153,26 @@ def _tailored_skills(cv_skills: list[str], matched: list[str]) -> list[str]:
     return list(dict.fromkeys([*matched, *remaining]))
 
 
+def _tailored_summary(base: str, matched: list[str]) -> str:
+    """Lead the summary with the JD-matched strengths (ADR 016).
+
+    Only skills already proven elsewhere in the CV are named, so nothing is
+    invented; a summary that already mentions them all is returned untouched.
+    This is what stops the deterministic variant from being a verbatim copy.
+    """
+    if not matched:
+        return base.strip()
+    missing = [skill for skill in matched if not _contains_skill(base, skill)]
+    if not missing:
+        return base.strip()
+    strengths = ", ".join(missing)
+    head = base.strip()
+    if not head:
+        return f"Core strengths: {strengths}."
+    separator = "" if head.endswith((".", "!", "?")) else "."
+    return f"{head}{separator} Core strengths: {strengths}."
+
+
 def tailor_cv(
     cv_structure: dict,
     jd_skills: list[str],
@@ -114,8 +187,14 @@ def tailor_cv(
     exp_scored = _order_blocks_with_scores(
         cv_structure.get("experience", []), jd_skills, annotations
     )
+    # `used_fallback` tracks the *experience* selection: it is True exactly when
+    # no block matched the JD and the top-N placeholder was kept. That is the
+    # case that used to be silent (e.g. the JD parsed no skills at all).
+    used_fallback = False
     if drop_irrelevant:
         matched_blocks = [entry for entry in exp_scored if entry[0] > 0]
+        if not matched_blocks and exp_scored:
+            used_fallback = True
         exp_scored = matched_blocks or exp_scored[:_FALLBACK_TOP_N]
     experience = [block for _, _, block in exp_scored]
 
@@ -131,7 +210,7 @@ def tailor_cv(
         return [str(value) for value in cv_structure.get(key, []) or []]
 
     return TailoredCV(
-        summary=cv_structure.get("summary", ""),
+        summary=_tailored_summary(str(cv_structure.get("summary", "") or ""), matching["matched"]),
         experience=experience,
         education=cv_structure.get("education", []),
         skills=_tailored_skills(cv_skills, matching["matched"]),
@@ -146,6 +225,7 @@ def tailor_cv(
         matched_skills=matching["matched"],
         missing_skills=matching["missing"],
         relevance=matching["relevance"],
+        used_fallback=used_fallback,
     )
 
 
@@ -227,3 +307,91 @@ async def enhance_with_llm(
     except Exception:
         logger.warning("LLM enhancement failed; using original bullets", exc_info=True)
         return bullets
+
+
+def _coerce_self_score(value: object) -> int | None:
+    """Clamp the LLM's self-estimate into 0..100, or ``None`` when unusable."""
+    try:
+        score = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(100, score))
+
+
+async def generate_tailored_cv_with_llm(
+    cv_structure: dict,
+    *,
+    jd_text: str,
+    jd_title: str = "",
+    jd_skills: list[str] | None = None,
+    config: LlmRuntimeConfig | None = None,
+) -> tuple[dict, int | None] | None:
+    """Rewrite the whole CV for a job via an LLM (ADR 016).
+
+    Returns ``(structure, self_estimated_score)`` where ``structure`` has been
+    validated against ``CVStructure`` — or ``None`` when the LLM is disabled,
+    errors, or returns something unparseable/invalid. Callers therefore keep the
+    deterministic variant and never fail the run.
+
+    This is the one place a model is asked to *produce* CV content rather than
+    rephrase a bullet, so the prompt forbids fabrication and the reply is
+    schema-validated before it is trusted.
+    """
+    if config is None:
+        config = LlmRuntimeConfig(
+            enabled=settings.tailoring_llm_enabled,
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            model=settings.openai_model,
+        )
+    if not config.enabled or not config.api_key:
+        return None
+
+    budget = max(1_000, settings.tailor_llm_max_chars)
+    half = budget // 2
+    system = (
+        "You are an expert resume writer. Rewrite the candidate's CV so it is "
+        "maximally relevant to the target job. Keep every fact — employers, "
+        "titles, dates, degrees, skills and languages — exactly as given: NEVER "
+        "invent experience, employers, dates, numbers or skills. You may reorder "
+        "sections, tighten wording and lead with the job's language, but the "
+        "candidate's history must stay truthful. Return ONLY a JSON object of the "
+        'shape {"cv": ' + CV_JSON_SCHEMA + ', "ats_self_score": 0} where '
+        "ats_self_score is your own integer 0-100 estimate of how well the "
+        "rewritten CV matches the job."
+    )
+    user = (
+        f"Target job title: {jd_title or '(unspecified)'}\n"
+        f"Required skills: {', '.join(jd_skills or []) or '(none parsed)'}\n\n"
+        f"Job description:\n{jd_text[:half]}\n\n"
+        f"Current CV (JSON):\n{json.dumps(cv_structure)[:half]}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{config.base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {config.api_key}"},
+                json={
+                    "model": config.model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 4000,
+                },
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+        payload = json.loads(strip_code_fence(content))
+    except Exception:
+        logger.warning("LLM CV rewrite failed; keeping the deterministic variant", exc_info=True)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        structure = CVStructure.model_validate(payload.get("cv"))
+    except ValidationError:
+        logger.warning("LLM CV rewrite returned an invalid structure; ignoring", exc_info=True)
+        return None
+    return structure.model_dump(), _coerce_self_score(payload.get("ats_self_score"))

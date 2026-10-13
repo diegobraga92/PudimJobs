@@ -1,9 +1,9 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
-import { CVStructure, GeneratedCV, MasterCV } from '../../services/cv.service';
+import { CVStructure, MasterCV } from '../../services/cv.service';
 import { I18nService } from '../../services/i18n.service';
 import { CvEditorComponent } from './cv-editor.component';
 
@@ -40,21 +40,7 @@ const MASTER_CV: MasterCV = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
-function tailoredCv(): GeneratedCV {
-  return {
-    id: 'gen-1',
-    master_cv_id: 'cv-1',
-    job_id: 'job-1',
-    job_title: 'Backend Engineer',
-    job_company: 'Acme',
-    created_at: '2026-02-01T00:00:00Z',
-    structured_json: { ...STRUCTURED, summary: 'Tailored summary', skills: ['python'] },
-    ats_score: 61,
-    ats_report: null,
-  };
-}
-
-async function setup(generatedId?: string): Promise<{
+async function setup(): Promise<{
   fixture: ComponentFixture<CvEditorComponent>;
   component: CvEditorComponent;
   http: HttpTestingController;
@@ -63,11 +49,6 @@ async function setup(generatedId?: string): Promise<{
     imports: [CvEditorComponent],
     providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
   });
-  if (generatedId) {
-    builder.overrideProvider(ActivatedRoute, {
-      useValue: { snapshot: { queryParamMap: convertToParamMap({ generated: generatedId }) } },
-    });
-  }
   await builder.compileComponents();
 
   const fixture = TestBed.createComponent(CvEditorComponent);
@@ -141,40 +122,25 @@ describe('CvEditorComponent', () => {
   });
 });
 
-describe('CvEditorComponent (tailored deep link)', () => {
+describe('CvEditorComponent (master CV only)', () => {
   let component: CvEditorComponent;
   let http: HttpTestingController;
 
   beforeEach(async () => {
-    ({ component, http } = await setup('gen-1'));
+    ({ component, http } = await setup());
   });
 
   afterEach(() => http.verify());
 
-  it('loads the tailored CV named in ?generated=', () => {
+  it('never loads a tailored CV, even when ?generated= is present', () => {
+    // ADR 016: tailoring is separated from the master document, so no code path
+    // here touches `/api/cv/generated`.
     http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
     http.expectOne('/api/cv').flush([MASTER_CV]);
-    http.expectOne('/api/cv/generated/gen-1').flush(tailoredCv());
-
-    expect(component.cvForm.value.summary).toBe('Tailored summary');
-    expect(component.cvForm.value.skillsText).toBe('python');
-    expect(component.mode).toBe('edit');
-    expect(component.message).toBe(
-      component.i18n.t('cv.editingTailored', { job: 'Backend Engineer' })
-    );
-  });
-
-  it('falls back to the current master CV when the tailored one is gone', () => {
-    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
-    http.expectOne('/api/cv').flush([MASTER_CV]);
-    http
-      .expectOne('/api/cv/generated/gen-1')
-      .flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
-    // The second /api/cv load brings the master document back into the editor.
-    http.expectOne('/api/cv').flush([MASTER_CV]);
+    http.expectNone('/api/cv/generated');
 
     expect(component.cvForm.value.summary).toBe(STRUCTURED.summary);
-    expect(component.error).toBe(component.i18n.t('errors.failedLoadCV'));
+    expect(component.mode).toBe('edit');
   });
 });
 

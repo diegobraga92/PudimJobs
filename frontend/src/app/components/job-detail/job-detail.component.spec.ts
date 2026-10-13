@@ -28,7 +28,7 @@ const APPLICATION: Application = {
   applied_date: '2026-02-02',
   notes: null,
   lessons_learned: null,
-  cv_version: null,
+  generated_cv_id: null,
   created_at: '2026-02-01T00:00:00Z',
   updated_at: '2026-02-02T00:00:00Z',
   job_title: 'Backend Engineer',

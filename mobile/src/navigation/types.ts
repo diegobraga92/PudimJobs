@@ -12,6 +12,8 @@ export type JobsStackParamList = {
 export type ApplicationsStackParamList = {
   ApplicationList: undefined;
   ApplicationDetail: { id: string };
+  /** Editor for one tailored CV artifact (never the master CV — ADR 016). */
+  TailoredCvEditor: { id: string };
 };
 
 export type AppDrawerParamList = {

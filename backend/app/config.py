@@ -21,11 +21,17 @@ class Settings(BaseSettings):
 
     # CV tailoring / optional LLM enhancement
     tailoring_llm_enabled: bool = False
+    # Produce a second, full-LLM-rewritten tailored CV alongside the
+    # deterministic one (ADR 016). Still requires an enabled LLM + API key, and
+    # never blocks the deterministic variant.
+    tailoring_llm_variant_enabled: bool = False
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
     # Max CV bullets rephrased per LLM call (ADR 006 rate limit).
     tailor_llm_max_bullets: int = 5
+    # Cap on the CV + JD payload sent to the full-rewrite LLM call (ADR 016).
+    tailor_llm_max_chars: int = 12_000
 
     # Notifications / email (Mailpit for local dev)
     smtp_host: str = "localhost"

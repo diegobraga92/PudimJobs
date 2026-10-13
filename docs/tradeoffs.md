@@ -18,7 +18,8 @@ summarises the trade-offs at a glance.
 | `NullPool` connections | database-performance.md | Pooled sessions | Correct for short-lived worker tasks; switch at >1k req/s |
 | Hybrid ATS scoring + opt-in `ats` CV template | 013 | LLM-only scoring, third-party ATS API | Deterministic zero-config baseline; LLM review blends at 30% and never blocks the score |
 | Prep tasks table + `lessons_learned` on applications | 014 | Separate retrospective entity, calendar/reminders integration | One table and one column cover the planning + learning loop; nothing to sync, nothing new to run |
-| Per-application CV workspace | 015 | Keeping the tailored CV + ATS on `/cv`, a separate `/tailored-cvs` page, a "Tailor CV" button on the job page | The CV is sent *with an application*: `cv_version` and the ATS check belong next to the job, `/cv` stays the single master document, and tailoring happens exactly once — from the workspace, so the artifact is always linked |
+| Per-application CV workspace | 015 | Keeping the tailored CV + ATS on `/cv`, a separate `/tailored-cvs` page, a "Tailor CV" button on the job page | The CV is sent *with an application*: the linked artifact and the ATS check belong next to the job, `/cv` stays the single master document, and tailoring happens exactly once — from the workspace, so the artifact is always linked |
+| Tailored CVs as first-class artifacts | 016 | Keeping tailored CVs as non-current `master_cv` versions (history leaks), rule-only output that copies the summary verbatim, an LLM-only rewrite (no deterministic baseline) | Each tailored CV carries its own `structured_json` + `variant`, the master CV is never versioned by a tailor run, both `rule` and `llm` variants are scored by the same deterministic scorer for comparison, and the artifact is edited where it lives |
 
 ## Related operational docs
 

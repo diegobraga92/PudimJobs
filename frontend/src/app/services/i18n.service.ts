@@ -347,11 +347,6 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'cv.template.ats': { en: 'ATS-safe', 'pt-BR': 'Compatível com ATS' },
   'cv.exporting': { en: 'Exporting…', 'pt-BR': 'Exportando…' },
   'cv.pdfExported': { en: 'PDF exported.', 'pt-BR': 'PDF exportado.' },
-  'cv.editingTailored': {
-    en: 'Loaded the tailored CV for {job} — edit it, then save as a new master version or export a PDF.',
-    'pt-BR': '{job} carregado a partir do CV personalizado — edite e depois salve como nova versão principal ou exporte um PDF.',
-  },
-  'cv.editingTailoredToast': { en: 'Tailored CV loaded for editing.', 'pt-BR': 'CV personalizado carregado para edição.' },
   'cv.deleteVersion': { en: 'Delete version', 'pt-BR': 'Excluir versão' },
   'cv.deleteVersionTitle': { en: 'Delete this CV version?', 'pt-BR': 'Excluir esta versão do CV?' },
   'cv.deleteVersionMessage': {
@@ -388,7 +383,30 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   },
   'cv.panel.versions': { en: 'Tailored versions', 'pt-BR': 'Versões personalizadas' },
   'cv.panel.linked': { en: 'sent', 'pt-BR': 'enviado' },
-  'cv.panel.editInEditor': { en: 'Edit in CV editor', 'pt-BR': 'Editar no editor de CV' },
+  'cv.panel.edit': { en: 'Edit', 'pt-BR': 'Editar' },
+  'cv.panel.editHint': {
+    en: 'Edits apply to this tailored CV only — your master CV is untouched.',
+    'pt-BR':
+      'As edições se aplicam apenas a este CV personalizado — seu CV principal não é alterado.',
+  },
+  'cv.panel.editSummary': { en: 'Summary', 'pt-BR': 'Resumo' },
+  'cv.panel.editSkills': {
+    en: 'Skills (comma-separated)',
+    'pt-BR': 'Habilidades (separadas por vírgula)',
+  },
+  'cv.panel.editSave': { en: 'Save tailored CV', 'pt-BR': 'Salvar CV personalizado' },
+  'cv.panel.editSaved': { en: 'Tailored CV updated.', 'pt-BR': 'CV personalizado atualizado.' },
+  'cv.panel.useThisOne': { en: 'Use this one', 'pt-BR': 'Usar este' },
+  'cv.panel.sentRecorded': {
+    en: 'Marked as the CV you sent.',
+    'pt-BR': 'Marcado como o CV enviado.',
+  },
+  'cv.panel.llmSelfScore': {
+    en: "The AI's own estimate: {score}/100.",
+    'pt-BR': 'Estimativa da própria IA: {score}/100.',
+  },
+  'cv.variant.rule': { en: 'Deterministic', 'pt-BR': 'Determinística' },
+  'cv.variant.llm': { en: 'AI rewrite', 'pt-BR': 'Reescrita por IA' },
   'cv.panel.noContent': {
     en: 'This version has no stored content to preview.',
     'pt-BR': 'Esta versão não tem conteúdo salvo para pré-visualizar.',

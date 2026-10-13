@@ -10,6 +10,7 @@ from app.models.application import Application
 from app.models.audit_log import AuditLog
 from app.models.enums import (
     ApplicationStatus,
+    CVVariant,
     PrepCategory,
     PrepStatus,
     SourceHealth,
@@ -33,6 +34,7 @@ __all__ = [
     "ApplicationStatus",
     "AuditLog",
     "Base",
+    "CVVariant",
     "GeneratedCV",
     "Job",
     "LLMConfig",

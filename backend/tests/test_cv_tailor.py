@@ -1,6 +1,14 @@
 """Tests for the rule-based CV tailoring engine."""
 
-from app.services.cv_tailor import enhance_with_llm, tailor_cv
+import json
+
+from app.services.cv_tailor import (
+    TailoredCV,
+    _coerce_self_score,
+    enhance_with_llm,
+    generate_tailored_cv_with_llm,
+    tailor_cv,
+)
 from app.services.llm_config import LlmRuntimeConfig
 
 CV = {
@@ -77,6 +85,136 @@ def test_tailor_uses_annotations_to_score():
     annotations = {"experience": [["python"], ["java"]]}
     tailored = tailor_cv(CV, ["java", "spring"], annotations=annotations)
     assert tailored.experience[0]["title"] == "Java Developer"
+
+
+def test_tailor_summary_leads_with_matched_strengths():
+    """The deterministic variant is no longer a verbatim copy (ADR 016)."""
+    tailored = tailor_cv(CV, ["python", "fastapi"])
+    assert tailored.summary.startswith("Backend engineer.")
+    assert "Core strengths" in tailored.summary
+    assert "python" in tailored.summary
+
+
+def test_tailor_summary_untouched_when_it_already_mentions_the_skills():
+    cv = {**CV, "summary": "Python and FastAPI engineer."}
+    tailored = tailor_cv(cv, ["python", "fastapi"])
+    assert tailored.summary == "Python and FastAPI engineer."
+
+
+def test_tailor_summary_untouched_without_matches():
+    tailored = tailor_cv(CV, ["rust"])
+    assert tailored.summary == "Backend engineer"
+
+
+def test_tailor_flags_the_no_match_fallback():
+    """A silent fallback was a bug: it is now explicit on the result."""
+    assert tailor_cv(CV, ["rust"], drop_irrelevant=True).used_fallback is True
+    assert tailor_cv(CV, ["python"], drop_irrelevant=True).used_fallback is False
+
+
+def test_tailored_cv_round_trips_through_a_structure():
+    tailored = tailor_cv(CV, ["python", "fastapi"])
+    structure = tailored.as_structure()
+    assert set(structure) == {
+        "full_name",
+        "email",
+        "phone",
+        "location",
+        "links",
+        "summary",
+        "experience",
+        "education",
+        "skills",
+        "projects",
+        "certifications",
+        "languages",
+    }
+    restored = TailoredCV.from_structure(structure)
+    assert restored.summary == tailored.summary
+    assert restored.experience == tailored.experience
+    assert restored.skills == tailored.skills
+    assert restored.projects == tailored.projects
+
+
+def test_coerce_self_score_clamps_and_tolerates_junk():
+    assert _coerce_self_score(150) == 100
+    assert _coerce_self_score(-5) == 0
+    assert _coerce_self_score("82") == 82
+    assert _coerce_self_score(None) is None
+    assert _coerce_self_score("not-a-number") is None
+
+
+def _enabled_llm_config() -> LlmRuntimeConfig:
+    return LlmRuntimeConfig(
+        enabled=True, api_key="sk-x", base_url="https://api.openai.com/v1", model="gpt-4o-mini"
+    )
+
+
+async def test_generate_tailored_cv_with_llm_disabled_returns_none():
+    config = LlmRuntimeConfig(enabled=False, api_key="sk-x", base_url="", model="")
+    assert await generate_tailored_cv_with_llm(CV, jd_text="Rust role", config=config) is None
+
+
+async def test_generate_tailored_cv_with_llm_missing_key_returns_none():
+    config = LlmRuntimeConfig(enabled=True, api_key="", base_url="url", model="m")
+    assert await generate_tailored_cv_with_llm(CV, jd_text="Rust role", config=config) is None
+
+
+async def test_generate_tailored_cv_with_llm_validates_the_reply(monkeypatch):
+    from app.services import cv_tailor
+
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": {**CV, "summary": "Rewritten"}, "ats_self_score": 77})
+    monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    result = await generate_tailored_cv_with_llm(
+        CV,
+        jd_text="Python role",
+        jd_title="Backend",
+        jd_skills=["python"],
+        config=_enabled_llm_config(),
+    )
+
+    assert result is not None
+    structure, self_score = result
+    assert structure["summary"] == "Rewritten"
+    assert structure["skills"] == CV["skills"]
+    assert self_score == 77
+
+
+async def test_generate_tailored_cv_with_llm_rejects_an_invalid_structure(monkeypatch):
+    from app.services import cv_tailor
+
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": {"experience": "not-a-list"}, "ats_self_score": 90})
+    monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    assert (
+        await generate_tailored_cv_with_llm(CV, jd_text="x", config=_enabled_llm_config()) is None
+    )
+
+
+async def test_generate_tailored_cv_with_llm_degrades_on_failure(monkeypatch):
+    from app.services import cv_tailor
+
+    class _BoomClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, *args, **kwargs):
+            raise RuntimeError("llm down")
+
+    monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: _BoomClient())
+
+    assert (
+        await generate_tailored_cv_with_llm(CV, jd_text="x", config=_enabled_llm_config()) is None
+    )
 
 
 async def test_enhance_with_llm_disabled_returns_bullets_unchanged():

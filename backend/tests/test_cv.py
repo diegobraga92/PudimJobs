@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
 from app.models.generated_cv import GeneratedCV
+from tests.helpers import create_user
 
 CV_PAYLOAD = {
     "summary": "Backend engineer",
@@ -164,6 +165,71 @@ async def test_list_generated_filters_by_job(auth_client, db_session):
 
     unfiltered = await client.get("/api/cv/generated")
     assert len(unfiltered.json()) == 2
+    assert {row["variant"] for row in unfiltered.json()} == {"rule"}
 
     scoped = await client.get("/api/cv/generated", params={"job_id": job_a["id"]})
     assert [row["job_id"] for row in scoped.json()] == [job_a["id"]]
+
+
+async def test_update_generated_cv_edits_in_place(auth_client, db_session):
+    """Editing a tailored CV re-renders its PDF and clears the stale ATS cache."""
+    client, user, _ = auth_client
+    job = (await client.post("/api/jobs", json={"title": "Engineer", "company": "Acme"})).json()
+    generated = GeneratedCV(
+        user_id=user.id,
+        job_id=uuid.UUID(job["id"]),
+        pdf=b"%PDF-1.4 old",
+        structured_json={"summary": "old"},
+        ats_score=42,
+        ats_report={"score": 42},
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.put(
+        f"/api/cv/generated/{generated.id}",
+        json={"structured_json": {**CV_PAYLOAD, "summary": "Rewritten summary"}},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["structured_json"]["summary"] == "Rewritten summary"
+    assert body["variant"] == "rule"
+    assert body["ats_score"] is None
+    assert body["ats_report"] is None
+    assert body["job_title"] == "Engineer"
+
+    await db_session.refresh(generated)
+    assert generated.pdf[:4] == b"%PDF"
+
+    entries = (
+        (await db_session.execute(select(AuditLog).where(AuditLog.entity_type == "generated_cv")))
+        .scalars()
+        .all()
+    )
+    assert [entry.action for entry in entries] == ["updated"]
+
+
+async def test_update_generated_cv_rejects_another_users_cv(auth_client, db_session):
+    client, _, _ = auth_client
+    other = await create_user(db_session, email="generated-owner@example.com")
+    generated = GeneratedCV(user_id=other.id, pdf=b"%PDF-1.4 stub")
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.put(
+        f"/api/cv/generated/{generated.id}", json={"structured_json": CV_PAYLOAD}
+    )
+
+    assert response.status_code == 404
+
+
+async def test_update_generated_cv_unknown_404(auth_client):
+    client, _, _ = auth_client
+    response = await client.put(
+        "/api/cv/generated/00000000-0000-0000-0000-000000000000",
+        json={"structured_json": CV_PAYLOAD},
+    )
+    assert response.status_code == 404

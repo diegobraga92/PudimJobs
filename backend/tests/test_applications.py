@@ -1,8 +1,12 @@
 """Tests for the applications pipeline API."""
 
+import uuid
+
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
+from app.models.generated_cv import GeneratedCV
+from tests.helpers import create_user
 
 
 async def _create_job(client) -> dict:
@@ -149,21 +153,52 @@ async def test_get_application_detail_includes_job_description(auth_client):
     assert body["job_title"] == "Data Engineer"
     assert body["job_company"] == "Acme"
     assert body["job_description"] == "ETL pipelines"
-    assert body["cv_version"] is None
+    assert body["generated_cv_id"] is None
 
 
-async def test_get_application_detail_returns_cv_version(auth_client):
-    """A linked CV version is surfaced on the detail payload."""
-    client, _, _ = auth_client
+async def test_get_application_detail_returns_generated_cv_id(auth_client, db_session):
+    """A linked tailored artifact is surfaced on the detail payload."""
+    client, user, _ = auth_client
     job = await _create_job(client)
-    cv = (await client.post("/api/cv", json={"structured_json": {"summary": "x"}})).json()
+    generated = GeneratedCV(
+        user_id=user.id,
+        job_id=uuid.UUID(job["id"]),
+        pdf=b"%PDF-1.4 stub",
+        structured_json={"summary": "x"},
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
     application_id = (
-        await client.post("/api/applications", json={"job_id": job["id"], "cv_version": cv["id"]})
+        await client.post(
+            "/api/applications",
+            json={"job_id": job["id"], "generated_cv_id": str(generated.id)},
+        )
     ).json()["id"]
 
     body = (await client.get(f"/api/applications/{application_id}")).json()
 
-    assert body["cv_version"] == cv["id"]
+    assert body["generated_cv_id"] == str(generated.id)
+
+
+async def test_application_cannot_link_another_users_generated_cv(auth_client, db_session):
+    """Ownership of the linked tailored CV is enforced (ADR 016)."""
+    client, _, _ = auth_client
+    job = await _create_job(client)
+    other = await create_user(db_session, email="generated-owner@example.com")
+    foreign = GeneratedCV(user_id=other.id, pdf=b"%PDF-1.4 stub")
+    db_session.add(foreign)
+    await db_session.commit()
+    await db_session.refresh(foreign)
+
+    response = await client.post(
+        "/api/applications",
+        json={"job_id": job["id"], "generated_cv_id": str(foreign.id)},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Generated CV not found"
 
 
 async def test_get_application_detail_unknown_404(auth_client):

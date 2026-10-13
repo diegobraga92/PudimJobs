@@ -5,9 +5,11 @@ import {
   createCv,
   deleteCvVersion,
   deleteGeneratedCv,
+  getGeneratedCv,
   listCvs,
   listGeneratedCvs,
   updateCv,
+  updateGeneratedCv,
 } from '@/api/cv';
 import { AtsScoreInput, CVInput, CVStructure } from '@/types';
 
@@ -22,6 +24,15 @@ export function useGeneratedCvs(jobId?: string) {
   return useQuery({
     queryKey: ['cv', 'generated', jobId ?? 'all'],
     queryFn: () => listGeneratedCvs(jobId),
+  });
+}
+
+/** One tailored CV artifact (drives the artifact's own editor — ADR 016). */
+export function useGeneratedCv(id: string) {
+  return useQuery({
+    queryKey: ['cv', 'generated', 'detail', id],
+    queryFn: () => getGeneratedCv(id),
+    enabled: !!id,
   });
 }
 
@@ -64,6 +75,15 @@ export function useDeleteGeneratedCv() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteGeneratedCv(id),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['cv', 'generated'] }),
+  });
+}
+
+/** Edits a tailored CV in place (never the master CV — ADR 016). */
+export function useUpdateGeneratedCv(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (structure: CVStructure) => updateGeneratedCv(id, structure),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['cv', 'generated'] }),
   });
 }

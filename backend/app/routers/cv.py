@@ -24,7 +24,7 @@ from app.models.master_cv import MasterCV
 from app.models.user import User
 from app.ratelimit import auth_key, limiter
 from app.schemas.ats import AtsScoreRequest, AtsScoreResponse
-from app.schemas.generated_cv import GeneratedCVResponse
+from app.schemas.generated_cv import GeneratedCVResponse, GeneratedCVUpdate
 from app.schemas.master_cv import (
     CVStructure,
     MasterCVCreate,
@@ -59,6 +59,36 @@ async def get_owned_cv(cv_id: uuid.UUID, user: User, db: AsyncSession) -> Master
     if cv is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CV version not found")
     return cv
+
+
+def _generated_response(generated: GeneratedCV, job: Job | None) -> GeneratedCVResponse:
+    """Serialise a tailored artifact with its (optional) target job (ADR 016)."""
+    return GeneratedCVResponse(
+        id=generated.id,
+        job_id=generated.job_id,
+        job_title=job.title if job else None,
+        job_company=job.company if job else None,
+        source_master_cv_id=generated.source_master_cv_id,
+        variant=generated.variant,
+        created_at=generated.created_at,
+        updated_at=generated.updated_at,
+        structured_json=generated.structured_json,
+        ats_score=generated.ats_score,
+        ats_report=generated.ats_report,
+    )
+
+
+async def get_owned_generated(
+    generated_id: uuid.UUID, user: User, db: AsyncSession
+) -> GeneratedCV:
+    """Fetch a tailored CV owned by the current user or raise 404."""
+    result = await db.execute(
+        select(GeneratedCV).where(GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id)
+    )
+    generated = result.scalar_one_or_none()
+    if generated is None:
+        raise HTTPException(status_code=404, detail="Generated CV not found")
+    return generated
 
 
 @router.get("", response_model=list[MasterCVResponse])
@@ -172,29 +202,15 @@ async def list_generated(
     on the per-application workspace.
     """
     stmt = (
-        select(GeneratedCV, Job, MasterCV)
+        select(GeneratedCV, Job)
         .outerjoin(Job, GeneratedCV.job_id == Job.id)
-        .outerjoin(MasterCV, GeneratedCV.master_cv_id == MasterCV.id)
         .where(GeneratedCV.user_id == user.id)
     )
     if job_id is not None:
         stmt = stmt.where(GeneratedCV.job_id == job_id)
-    result = await db.execute(stmt.order_by(GeneratedCV.created_at.desc()))
-    rows = result.all()
-    return [
-        GeneratedCVResponse(
-            id=generated.id,
-            master_cv_id=generated.master_cv_id,
-            job_id=generated.job_id,
-            job_title=job.title if job else None,
-            job_company=job.company if job else None,
-            created_at=generated.created_at,
-            structured_json=master.structured_json if master else None,
-            ats_score=generated.ats_score,
-            ats_report=generated.ats_report,
-        )
-        for generated, job, master in rows
-    ]
+    stmt = stmt.order_by(GeneratedCV.created_at.desc())
+    rows = (await db.execute(stmt)).all()
+    return [_generated_response(generated, job) for generated, job in rows]
 
 
 @router.get("/generated/{generated_id}", response_model=GeneratedCVResponse)
@@ -205,26 +221,55 @@ async def get_generated_cv(
 ):
     """Fetch one generated CV, including the structured content it was built from."""
     result = await db.execute(
-        select(GeneratedCV, Job, MasterCV)
+        select(GeneratedCV, Job)
         .outerjoin(Job, GeneratedCV.job_id == Job.id)
-        .outerjoin(MasterCV, GeneratedCV.master_cv_id == MasterCV.id)
         .where(GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id)
     )
     row = result.first()
     if row is None:
         raise HTTPException(status_code=404, detail="Generated CV not found")
-    generated, job, master = row
-    return GeneratedCVResponse(
-        id=generated.id,
-        master_cv_id=generated.master_cv_id,
-        job_id=generated.job_id,
-        job_title=job.title if job else None,
-        job_company=job.company if job else None,
-        created_at=generated.created_at,
-        structured_json=master.structured_json if master else None,
-        ats_score=generated.ats_score,
-        ats_report=generated.ats_report,
+    generated, job = row
+    return _generated_response(generated, job)
+
+
+@router.put("/generated/{generated_id}", response_model=GeneratedCVResponse)
+async def update_generated_cv(
+    generated_id: uuid.UUID,
+    payload: GeneratedCVUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Edit a tailored CV in place.
+
+    The artifact owns its content (ADR 016), so an edit re-renders the stored PDF
+    and drops the now-stale ATS cache; the master CV is untouched. The name/email
+    fallbacks used when rendering come from the account.
+    """
+    generated = await get_owned_generated(generated_id, user, db)
+    structure = payload.structured_json.model_dump()
+
+    generated.structured_json = structure
+    generated.pdf = generate_pdf(
+        TailoredCV.from_structure(structure), name=_pdf_name(user.email), email=user.email
     )
+    # The cached score tested the *old* content — never serve it for the new one.
+    generated.ats_score = None
+    generated.ats_report = None
+    await db.commit()
+    await db.refresh(generated)
+
+    await log_audit(
+        db,
+        user_id=user.id,
+        action="updated",
+        entity_type="generated_cv",
+        entity_id=generated.id,
+        changes={"structured_json": "edited"},
+    )
+    await db.commit()
+
+    job = await db.get(Job, generated.job_id) if generated.job_id else None
+    return _generated_response(generated, job)
 
 
 @router.get("/generated/{generated_id}/pdf")
@@ -437,6 +482,10 @@ async def score_cv_ats(
     if payload.generated_cv_id is not None:
         generated = await db.get(GeneratedCV, payload.generated_cv_id)
         if generated is not None and generated.user_id == user.id:
+            # Re-scoring must not lose the LLM variant's own estimate (ADR 016).
+            previous = (generated.ats_report or {}).get("llm_self_score")
+            if previous is not None:
+                report["llm_self_score"] = previous
             generated.ats_score = report["score"]
             generated.ats_report = report
             await log_audit(

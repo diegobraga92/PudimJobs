@@ -30,6 +30,11 @@ describe('i18n dictionary', () => {
       'applications.workspace',
       'cv.panel.title',
       'cv.ats.check',
+      'cv.panel.useThisOne',
+      'cv.panel.editSave',
+      'cv.panel.llmSelfScore',
+      'cv.variant.rule',
+      'cv.variant.llm',
     ];
     for (const key of required) {
       expect(DICTIONARY[key]).toBeDefined();

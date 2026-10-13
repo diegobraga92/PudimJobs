@@ -12,7 +12,7 @@ class ApplicationCreate(BaseModel):
     applied_date: date | None = None
     notes: str | None = None
     lessons_learned: str | None = None
-    cv_version: uuid.UUID | None = None
+    generated_cv_id: uuid.UUID | None = None
 
 
 class ApplicationUpdate(BaseModel):
@@ -20,7 +20,7 @@ class ApplicationUpdate(BaseModel):
     applied_date: date | None = None
     notes: str | None = None
     lessons_learned: str | None = None
-    cv_version: uuid.UUID | None = None
+    generated_cv_id: uuid.UUID | None = None
 
 
 class ApplicationResponse(BaseModel):
@@ -30,7 +30,7 @@ class ApplicationResponse(BaseModel):
     applied_date: date | None
     notes: str | None
     lessons_learned: str | None
-    cv_version: uuid.UUID | None
+    generated_cv_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
     job_title: str

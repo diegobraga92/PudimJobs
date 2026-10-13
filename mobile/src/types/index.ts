@@ -94,7 +94,8 @@ export interface Application {
   applied_date: string | null;
   notes: string | null;
   lessons_learned: string | null;
-  cv_version: string | null;
+  /** The tailored CV artifact this application was sent with (ADR 016). */
+  generated_cv_id: string | null;
   created_at: string;
   updated_at: string;
   job_title: string;
@@ -113,7 +114,7 @@ export interface ApplicationInput {
   applied_date?: string | null;
   notes?: string | null;
   lessons_learned?: string | null;
-  cv_version?: string | null;
+  generated_cv_id?: string | null;
 }
 
 // ---- CV ----------------------------------------------------------------
@@ -348,14 +349,24 @@ export interface CVInput {
   label?: string;
 }
 
+/**
+ * How a tailored CV was produced (mirrors `app/models/enums.CVVariant`).
+ * `rule` is the deterministic engine (always produced); `llm` is the optional
+ * full rewrite kept alongside it.
+ */
+export type CvVariant = 'rule' | 'llm';
+
+/** A tailored CV artifact — its own document, not a master CV version. */
 export interface GeneratedCV {
   id: string;
-  master_cv_id: string | null;
   job_id: string | null;
   job_title: string | null;
   job_company: string | null;
+  source_master_cv_id: string | null;
+  variant: CvVariant;
   created_at: string;
-  /** Structured content behind the artifact (drives the preview). */
+  updated_at: string;
+  /** The artifact's own content (drives both the preview and the editor). */
   structured_json: CVStructure | null;
   ats_score: number | null;
   ats_report: AtsReport | null;
@@ -379,6 +390,8 @@ export interface AtsReport {
   recommendations: string[];
   warnings: string[];
   llm_summary: string | null;
+  /** The LLM variant's own estimate of its rewrite (ADR 016); never blended in. */
+  llm_self_score?: number | null;
 }
 
 export interface AtsScoreInput {

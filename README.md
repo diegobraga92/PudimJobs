@@ -23,7 +23,7 @@ engineering decisions behind each component.
 
 **Engineers / interviewers** — the interesting depth lives in the docs:
 - [Development plan](docs/DEV_PLAN.md) — 8 phases, every checkbox traceable to code
-- [Architecture decision records](docs/adr/) — 15 ADRs (FastAPI, data model, events, reprocessing, resilience, tailoring, alerting, data quality, search, discovery, CV import, mobile client, ATS scoring, interview prep, per-application CV workspace)
+- [Architecture decision records](docs/adr/) — 16 ADRs (FastAPI, data model, events, reprocessing, resilience, tailoring, alerting, data quality, search, discovery, CV import, mobile client, ATS scoring, interview prep, per-application CV workspace, tailored CV artifacts)
 - [Resilience](docs/stride-threat-model.md) · [runbooks](docs/runbooks/) · [postmortem](docs/postmortems/)
 - [Database performance](docs/database-performance.md) — real `EXPLAIN ANALYZE` numbers
 - [Cost & capacity](docs/cost-estimate.md) · [docs/capacity-plan.md](docs/capacity-plan.md)
@@ -73,7 +73,7 @@ PudimJobs/
 ├── api/              # Event schemas/producer + hand-written OpenAPI specs
 ├── infra/            # Terraform (RDS, ECR) + Prometheus/Grafana provisioning
 ├── scripts/          # Load test + chaos experiment scripts
-├── docs/             # DEV_PLAN, 15 ADRs, SLOs, runbooks, postmortems, tradeoffs
+├── docs/             # DEV_PLAN, 16 ADRs, SLOs, runbooks, postmortems, tradeoffs
 └── docker-compose.yml
 ```
 
@@ -299,10 +299,17 @@ retrospectives) are listed at the end of the development plan.
 - Curated skills taxonomy (`app/data/skills_taxonomy.json`) + word-boundary
   matching with a `match_skills` relevance score
 - Rule-based tailoring engine (`cv_tailor.tailor_cv`): scores/reorders/selects
-  experience & project blocks, reorders skills (matched first), optional LLM
-  rephrasing of bullets behind a feature flag (`TAILORING_LLM_ENABLED`)
-- PDF generation: Jinja2 template + weasyprint; tailored CVs stored as new
-  (non-current) `master_cv` versions + `generated_cvs` rows
+  experience & project blocks, reorders skills (matched first) and leads the
+  summary with the JD-matched strengths; reports `used_fallback` when nothing
+  matched instead of silently returning the top blocks
+- Optional **second** variant: a full LLM rewrite kept *alongside* the
+  deterministic one (`TAILORING_LLM_VARIANT_ENABLED` + a configured LLM),
+  schema-validated and degrading gracefully. Both variants are scored by the
+  deterministic ATS scorer so they can be compared (ADR 016)
+- PDF generation: Jinja2 template + weasyprint; a tailored CV is a
+  **self-contained `generated_cvs` artifact** (its own `structured_json` and
+  `variant`, `rule` or `llm`) — a tailor run never creates a `master_cv` version
+  (ADR 016)
 - CV import: `POST /api/cv/parse` uploads a PDF/DOCX/ODT and returns a
   structured `CVStructure` (rule-based parser, optional LLM upgrade — ADR 011);
   the editor is pre-filled for review before saving
@@ -317,14 +324,16 @@ retrospectives) are listed at the end of the development plan.
   (optional `application_id` links the run to an application),
   `GET /api/jobs/{id}/parsed`, `POST /api/cv/parse`, `POST /api/cv/ats-score`,
   `POST /api/cv/pdf`, `GET /api/cv/generated` (optional `?job_id=`),
-  `GET /api/cv/generated/{id}`, `GET /api/cv/generated/{id}/pdf`
+  `GET /api/cv/generated/{id}`, `PUT /api/cv/generated/{id}` (edit one artifact:
+  re-renders its PDF, clears the stale ATS cache), `GET /api/cv/generated/{id}/pdf`
 - Frontend: parsed-JD panel on the job detail page, which links to the
   **application workspace** rather than tailoring from the job page itself;
   CV editor with contact/links/certifications/languages fields,
   `PDF`/`DOCX`/`ODT` import and a Classic ⇄ ATS-safe export selector. The
-  tailored CV, its PDF download, its cached ATS badge and the "Check score"
-  action live in the application workspace (`/applications/:id`) — the master CV
-  page is master-only and the job page only triages (ADR 015)
+  tailored CVs, their PDFs, their cached ATS scores, an inline editor (summary /
+  skills / bullets) and the "Use this one" action live in the application
+  workspace (`/applications/:id`) — the master CV page is master-only, never
+  loads a tailored CV, and the job page only triages (ADR 015, ADR 016)
 
 **Matching alerts & notifications**
 - Alert rules (saved searches): keywords, companies, tags, remote-only,
@@ -343,8 +352,8 @@ retrospectives) are listed at the end of the development plan.
 - Per-application workspace (`/applications/:id`): the job it targets
   (`GET /api/applications/{id}`, returning the description), the pipeline fields
   (status, applied date, notes, retrospective), the job description and the
-  tailored-CV panel — where `Application.cv_version` records the version that
-  was sent (ADR 015)
+  tailored-CV panel — where `Application.generated_cv_id` records the artifact
+  that was sent (ADR 015, ADR 016)
 - Applications keep a per-record `lessons_learned` retrospective note
   (migration `0016`) plus a cross-application feed surfaced by
   `GET /api/applications/lessons` (only non-empty notes, newest first)
@@ -422,7 +431,7 @@ retrospectives) are listed at the end of the development plan.
 
 **Planning & decisions**
 - [Development Plan](docs/DEV_PLAN.md) — phased roadmap with completion checklists (Phases 0–8 ✅)
-- [Architecture Decision Records](docs/adr/) — **15 ADRs** (001–015)
+- [Architecture Decision Records](docs/adr/) — **16 ADRs** (001–016)
 - [Tradeoffs](docs/tradeoffs.md) — every decision at a glance, linked to ADRs
 
 **Operational**

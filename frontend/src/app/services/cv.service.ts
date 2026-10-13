@@ -52,13 +52,23 @@ export interface CVInput {
   label?: string;
 }
 
+/**
+ * How a tailored CV was produced (mirrors `app/models/enums.CVVariant`).
+ * `rule` is the deterministic engine (always produced); `llm` is the optional
+ * full rewrite kept alongside it.
+ */
+export type CvVariant = 'rule' | 'llm';
+
+/** A tailored CV artifact — its own document, not a master CV version. */
 export interface GeneratedCV {
   id: string;
-  master_cv_id: string | null;
   job_id: string | null;
   job_title: string | null;
   job_company: string | null;
+  source_master_cv_id: string | null;
+  variant: CvVariant;
   created_at: string;
+  updated_at: string;
   structured_json: CVStructure | null;
   ats_score: number | null;
   ats_report: AtsReport | null;
@@ -82,6 +92,8 @@ export interface AtsReport {
   recommendations: string[];
   warnings: string[];
   llm_summary: string | null;
+  /** The LLM variant's own estimate of its rewrite (ADR 016); never blended in. */
+  llm_self_score?: number | null;
 }
 
 export interface AtsScoreInput {
@@ -130,6 +142,17 @@ export class CvService {
 
   getGenerated(id: string): Observable<GeneratedCV> {
     return this.http.get<GeneratedCV>(`/api/cv/generated/${id}`);
+  }
+
+  /**
+   * Edit a tailored CV in place. The artifact owns its content (ADR 016), so
+   * this re-renders its PDF and clears the stale ATS cache; the master CV is
+   * never touched.
+   */
+  updateGenerated(id: string, structuredJson: CVStructure): Observable<GeneratedCV> {
+    return this.http.put<GeneratedCV>(`/api/cv/generated/${id}`, {
+      structured_json: structuredJson,
+    });
   }
 
   downloadPdf(id: string): Observable<Blob> {

@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ApplicationDetailScreen } from '@/screens/ApplicationDetailScreen';
 import { ApplicationsScreen } from '@/screens/ApplicationsScreen';
+import { TailoredCvEditorScreen } from '@/screens/TailoredCvEditorScreen';
 import { useTheme } from '@/theme/ThemeProvider';
 import { ApplicationsStackParamList } from './types';
 
@@ -28,6 +29,11 @@ export function ApplicationsStack() {
         name="ApplicationDetail"
         component={ApplicationDetailScreen}
         options={{ title: i18n.t('applications.workspace') }}
+      />
+      <Stack.Screen
+        name="TailoredCvEditor"
+        component={TailoredCvEditorScreen}
+        options={{ title: i18n.t('cv.panel.edit') }}
       />
     </Stack.Navigator>
   );

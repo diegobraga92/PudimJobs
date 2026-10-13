@@ -28,8 +28,10 @@ class Application(Base):
     # Free-form retrospective ("what went well / what to improve") captured
     # after an interview round; surfaced by GET /api/applications/lessons.
     lessons_learned: Mapped[str | None] = mapped_column(Text, nullable=True)
-    cv_version: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("master_cv.id", ondelete="SET NULL"), nullable=True
+    # The tailored artifact this application was sent with (ADR 016). Points at
+    # a ``generated_cvs`` row, so the master CV history stays clean.
+    generated_cv_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("generated_cvs.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

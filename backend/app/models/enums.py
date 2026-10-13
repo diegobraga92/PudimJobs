@@ -49,3 +49,14 @@ class PrepStatus(enum.StrEnum):
     pending = "pending"
     in_progress = "in_progress"
     done = "done"
+
+
+class CVVariant(enum.StrEnum):
+    """How a tailored CV was produced (ADR 016).
+
+    ``rule`` is the deterministic engine (always produced); ``llm`` is the
+    optional full-CV rewrite, kept as a second artifact so the user can pick.
+    """
+
+    rule = "rule"
+    llm = "llm"

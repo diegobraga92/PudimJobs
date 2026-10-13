@@ -30,6 +30,7 @@ from app.schemas.master_cv import (
     ExperienceItem,
     ProjectItem,
 )
+from app.services.cv_schema import CV_JSON_SCHEMA, strip_code_fence
 from app.services.llm_config import LlmRuntimeConfig
 
 logger = logging.getLogger(__name__)
@@ -708,26 +709,9 @@ def structure_cv(text: str) -> CVStructure:
 # --- Optional LLM structuring (graceful degradation) -----------------------
 
 
-def _strip_code_fence(content: str) -> str:
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    return stripped.strip()
-
-
 async def _llm_structured(text: str, config: LlmRuntimeConfig) -> dict | None:
     """Call an OpenAI-compatible chat API; return the parsed JSON object or None."""
-    schema = (
-        '{"full_name": "string", "email": "string", "phone": "string", '
-        '"location": "string", "links": ["string"], '
-        '"summary": "string", "experience": [{"company": "string", "title": "string", '
-        '"start_date": "YYYY-MM or null", "end_date": "YYYY-MM or null", '
-        '"bullets": ["string"]}], "education": [{"institution": "string", "degree": "string", '
-        '"year": "string or null"}], "skills": ["string"], '
-        '"projects": [{"name": "string", "description": "string or null", '
-        '"link": "string or null"}], "certifications": ["string"], "languages": ["string"]}'
-    )
+    schema = CV_JSON_SCHEMA
     system = (
         "You extract structured resume data from raw text. Return ONLY a JSON object "
         f"matching exactly this shape: {schema} "
@@ -753,7 +737,7 @@ async def _llm_structured(text: str, config: LlmRuntimeConfig) -> dict | None:
             )
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
-        parsed = json.loads(_strip_code_fence(content))
+        parsed = json.loads(strip_code_fence(content))
         return parsed if isinstance(parsed, dict) else None
     except Exception:
         logger.warning(

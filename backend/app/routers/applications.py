@@ -15,6 +15,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models.application import Application
 from app.models.enums import ApplicationStatus
+from app.models.generated_cv import GeneratedCV
 from app.models.job import Job
 from app.models.user import User
 from app.schemas.application import (
@@ -41,6 +42,21 @@ async def get_owned_application(
     return application
 
 
+async def _ensure_generated_cv_owned(
+    generated_cv_id: uuid.UUID | None, user: User, db: AsyncSession
+) -> None:
+    """Reject linking an application to another user's tailored CV (ADR 016)."""
+    if generated_cv_id is None:
+        return
+    result = await db.execute(
+        select(GeneratedCV).where(
+            GeneratedCV.id == generated_cv_id, GeneratedCV.user_id == user.id
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Generated CV not found")
+
+
 async def to_response(application: Application, job: Job) -> ApplicationResponse:
     return ApplicationResponse(**_response_fields(application, job))
 
@@ -58,7 +74,7 @@ def _response_fields(application: Application, job: Job) -> dict:
         "applied_date": application.applied_date,
         "notes": application.notes,
         "lessons_learned": application.lessons_learned,
-        "cv_version": application.cv_version,
+        "generated_cv_id": application.generated_cv_id,
         "created_at": application.created_at,
         "updated_at": application.updated_at,
         "job_title": job.title,
@@ -151,6 +167,8 @@ async def create_application(
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
+    await _ensure_generated_cv_owned(payload.generated_cv_id, user, db)
+
     application = Application(user_id=user.id, **payload.model_dump())
     db.add(application)
     await db.commit()
@@ -171,6 +189,7 @@ async def update_application(
     job = result.scalar_one()
 
     updates = payload.model_dump(exclude_unset=True)
+    await _ensure_generated_cv_owned(updates.get("generated_cv_id"), user, db)
     changes: dict = {}
     for field, value in updates.items():
         current = getattr(application, field)

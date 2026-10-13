@@ -1,10 +1,13 @@
-"""Integration test for the CV tailoring Celery task."""
+"""Integration tests for the CV tailoring Celery task (ADR 016)."""
 
 from sqlalchemy import select
-from workers.tasks.tailor import _run_tailor
 
-from app.models import Application, GeneratedCV, Job, MasterCV
+from app.config import settings
+from app.models import Application, CVVariant, GeneratedCV, Job, MasterCV
+from app.services.llm_config import LlmRuntimeConfig
 from tests.helpers import create_user
+from workers.tasks import tailor as tailor_module
+from workers.tasks.tailor import _run_tailor
 
 CV_STRUCTURE = {
     "summary": "Backend engineer",
@@ -19,110 +22,6 @@ CV_STRUCTURE = {
     "skills": ["python", "fastapi", "postgresql"],
     "projects": [{"name": "Job Tracker", "description": "FastAPI + PostgreSQL"}],
 }
-
-
-async def test_tailor_task_creates_cv_version_and_pdf(test_engine, db_session):
-    user = await create_user(db_session)
-    cv = MasterCV(
-        user_id=user.id,
-        label="CV v1",
-        version=1,
-        is_current=True,
-        structured_json=CV_STRUCTURE,
-    )
-    job = Job(
-        user_id=user.id,
-        title="Senior Backend Engineer",
-        company="Acme",
-        description=(
-            "We need a Senior Backend Engineer with Python and FastAPI experience, "
-            "building services on AWS with PostgreSQL. 5+ years required."
-        ),
-    )
-    db_session.add_all([cv, job])
-    await db_session.commit()
-    await db_session.refresh(cv)
-    await db_session.refresh(job)
-
-    result = await _run_tailor(str(job.id), str(cv.id))
-
-    assert result["generated_cv_id"]
-    assert result["matched_skills"] == ["python", "fastapi", "postgresql"]
-
-    # New CV version was created (not current) with a tailored label.
-    versions = (await db_session.execute(select(MasterCV))).scalars().all()
-    assert len(versions) == 2
-    tailored_version = next(v for v in versions if v.label.startswith("Tailored for"))
-    assert tailored_version.is_current is False
-    assert tailored_version.structured_json["experience"][0]["title"] == "Python Developer"
-
-    # The generated PDF artifact is persisted and valid.
-    generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
-    assert len(generated) == 1
-    assert generated[0].pdf[:4] == b"%PDF"
-    assert generated[0].job_id == job.id
-
-
-async def test_tailor_task_parses_jd_on_demand(test_engine, db_session):
-    user = await create_user(db_session)
-    cv = MasterCV(
-        user_id=user.id,
-        label="CV v1",
-        version=1,
-        is_current=True,
-        structured_json=CV_STRUCTURE,
-    )
-    job = Job(
-        user_id=user.id,
-        title="Backend Engineer",
-        company="Acme",
-        description="Python developer. FastAPI and Docker.",
-    )
-    db_session.add_all([cv, job])
-    await db_session.commit()
-    await db_session.refresh(cv)
-    await db_session.refresh(job)
-
-    result = await _run_tailor(str(job.id), str(cv.id))
-    assert result["generated_cv_id"]
-
-    await db_session.refresh(job)
-    assert job.parsed_jd is not None
-    assert "python" in job.parsed_jd["skills"]
-
-
-async def test_tailor_task_is_idempotent(test_engine, db_session):
-    """Re-tailoring the same job + source CV version reuses the artifact."""
-    user = await create_user(db_session)
-    cv = MasterCV(
-        user_id=user.id,
-        label="CV v1",
-        version=1,
-        is_current=True,
-        structured_json=CV_STRUCTURE,
-    )
-    job = Job(
-        user_id=user.id,
-        title="Senior Backend Engineer",
-        company="Acme",
-        description="Python and FastAPI on AWS with PostgreSQL. 5+ years required.",
-    )
-    db_session.add_all([cv, job])
-    await db_session.commit()
-    await db_session.refresh(cv)
-    await db_session.refresh(job)
-
-    first = await _run_tailor(str(job.id), str(cv.id))
-    second = await _run_tailor(str(job.id), str(cv.id))
-
-    assert second["already_exists"] is True
-    assert second["generated_cv_id"] == first["generated_cv_id"]
-
-    versions = (await db_session.execute(select(MasterCV))).scalars().all()
-    assert len(versions) == 2  # original + one tailored version
-
-    generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
-    assert len(generated) == 1
 
 
 async def _seed_cv_job(db_session, *, description: str = "Python and FastAPI on AWS."):
@@ -142,8 +41,92 @@ async def _seed_cv_job(db_session, *, description: str = "Python and FastAPI on 
     return user, cv, job
 
 
-async def test_tailor_task_links_application_cv_version(test_engine, db_session):
-    """Passing ``application_id`` records which CV version the app was sent with."""
+async def test_tailor_task_stores_a_self_contained_artifact(test_engine, db_session):
+    """The artifact owns its content; no new master-CV version is minted."""
+    _, cv, job = await _seed_cv_job(
+        db_session,
+        description="We need Python and FastAPI on AWS with PostgreSQL. 5+ years required.",
+    )
+
+    result = await _run_tailor(str(job.id), str(cv.id))
+
+    assert result["generated_cv_id"]
+    assert result["variant"] == "rule"
+    assert result["matched_skills"] == ["python", "fastapi", "postgresql"]
+    assert result["already_exists"] is False
+
+    # The master CV history stays clean: only the original version remains.
+    versions = (await db_session.execute(select(MasterCV))).scalars().all()
+    assert len(versions) == 1
+    assert versions[0].id == cv.id
+
+    generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
+    assert len(generated) == 1
+    artifact = generated[0]
+    assert artifact.variant == CVVariant.rule
+    assert artifact.job_id == job.id
+    assert artifact.source_master_cv_id == cv.id
+    assert artifact.pdf[:4] == b"%PDF"
+    assert artifact.structured_json is not None
+    assert artifact.structured_json["experience"][0]["title"] == "Python Developer"
+    # The deterministic variant is auto-scored on creation.
+    assert artifact.ats_score is not None
+    assert artifact.ats_report["score"] == artifact.ats_score
+
+
+async def test_tailor_task_strengthens_the_summary(test_engine, db_session):
+    """The deterministic variant is not a verbatim copy of the master CV."""
+    _, cv, job = await _seed_cv_job(db_session)
+
+    result = await _run_tailor(str(job.id), str(cv.id))
+
+    generated = (await db_session.execute(select(GeneratedCV))).scalars().one()
+    summary = generated.structured_json["summary"]
+    assert summary.startswith("Backend engineer.")
+    assert "Core strengths" in summary
+    assert result["used_fallback"] is False
+
+
+async def test_tailor_task_signals_a_no_match_fallback(test_engine, db_session):
+    """Nothing matching the JD must be reported, not silently presented."""
+    _, cv, job = await _seed_cv_job(db_session, description="Rust and Go systems programming.")
+
+    result = await _run_tailor(str(job.id), str(cv.id))
+
+    assert result["used_fallback"] is True
+    assert result["relevance"] == 0.0
+
+
+async def test_tailor_task_parses_jd_on_demand(test_engine, db_session):
+    _, cv, job = await _seed_cv_job(db_session, description="Python developer. FastAPI and Docker.")
+
+    result = await _run_tailor(str(job.id), str(cv.id))
+    assert result["generated_cv_id"]
+
+    await db_session.refresh(job)
+    assert job.parsed_jd is not None
+    assert "python" in job.parsed_jd["skills"]
+
+
+async def test_tailor_task_is_idempotent(test_engine, db_session):
+    """Re-tailoring the same job + source CV version reuses the artifact."""
+    _, cv, job = await _seed_cv_job(db_session)
+
+    first = await _run_tailor(str(job.id), str(cv.id))
+    second = await _run_tailor(str(job.id), str(cv.id))
+
+    assert second["already_exists"] is True
+    assert second["generated_cv_id"] == first["generated_cv_id"]
+
+    versions = (await db_session.execute(select(MasterCV))).scalars().all()
+    assert len(versions) == 1  # the master CV was never versioned
+
+    generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
+    assert len(generated) == 1
+
+
+async def test_tailor_task_links_application_to_the_rule_artifact(test_engine, db_session):
+    """Passing ``application_id`` records which artifact the app was sent with."""
     user, cv, job = await _seed_cv_job(db_session)
     application = Application(user_id=user.id, job_id=job.id)
     db_session.add(application)
@@ -153,7 +136,7 @@ async def test_tailor_task_links_application_cv_version(test_engine, db_session)
     result = await _run_tailor(str(job.id), str(cv.id), str(application.id))
 
     await db_session.refresh(application)
-    assert str(application.cv_version) == result["master_cv_id"]
+    assert str(application.generated_cv_id) == result["generated_cv_id"]
 
 
 async def test_tailor_task_links_reused_artifact(test_engine, db_session):
@@ -164,12 +147,12 @@ async def test_tailor_task_links_reused_artifact(test_engine, db_session):
     await db_session.commit()
     await db_session.refresh(application)
 
-    await _run_tailor(str(job.id), str(cv.id))
+    first = await _run_tailor(str(job.id), str(cv.id))
     result = await _run_tailor(str(job.id), str(cv.id), str(application.id))
 
     assert result["already_exists"] is True
     await db_session.refresh(application)
-    assert str(application.cv_version) == result["master_cv_id"]
+    assert str(application.generated_cv_id) == first["generated_cv_id"]
 
 
 async def test_tailor_task_ignores_application_for_other_job(test_engine, db_session):
@@ -188,4 +171,70 @@ async def test_tailor_task_ignores_application_for_other_job(test_engine, db_ses
     await _run_tailor(str(job.id), str(cv.id), str(application.id))
 
     await db_session.refresh(application)
-    assert application.cv_version is None
+    assert application.generated_cv_id is None
+
+
+async def test_tailor_task_produces_only_the_rule_variant_by_default(test_engine, db_session):
+    """The full-LLM variant is opt-in (feature flag + configured LLM)."""
+    _, cv, job = await _seed_cv_job(db_session)
+
+    result = await _run_tailor(str(job.id), str(cv.id))
+
+    assert result["llm_generated_cv_id"] is None
+    assert result["generated_cv_ids"] == {"rule": result["generated_cv_id"]}
+
+
+async def test_tailor_task_adds_the_llm_variant_when_enabled(test_engine, db_session, monkeypatch):
+    """With the flag on, a second (LLM-rewritten) artifact is kept alongside."""
+    _, cv, job = await _seed_cv_job(db_session)
+    monkeypatch.setattr(settings, "tailoring_llm_variant_enabled", True)
+
+    async def _enabled_config(_session):
+        return LlmRuntimeConfig(
+            enabled=True, api_key="sk-x", base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    async def _fake_rewrite(structure, **_kwargs):
+        return ({**structure, "summary": "Rewritten for the job"}, 88)
+
+    monkeypatch.setattr(tailor_module, "get_llm_config", _enabled_config)
+    monkeypatch.setattr(tailor_module, "generate_tailored_cv_with_llm", _fake_rewrite)
+
+    result = await _run_tailor(str(job.id), str(cv.id))
+
+    assert result["llm_generated_cv_id"] is not None
+    assert set(result["generated_cv_ids"]) == {"rule", "llm"}
+
+    generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
+    by_variant = {item.variant: item for item in generated}
+    assert set(by_variant) == {CVVariant.rule, CVVariant.llm}
+    assert by_variant[CVVariant.rule].structured_json["summary"] != "Rewritten for the job"
+    assert by_variant[CVVariant.llm].structured_json["summary"] == "Rewritten for the job"
+    # The LLM's own estimate is stored separately from the comparable score.
+    assert by_variant[CVVariant.llm].ats_report["llm_self_score"] == 88
+    assert "llm_self_score" not in (by_variant[CVVariant.rule].ats_report or {})
+
+
+async def test_tailor_task_llm_variant_can_be_skipped_after_a_failure(
+    test_engine, db_session, monkeypatch
+):
+    """A failing rewrite degrades gracefully — the rule artifact still ships."""
+    _, cv, job = await _seed_cv_job(db_session)
+    monkeypatch.setattr(settings, "tailoring_llm_variant_enabled", True)
+
+    async def _enabled_config(_session):
+        return LlmRuntimeConfig(
+            enabled=True, api_key="sk-x", base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    async def _failing_rewrite(_structure, **_kwargs):
+        return None
+
+    monkeypatch.setattr(tailor_module, "get_llm_config", _enabled_config)
+    monkeypatch.setattr(tailor_module, "generate_tailored_cv_with_llm", _failing_rewrite)
+
+    result = await _run_tailor(str(job.id), str(cv.id))
+
+    assert result["llm_generated_cv_id"] is None
+    generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
+    assert [item.variant for item in generated] == [CVVariant.rule]

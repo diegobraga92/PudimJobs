@@ -32,6 +32,8 @@ def enqueue_tailor(
     """Enqueue a CV tailoring task; ``cv_id=None`` uses the current CV.
 
     ``application_id`` is optional: when given, the task points that application
-    at the tailored version it produced (``Application.cv_version``).
+    at the deterministic (``rule``) artifact it produced
+    (``Application.generated_cv_id``); the optional LLM variant is only linked
+    when the user explicitly picks it (ADR 016).
     """
     _sender.send_task(TAILOR_CV_TASK, args=[job_id, cv_id, application_id])

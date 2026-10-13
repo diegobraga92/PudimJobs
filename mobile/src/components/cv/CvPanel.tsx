@@ -1,5 +1,7 @@
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AtsReportView } from '@/components/cv/AtsReportView';
 import { CvPreview } from '@/components/cv-preview/CvPreview';
@@ -12,13 +14,16 @@ import { Panel } from '@/components/ui/Panel';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { useToast } from '@/components/toast/ToastProvider';
+import { useUpdateApplication } from '@/hooks/useApplications';
 import { useAtsScore, useDeleteGeneratedCv, useGeneratedCvs } from '@/hooks/useCv';
 import { useTailorCv } from '@/hooks/useJobs';
 import { useI18n } from '@/i18n/I18nProvider';
+import { ApplicationsStackParamList } from '@/navigation/types';
 import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/theme/ThemeProvider';
-import { AtsReport } from '@/types';
+import { AtsReport, GeneratedCV } from '@/types';
 import { scoreVariant } from '@/utils/ats';
+import { variantLabelKey } from '@/utils/cv';
 import { dateLocale, shortDate } from '@/utils/dates';
 import { displayNameFromEmail } from '@/utils/names';
 import { sharePdfFromUrl } from '@/utils/pdf';
@@ -40,10 +45,11 @@ export function CvPanel({
 }: {
   jobId: string;
   applicationId?: string;
-  /** `Application.cv_version` — the version recorded as sent (badge). */
+  /** `Application.generated_cv_id` — the artifact recorded as sent (badge). */
   linkedCvId?: string | null;
 }) {
   const { theme } = useTheme();
+  const navigation = useNavigation<NativeStackNavigationProp<ApplicationsStackParamList>>();
   const i18n = useI18n();
   const toast = useToast();
   const confirm = useConfirm();
@@ -53,6 +59,7 @@ export function CvPanel({
   const tailor = useTailorCv();
   const score = useAtsScore();
   const deleteGenerated = useDeleteGeneratedCv();
+  const linkVariant = useUpdateApplication(applicationId ?? '');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -63,7 +70,27 @@ export function CvPanel({
   // A freshly computed report wins over the one cached on the artifact.
   const activeReport =
     reportFor && reportFor === selected?.id ? report : (selected?.ats_report ?? null);
-  const isLinked = !!linkedCvId && selected?.master_cv_id === linkedCvId;
+
+  const isItemLinked = (item: GeneratedCV | null): boolean =>
+    !!linkedCvId && !!item && item.id === linkedCvId;
+  const isLinked = isItemLinked(selected);
+
+  /** Record an artifact as the CV actually sent with the application (ADR 016). */
+  const markAsSent = (item: GeneratedCV) => {
+    if (!applicationId || isItemLinked(item)) {
+      return;
+    }
+    linkVariant.mutate(
+      { generated_cv_id: item.id },
+      {
+        onSuccess: () => toast.success(i18n.t('cv.panel.sentRecorded')),
+        onError: () => toast.error(i18n.t('errors.failedUpdateApplication')),
+      },
+    );
+  };
+
+  /** Open the artifact's own editor (never the master CV — ADR 016). */
+  const edit = (item: GeneratedCV) => navigation.navigate('TailoredCvEditor', { id: item.id });
 
   /** Enqueue a tailoring run for this job (linked to the application, if any). */
   const runTailor = () => {
@@ -170,21 +197,38 @@ export function CvPanel({
       {selected ? (
         <View style={styles.body}>
           {tailored.length > 1 ? (
-            <View style={styles.versionList}>
+            <View style={styles.variantList}>
               {tailored.map((item) => (
-                <Button
+                <Pressable
                   key={item.id}
-                  variant={item.id === selected.id ? 'accent' : 'ghost'}
-                  size="sm"
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: item.id === selected.id }}
                   onPress={() => setSelectedId(item.id)}
+                  style={[
+                    styles.variantCard,
+                    { borderColor: item.id === selected.id ? theme.colors.accent : theme.colors.border },
+                  ]}
                 >
-                  {shortDate(item.created_at, dateLocale(i18n.lang))}
-                </Button>
+                  <Text style={[styles.variantName, { color: theme.colors.text }]}>
+                    {i18n.t(variantLabelKey(item.variant))}
+                  </Text>
+                  {isItemLinked(item) ? (
+                    <Badge variant="info">{i18n.t('cv.panel.linked')}</Badge>
+                  ) : null}
+                  {item.ats_score !== null ? (
+                    <Badge variant={scoreVariant(item.ats_score)}>
+                      {i18n.t('cv.ats.scoreBadge', { score: item.ats_score })}
+                    </Badge>
+                  ) : null}
+                </Pressable>
               ))}
             </View>
           ) : null}
 
           <View style={styles.meta}>
+            <Text style={[styles.variantName, { color: theme.colors.text }]}>
+              {i18n.t(variantLabelKey(selected.variant))}
+            </Text>
             <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
               {shortDate(selected.created_at, dateLocale(i18n.lang))}
             </Text>
@@ -196,10 +240,40 @@ export function CvPanel({
             ) : null}
           </View>
 
+          {selected.ats_report?.llm_self_score != null ? (
+            <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
+              {i18n.t('cv.panel.llmSelfScore', { score: selected.ats_report.llm_self_score })}
+            </Text>
+          ) : null}
+
           <View style={styles.actions}>
             <Button variant="ghost" size="sm" onPress={download}>
               <Icon name="download" size={14} color={theme.colors.textSecondary} />
               {i18n.t('cv.pdf')}
+            </Button>
+            {applicationId ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => markAsSent(selected)}
+                disabled={isLinked}
+              >
+                <Icon
+                  name="check"
+                  size={14}
+                  color={isLinked ? theme.colors.success : theme.colors.textSecondary}
+                />
+                {isLinked ? i18n.t('cv.panel.linked') : i18n.t('cv.panel.useThisOne')}
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => edit(selected)}
+              disabled={!selected.structured_json}
+            >
+              <Icon name="pencil" size={14} color={theme.colors.textSecondary} />
+              {i18n.t('cv.panel.edit')}
             </Button>
             <Button variant="ghost" size="sm" onPress={() => void remove()}>
               <Icon name="trash" size={14} color={theme.colors.danger} />
@@ -261,10 +335,25 @@ const styles = StyleSheet.create({
   body: {
     gap: 10,
   },
-  versionList: {
+  variantList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 8,
+  },
+  /* One card per variant: deterministic vs AI rewrite (ADR 016). */
+  variantCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  variantName: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   meta: {
     flexDirection: 'row',

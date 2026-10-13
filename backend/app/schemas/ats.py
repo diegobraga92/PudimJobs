@@ -40,3 +40,7 @@ class AtsScoreResponse(BaseModel):
     recommendations: list[str]
     warnings: list[str]
     llm_summary: str | None = None
+    # The LLM's *own* estimate of the artifact it produced (ADR 016), stored only
+    # on the ``llm`` variant. Surfaced as "AI's own estimate" so it is never
+    # confused with the comparable deterministic score.
+    llm_self_score: int | None = None

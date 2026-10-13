@@ -4,6 +4,12 @@
 
 Accepted (2026-08-08)
 
+**Partly superseded by ADR 016** (2026-10-13): decision 3's storage model (a new
+non-current `master_cv` version per run) is replaced by self-contained
+`generated_cvs` artifacts, and the "Full CV rewrite by LLM" rejection is
+revisited. Decisions 1 and 2 — a deterministic core with an opt-in LLM layer —
+still stand.
+
 ## Context
 
 The CV tailoring feature must produce a job-specific CV from the master CV and
@@ -31,7 +37,9 @@ a job description. Two fundamentally different approaches exist:
    key is configured. Any failure degrades gracefully to the original bullets.
 3. The tailored result is stored as a new (non-current) `master_cv` version
    plus a rendered PDF in `generated_cvs`; the user reviews and edits before
-   it becomes current.
+   it becomes current. **Superseded by ADR 016**: a tailored CV is now its own
+   `generated_cvs` artifact (own `structured_json` + `variant`) and no
+   `master_cv` version is created at all.
 
 ### Why this split
 
@@ -64,4 +72,4 @@ a job description. Two fundamentally different approaches exist:
 |--------|---------------------|
 | LLM-only generation | Cost, latency, non-determinism, no baseline without API keys |
 | Hand-written per-job templates | Not scalable; defeats the "tailor at scale" goal |
-| Full CV rewrite by LLM | Highest cost; risk of hallucinated experience — unacceptable |
+| Full CV rewrite by LLM | Highest cost; risk of hallucinated experience — unacceptable. **Revisited by ADR 016**, which ships it as an opt-in *second* variant (no-fabrication prompt, schema validation, deterministic artifact always kept) rather than the only output |

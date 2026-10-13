@@ -4,6 +4,11 @@
 
 Accepted (2026-10-13)
 
+**Amended by ADR 016** (2026-10-13): §5 (editing a tailored CV on `/cv` via the
+`?generated=` deep link) is superseded — tailored CVs are first-class
+`generated_cvs` artifacts edited where they live, and `Application.cv_version`
+became `Application.generated_cv_id`. §1–§4 stand.
+
 ## Context
 
 Two features that were built independently ended up fighting for the same page.
@@ -73,6 +78,11 @@ editor* action navigates to `/cv?generated=<id>`, which loads that version into
 the master editor with a message stating that saving produces a **new master
 version**. That removes the old ambiguity (a tailored CV load followed by a
 silent master-version save) without duplicating a 500-line form.
+
+> **Superseded by ADR 016.** The deep link is removed: a tailored CV is a
+> first-class `generated_cvs` artifact edited in place (`PUT
+> /api/cv/generated/{id}`) from the CV panel (web) or a `TailoredCvEditor` screen
+> (mobile). Loading tailored content into the master editor is gone for good.
 
 **6. Mobile parity** (`src/navigation/ApplicationsStack.tsx`,
 `src/screens/ApplicationDetailScreen.tsx`, `src/components/cv/CvPanel.tsx`): an

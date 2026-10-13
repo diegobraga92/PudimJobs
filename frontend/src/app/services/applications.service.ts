@@ -11,7 +11,8 @@ export interface Application {
   applied_date: string | null;
   notes: string | null;
   lessons_learned: string | null;
-  cv_version: string | null;
+  /** The tailored CV artifact this application was sent with (ADR 016). */
+  generated_cv_id: string | null;
   created_at: string;
   updated_at: string;
   job_title: string;
@@ -29,7 +30,7 @@ export interface ApplicationInput {
   applied_date?: string | null;
   notes?: string | null;
   lessons_learned?: string | null;
-  cv_version?: string | null;
+  generated_cv_id?: string | null;
 }
 
 /** A retrospective note, joined with the job it belongs to. */

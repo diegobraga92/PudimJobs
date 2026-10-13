@@ -1,6 +1,5 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { AuthService } from '../../services/auth.service';
@@ -34,12 +33,10 @@ interface ProjectFormItem {
  * Master CV page.
  *
  * Owns the single source-of-truth document: edit it, import it from a file,
- * preview it, export it and keep the version history. Tailored (per-job) CVs —
- * and their ATS check — now live with the application they belong to, on
- * `/applications/:id`.
- *
- * Deep link: `/cv?generated=<id>` loads a tailored CV into the editor so it can
- * be hand-edited and saved as a new master version.
+ * preview it, export it and keep the version history. Tailored (per-job) CVs
+ * are separate artifacts (ADR 016) and live with the application they belong to
+ * — on `/applications/:id`, where they are previewed, edited and ATS-scored.
+ * Nothing on this page ever loads or writes a tailored CV.
  */
 @Component({
   selector: 'app-cv-editor',
@@ -77,7 +74,6 @@ export class CvEditorComponent implements OnInit {
     private auth: AuthService,
     private confirm: ConfirmService,
     private toast: ToastService,
-    private route: ActivatedRoute,
     readonly i18n: I18nService
   ) {
     this.cvForm = this.fb.group({
@@ -110,38 +106,7 @@ export class CvEditorComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.loadRequestedTailored();
-  }
-
-  /**
-   * Load the CV the editor was asked to open: the current master version by
-   * default, or — when `/cv?generated=<id>` was followed — that tailored CV.
-   */
-  private loadRequestedTailored(): void {
-    const generatedId = this.route.snapshot.queryParamMap.get('generated');
-    if (!generatedId) {
-      this.refreshVersions(true);
-      return;
-    }
-    // Don't clobber the incoming tailored CV with the current master version.
-    this.refreshVersions(false);
-    this.service.getGenerated(generatedId).subscribe({
-      next: (item) => {
-        if (!item.structured_json) {
-          this.error = this.i18n.t('errors.failedLoadCV');
-          this.refreshVersions(true);
-          return;
-        }
-        this.loadIntoForm(item.structured_json);
-        this.mode = 'edit';
-        this.message = this.i18n.t('cv.editingTailored', { job: item.job_title ?? '' });
-        this.toast.success(this.i18n.t('cv.editingTailoredToast'));
-      },
-      error: () => {
-        this.error = this.i18n.t('errors.failedLoadCV');
-        this.refreshVersions(true);
-      },
-    });
+    this.refreshVersions(true);
   }
 
   /** Reload master CV versions; optionally re-load the current one into the editor. */
@@ -332,7 +297,7 @@ export class CvEditorComponent implements OnInit {
         this.saving = false;
         this.message = this.i18n.t('cv.savedAs', { label: saved.label });
         this.toast.success(this.i18n.t('cv.savedAsToast', { label: saved.label }));
-        this.loadRequestedTailored();
+        this.refreshVersions(true);
       },
       error: () => {
         this.saving = false;

@@ -39,11 +39,13 @@ const REPORT: AtsReport = {
 function tailored(overrides: Partial<GeneratedCV> = {}): GeneratedCV {
   return {
     id: 'gen-1',
-    master_cv_id: 'cv-master-1',
+    source_master_cv_id: 'cv-master-1',
+    variant: 'rule',
     job_id: 'job-1',
     job_title: 'Backend Engineer',
     job_company: 'Acme',
     created_at: '2026-02-01T00:00:00Z',
+    updated_at: '2026-02-01T00:00:00Z',
     structured_json: STRUCTURED,
     ats_score: null,
     ats_report: null,
@@ -89,12 +91,86 @@ describe('CvPanelComponent', () => {
   });
 
   it('previews the newest tailored CV and flags the one sent with the application', () => {
-    build('cv-master-1');
+    build('gen-1');
     http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
 
     expect(component.selectedId).toBe('gen-1');
     expect(component.previewName).toBe('Ada Lovelace');
     expect(component.isLinked(component.tailored[0])).toBeTrue();
+  });
+
+  it('labels each variant and leaves the other one unlinked', () => {
+    build('gen-1');
+    const rule = tailored();
+    const llm = tailored({
+      id: 'gen-2',
+      variant: 'llm',
+      ats_score: 91,
+      ats_report: { ...REPORT, llm_self_score: 95 },
+    });
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([rule, llm]);
+
+    expect(component.variantLabel(rule)).toBe('Deterministic');
+    expect(component.variantLabel(llm)).toBe('AI rewrite');
+    expect(component.isLinked(rule)).toBeTrue();
+    expect(component.isLinked(llm)).toBeFalse();
+  });
+
+  it('records the chosen variant as the CV that was sent', () => {
+    build(null);
+    http
+      .expectOne((c) => c.url === '/api/cv/generated')
+      .flush([tailored(), tailored({ id: 'gen-2', variant: 'llm' })]);
+
+    component.useThisOne(component.tailored[1]);
+
+    const request = http.expectOne('/api/applications/app-1');
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.body).toEqual({ generated_cv_id: 'gen-2' });
+    request.flush({ id: 'app-1', generated_cv_id: 'gen-2' });
+
+    expect(component.linkedCvId).toBe('gen-2');
+    expect(component.isLinked(component.tailored[1])).toBeTrue();
+  });
+
+  it('edits a tailored CV in place without touching the master CV', () => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+
+    component.startEdit();
+    component.updateDraftSummary('Rewritten for Acme.');
+    component.draftSkills = 'python, fastapi';
+    component.saveEdit();
+
+    const request = http.expectOne('/api/cv/generated/gen-1');
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.body.structured_json.summary).toBe('Rewritten for Acme.');
+    expect(request.request.body.structured_json.skills).toEqual(['python', 'fastapi']);
+    request.flush(
+      tailored({
+        structured_json: { ...STRUCTURED, summary: 'Rewritten for Acme.' },
+        ats_score: null,
+      })
+    );
+
+    expect(component.editing).toBeFalse();
+    expect(component.saving).toBeFalse();
+    expect(component.selectedStructure?.summary).toBe('Rewritten for Acme.');
+  });
+
+  it('drops an in-progress edit when switching version or cancelling', () => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+
+    component.startEdit();
+    component.updateDraftSummary('Half-written');
+    component.cancelEdit();
+    expect(component.editing).toBeFalse();
+    expect(component.draft).toBeNull();
+
+    component.startEdit();
+    component.select(null);
+    expect(component.editing).toBeFalse();
   });
 
   it('scores the selected tailored CV against the job and caches the report', () => {

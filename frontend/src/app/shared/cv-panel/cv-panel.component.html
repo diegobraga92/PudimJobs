@@ -54,25 +54,32 @@
     </div>
   } @else {
     @if (tailored.length > 1) {
-      <div class="form-field">
-        <label for="cv-panel-version">{{ i18n.t('cv.panel.versions') }}</label>
-        <select
-          id="cv-panel-version"
-          class="select"
-          [value]="selectedId"
-          (change)="select($any($event.target).value)"
-        >
-          @for (item of tailored; track item.id) {
-            <option [value]="item.id">
-              {{ item.job_title }} — {{ item.created_at | date: 'short' }}
-            </option>
-          }
-        </select>
+      <div class="variant-list" role="group" [attr.aria-label]="i18n.t('cv.panel.versions')">
+        @for (item of tailored; track item.id) {
+          <button
+            type="button"
+            class="variant-card"
+            [class.active]="item.id === selectedId"
+            [attr.aria-pressed]="item.id === selectedId"
+            (click)="select(item.id)"
+          >
+            <span class="variant-name">{{ variantLabel(item) }}</span>
+            @if (isLinked(item)) {
+              <span class="badge badge-info">{{ i18n.t('cv.panel.linked') }}</span>
+            }
+            @if (item.ats_score !== null) {
+              <span class="badge" [class]="atsScoreClass(item.ats_score)">
+                {{ i18n.t('cv.ats.scoreBadge', { score: item.ats_score }) }}
+              </span>
+            }
+          </button>
+        }
       </div>
     }
 
     @if (selected) {
       <div class="tailored-head">
+        <span class="variant-name">{{ variantLabel(selected) }}</span>
         <span class="muted xs">{{ selected.created_at | date: 'short' }}</span>
         @if (isLinked(selected)) {
           <span class="badge badge-info">{{ i18n.t('cv.panel.linked') }}</span>
@@ -84,19 +91,36 @@
         }
       </div>
 
+      @if (selected.ats_report?.llm_self_score != null) {
+        <p class="muted xs">
+          {{ i18n.t('cv.panel.llmSelfScore', { score: selected.ats_report?.llm_self_score }) }}
+        </p>
+      }
+
       <div class="tailored-actions">
         <button type="button" class="btn btn-ghost btn-sm" (click)="downloadPdf(selected)">
           <app-icon name="download" [size]="14" />
           {{ i18n.t('cv.pdf') }}
         </button>
+        @if (applicationId) {
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            (click)="useThisOne(selected)"
+            [disabled]="isLinked(selected)"
+          >
+            <app-icon name="check" [size]="14" />
+            {{ isLinked(selected) ? i18n.t('cv.panel.linked') : i18n.t('cv.panel.useThisOne') }}
+          </button>
+        }
         <button
           type="button"
           class="btn btn-ghost btn-sm"
-          (click)="editInEditor(selected)"
-          [disabled]="!selectedStructure"
+          (click)="startEdit()"
+          [disabled]="!selectedStructure || editing"
         >
           <app-icon name="pencil" [size]="14" />
-          {{ i18n.t('cv.panel.editInEditor') }}
+          {{ i18n.t('cv.panel.edit') }}
         </button>
         <button
           type="button"
@@ -109,8 +133,61 @@
         </button>
       </div>
 
-      @if (selectedStructure; as structure) {
-        <app-cv-preview [cv]="structure" [name]="previewName" />
+      @if (editing && draft) {
+        <div class="edit-form">
+          <p class="muted xs">{{ i18n.t('cv.panel.editHint') }}</p>
+          <div class="form-field">
+            <label for="cv-edit-summary">{{ i18n.t('cv.panel.editSummary') }}</label>
+            <textarea
+              id="cv-edit-summary"
+              class="textarea"
+              rows="4"
+              [value]="draft.summary"
+              (input)="updateDraftSummary($any($event.target).value)"
+            ></textarea>
+          </div>
+          <div class="form-field">
+            <label for="cv-edit-skills">{{ i18n.t('cv.panel.editSkills') }}</label>
+            <input
+              id="cv-edit-skills"
+              class="input"
+              [value]="draftSkills"
+              (input)="draftSkills = $any($event.target).value"
+            />
+          </div>
+          @for (block of draft.experience; track $index) {
+            <div class="form-field">
+              <label [attr.for]="'cv-edit-bullets-' + $index">
+                {{ block.title }} — {{ block.company }}
+              </label>
+              <textarea
+                [id]="'cv-edit-bullets-' + $index"
+                class="textarea"
+                rows="3"
+                [value]="bulletsText(block)"
+                (input)="updateDraftBullets($index, $any($event.target).value)"
+              ></textarea>
+            </div>
+          }
+          <div class="edit-actions">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              (click)="saveEdit()"
+              [disabled]="saving"
+            >
+              @if (saving) {
+                <app-icon class="spinner" name="loader" [size]="14" />
+              }
+              {{ saving ? i18n.t('cv.saving') : i18n.t('cv.panel.editSave') }}
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" (click)="cancelEdit()">
+              {{ i18n.t('common.cancel') }}
+            </button>
+          </div>
+        </div>
+      } @else if (selectedStructure) {
+        <app-cv-preview [cv]="selectedStructure" [name]="previewName" />
       } @else {
         <p class="muted small">{{ i18n.t('cv.panel.noContent') }}</p>
       }

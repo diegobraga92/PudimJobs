@@ -101,8 +101,10 @@ the last result without spending an LLM call.
 
 ## Where the score is surfaced
 
-The scorer, the `generated_cvs` cache and the two templates are unchanged by
-ADR 015; only the UI moved. The report is rendered by
+The scorer and the two templates are unchanged by ADR 015 (only the UI moved) and
+by ADR 016 (which runs this *deterministic* scorer over **both** tailoring
+variants so their scores stay comparable, and records the LLM's own estimate
+separately as `llm_self_score`). The report is rendered by
 `frontend/src/app/shared/ats-report/` (web) and
 `mobile/src/components/cv/AtsReportView.tsx`, inside the per-application
 workspace (`/applications/:id`) where the job being scored against is implicit —

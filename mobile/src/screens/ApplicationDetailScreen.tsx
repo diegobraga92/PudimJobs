@@ -156,7 +156,7 @@ export function ApplicationDetailScreen() {
             <CvPanel
               jobId={application.job_id}
               applicationId={application.id}
-              linkedCvId={application.cv_version}
+              linkedCvId={application.generated_cv_id}
             />
           </>
         ) : null}

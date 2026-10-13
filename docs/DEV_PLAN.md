@@ -70,10 +70,14 @@ How this plan is organised:
 - [x] spaCy JD parser → `jobs.parsed_jd` (skills, years, education, keywords)
 - [x] Curated skills taxonomy + `match_skills` relevance scoring
       (`app/data/skills_taxonomy.json`, `app/services/skill_matcher.py`)
-- [x] Rule-based tailoring (`cv_tailor.tailor_cv`) with optional LLM rephrasing
-      behind `TAILORING_LLM_ENABLED` — ADR 006
-- [x] PDF generation via Jinja2 + weasyprint; tailored CVs persisted as new
-      `master_cv` versions + `generated_cvs` rows
+- [x] Deterministic tailoring (`cv_tailor.tailor_cv`) with a summary that leads
+      with the JD-matched strengths and an explicit `used_fallback` signal —
+      ADR 006
+- [x] Optional full-LLM rewrite kept as a *second* variant
+      (`TAILORING_LLM_VARIANT_ENABLED`), schema-validated and degradation-safe —
+      ADR 016
+- [x] PDF generation via Jinja2 + weasyprint; tailored CVs persisted as
+      self-contained `generated_cvs` artifacts (migration `0019`) — ADR 016
 - [x] CV import (`POST /api/cv/parse`): PDF, DOCX and ODT → structured
       `CVStructure` (rule-based parser, optional LLM upgrade) — ADR 011
 - [x] Rich CV structure: contact block (`full_name`, `email`, `phone`,
@@ -148,6 +152,10 @@ How this plan is organised:
 - [x] Per-application workspace: tailored CV + ATS move to `/applications/:id`,
       `/cv` is master-only and the job page links to the workspace instead of
       offering a second, unlinked tailor action (ADR 015)
+- [x] Tailored CVs as first-class artifacts: dual `rule`/`llm` variants scored
+      by the same deterministic scorer, an artifact-level editor
+      (`PUT /api/cv/generated/{id}`), `Application.generated_cv_id` and no
+      master-CV version leak (migration `0019`) — ADR 016
 - [x] This development plan, kept in sync with the README status table
 
 ### Demo walkthrough (recorded script)
@@ -200,7 +208,7 @@ Deliberately out of scope so far — kept here instead of hidden:
 - **Mobile parity for the newest features**: the Expo client has no ATS-safe
   template selector, no `.odt` document-picker filter, and no prep-tasks/lessons
   screens yet (the API is ready for all three). The application workspace and
-  the tailored-CV/ATS panel *are* implemented (ADR 015).
+  the tailored-CV/ATS panel *are* implemented (ADR 015, ADR 016).
 - **ATS `job_title`** is folded into the keyword pool and recommendations; it
   does not feed the LLM prompt (the description does).
 - **Prep tasks have no reminders**: `due_date` is a planning hint, not a
