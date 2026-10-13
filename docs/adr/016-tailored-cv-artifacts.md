@@ -25,6 +25,31 @@ sent to OpenAI), asks for a bare JSON object, and treats a `200 OK` with empty
 `max_tokens` on `reasoning_content` and answer with nothing, which silently
 dropped every feature onto its rule-based fallback.
 
+Amended (2026-10-13, third time): **the `llm` variant is now a *selection* with a
+page budget**, and its page count is measured instead of assumed. The original
+prompt asked the model to "rewrite the candidate's CV so it is maximally
+relevant" *and* to "keep every fact … exactly as given" — an instruction set with
+no way to shorten anything. Relevance could then only be demonstrated by adding
+and splitting bullets, so the artifact came back several pages long and read like
+a padded restatement rather than a tailored CV. The prompt now asks for a CV
+produced **for the target job**, using the master CV as the *only source of
+truth* / reference, `MAY omit` roles, projects and bullets that do not help this
+application, and aims at `LLM_TARGET_PAGES` (2) pages — expressed as the levers
+the model actually controls (how many roles and bullets to keep, how long the
+summary is), because page length is decided by the template and the fonts, not by
+the model. Truthfulness is unchanged and only re-scoped: every fact *included*
+must be exactly as given, and roles may never be split or merged. No hard
+numeric caps were added anywhere — the reply is still validated by
+`CVStructure`, and a shorter structure is a valid answer. Two supporting fixes:
+the master CV is trimmed into **valid JSON** for the prompt (`_fit_cv_for_prompt`
+drops whole entries, least JD-relevant first, instead of byte-slicing the
+serialised JSON, which handed the model a broken reference to fill from
+imagination — logged as `llm_cv_input_truncated`); and the stored PDF's page count
+is recorded as `cv_artifact_pages`, with `llm_rewrite_over_page_budget` warning
+when the AI variant ignores the budget. Over budget is *reported, never
+corrected*: nothing is trimmed afterwards, so an over-long artifact stays visible
+and the rule variant stays available for comparison.
+
 Supersedes ADR 015 §5 ("Editing a tailored CV still happens on `/cv`") and
 revisits the "Full CV rewrite by LLM" rejection in ADR 006.
 
@@ -118,10 +143,12 @@ Applications stack. The `/cv?generated=<id>` deep link is **removed** — that w
 the last way tailored content could be written back into the master document.
 
 **6. No fabrication is load-bearing, so it is enforced twice.** The rewrite
-prompt states the constraint explicitly ("keep every fact — employers, titles,
-dates, degrees, skills and languages — exactly as given: NEVER invent …"), and
-the deterministic variant is always produced and always kept. A hallucinating
-model can therefore produce a *bad second artifact*, never a missing one.
+prompt states the constraint explicitly ("Every fact you include — employers,
+titles, dates, degrees, skills, numbers and languages — must be exactly as given
+in the master CV: NEVER invent … and never split or merge roles"), scoped to the
+facts that *are* included so that selecting is still possible, and the
+deterministic variant is always produced and always kept. A hallucinating model
+can therefore produce a *bad second artifact*, never a missing one.
 
 ## Consequences
 
@@ -190,10 +217,13 @@ model can therefore produce a *bad second artifact*, never a missing one.
 - `alembic/versions/0019_tailored_cv_artifacts.py` (upgrade + reversible
   downgrade that reconstructs tailored versions from `structured_json`)
 - `app/services/cv_tailor.py` (`tailor_cv`, `_tailored_summary`,
-  `generate_tailored_cv_with_llm`), `app/services/cv_schema.py`
+  `generate_tailored_cv_with_llm`, `_fit_cv_for_prompt`/`LLM_TARGET_PAGES` — the
+  tailored-for-the-job prompt, its two-page budget and the valid-JSON trimming of
+  an oversized master CV), `app/services/cv_schema.py`
   (`CV_JSON_SCHEMA`, shared with `cv_parser`),
   `workers/tasks/tailor.py` (dual-variant orchestration, in-place repair of a
-  content-less artifact via `_has_content`)
+  content-less artifact via `_has_content`, `_pdf_pages` → `cv_artifact_pages` /
+  `llm_rewrite_over_page_budget`)
 - `app/services/llm_client.py` (`request_body`, `chat_text`, `chat_json` — the
   only caller of `/chat/completions`; thinking-off toggle, JSON mode, empty
   content treated as failure), used by `cv_tailor`, `cv_parser`, `ats_scorer`

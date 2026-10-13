@@ -35,6 +35,23 @@ _FALLBACK_TOP_N = 3
 
 _NUMBERED_LINE_RE = re.compile(r"^\d+[.)]\s*(.+)$")
 
+# The `llm` variant produces a *printable* CV, so its prompt carries an explicit
+# page budget instead of an open-ended "be maximally relevant" instruction. The
+# model cannot measure pages (page length is decided by the template and fonts),
+# so the budget is stated both as the goal and as the levers the model controls
+# (how many roles/bullets to keep, how long the summary is). Nothing is trimmed
+# afterwards: the worker measures the rendered PDF (`cv_artifact_pages`) and
+# warns (`llm_rewrite_over_page_budget`) when the guidance was not followed,
+# leaving both variants for the user to compare.
+#
+# Calibrated on the default `classic` template (A4, 10pt, 1.6cm/1.8cm margins):
+# ~550-650 words, i.e. about 15 bullets across 3-4 roles, renders in two pages.
+# Re-tune these numbers if that stylesheet changes.
+LLM_TARGET_PAGES = 2
+_LLM_TARGET_WORDS = "550-650"
+_LLM_TARGET_ROLES = "3-4"
+_LLM_TARGET_BULLETS = "3-5"
+
 
 def _contains_skill(text: str, skill: str) -> bool:
     pattern = _SKILL_RE_CACHE.get(skill)
@@ -306,6 +323,77 @@ def _coerce_self_score(value: object) -> int | None:
     return max(0, min(100, score))
 
 
+def _truncate_text(text: str, limit: int) -> str:
+    """Shorten ``text`` to ``limit`` characters, preferring a line boundary.
+
+    The JD is prose, so a mid-word cut only costs readability; cutting on a
+    newline keeps requirement lists intact.
+    """
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    boundary = cut.rfind("\n")
+    return cut[:boundary] if boundary >= limit // 2 else cut
+
+
+def _fit_cv_for_prompt(
+    cv_structure: dict, limit: int, jd_skills: list[str]
+) -> tuple[str, dict[str, int]]:
+    """Serialise the master CV as *valid* JSON within ``limit`` characters.
+
+    Slicing the serialised JSON (the previous behaviour) handed the model a
+    truncated, syntactically broken reference *while asking it to write the CV
+    from that reference* — an invitation to fill the gap from imagination. Here
+    whole entries are dropped instead (least JD-relevant first, the same notion
+    of relevance the rule engine uses), then the longest bullets are shortened,
+    so whatever is sent always parses.
+
+    Returns the JSON and the counts dropped, for the caller to log. When even the
+    bare structure exceeds ``limit`` the JSON is returned as-is: a slightly
+    oversized but *valid* reference beats a broken one.
+    """
+    payload = dict(cv_structure)
+    payload["experience"] = list(cv_structure.get("experience", []) or [])
+    payload["projects"] = list(cv_structure.get("projects", []) or [])
+    dropped = {"experience": 0, "projects": 0, "bullets": 0}
+
+    def _fits() -> bool:
+        return len(json.dumps(payload)) <= limit
+
+    if _fits():
+        return json.dumps(payload), dropped
+
+    # Projects first, then experience: the experience history carries the
+    # application, so it goes last.
+    for key in ("projects", "experience"):
+        ranked = _order_blocks_with_scores(payload[key], jd_skills, None)
+        for _score, _index, block in reversed(ranked):
+            if _fits():
+                break
+            payload[key] = [item for item in payload[key] if item is not block]
+            dropped[key] += 1
+
+    while not _fits():
+        candidates = [
+            (len(bullet), block, index)
+            for block in [*payload["experience"], *payload["projects"]]
+            for index, bullet in enumerate(block.get("bullets", []) or [])
+            if isinstance(bullet, str) and len(bullet) >= 16
+        ]
+        if not candidates:
+            break
+        _length, block, index = max(candidates, key=lambda item: item[0])
+        block["bullets"][index] = block["bullets"][index][: len(block["bullets"][index]) // 2]
+        dropped["bullets"] += 1
+
+    if not _fits():
+        # Last resort: the optional sections are the least load-bearing part of
+        # the reference. Still valid JSON — which is the point.
+        for key in ("projects", "certifications", "languages", "links"):
+            payload[key] = []
+    return json.dumps(payload), dropped
+
+
 async def generate_tailored_cv_with_llm(
     cv_structure: dict,
     *,
@@ -314,7 +402,7 @@ async def generate_tailored_cv_with_llm(
     jd_skills: list[str] | None = None,
     config: LlmRuntimeConfig | None = None,
 ) -> tuple[dict, int | None] | None:
-    """Rewrite the whole CV for a job via an LLM (ADR 016).
+    """Produce a tailored CV for one job via an LLM (ADR 016).
 
     Returns ``(structure, self_estimated_score)`` where ``structure`` has been
     validated against ``CVStructure`` — or ``None`` when the LLM is disabled,
@@ -322,7 +410,9 @@ async def generate_tailored_cv_with_llm(
     deterministic variant and never fail the run.
 
     This is the one place a model is asked to *produce* CV content rather than
-    rephrase a bullet, so the prompt forbids fabrication and the reply is
+    rephrase a bullet, so the prompt forbids fabrication, asks for a CV that fits
+    ``LLM_TARGET_PAGES`` pages (the model decides what to drop; the reply may
+    legitimately contain fewer roles than the master CV), and the result is
     schema-validated before it is trusted.
     """
     if config is None:
@@ -337,22 +427,46 @@ async def generate_tailored_cv_with_llm(
 
     budget = max(1_000, settings.tailor_llm_max_chars)
     half = budget // 2
+    # Framing matters more than any hard cap: asking for "the CV, rewritten so it
+    # is maximally relevant" while demanding that *every* fact be kept leaves no
+    # way to shorten anything, so the model showed relevance by adding and
+    # splitting bullets — the artifact came back several pages long. Tailoring is
+    # a *selection* for one job, so the prompt says so and gives it a page budget
+    # to spend.
     system = (
-        "You are an expert resume writer. Rewrite the candidate's CV so it is "
-        "maximally relevant to the target job. Keep every fact — employers, "
-        "titles, dates, degrees, skills and languages — exactly as given: NEVER "
-        "invent experience, employers, dates, numbers or skills. You may reorder "
-        "sections, tighten wording and lead with the job's language, but the "
-        "candidate's history must stay truthful. Return ONLY a JSON object of the "
-        'shape {"cv": ' + CV_JSON_SCHEMA + ', "ats_self_score": 0} where '
+        "You are an expert resume writer. Produce a tailored CV for the target "
+        "job, using the candidate's master CV as the only source of truth. Aim "
+        f"for at most {LLM_TARGET_PAGES} pages: with a standard one-column "
+        f"layout that is roughly {_LLM_TARGET_WORDS} words, so keep the "
+        f"{_LLM_TARGET_ROLES} roles that best support this application, with "
+        f"{_LLM_TARGET_BULLETS} bullets each, and leave out or shorten the "
+        "rest. Tailoring means selecting: you MAY omit roles, projects and "
+        "bullets that do not help this application, and you may reorder "
+        "sections, tighten wording and lead with the job's language. Every fact "
+        "you include — employers, titles, dates, degrees, skills, numbers and "
+        "languages — must be exactly as given in the master CV: NEVER invent "
+        "experience, employers, dates, numbers or skills, and never split or "
+        "merge roles. Return ONLY a JSON object of the shape "
+        '{"cv": ' + CV_JSON_SCHEMA + ', "ats_self_score": 0} where '
         "ats_self_score is your own integer 0-100 estimate of how well the "
-        "rewritten CV matches the job."
+        "tailored CV matches the job."
     )
+    cv_json, dropped = _fit_cv_for_prompt(cv_structure, half, jd_skills or [])
+    if any(dropped.values()):
+        # An oversized master CV is trimmed into valid JSON, never sliced: see
+        # `_fit_cv_for_prompt`. stdlib logging, so the detail goes in the message.
+        logger.info(
+            "llm_cv_input_truncated limit=%d experience=%d projects=%d bullets=%d",
+            half,
+            dropped["experience"],
+            dropped["projects"],
+            dropped["bullets"],
+        )
     user = (
         f"Target job title: {jd_title or '(unspecified)'}\n"
         f"Required skills: {', '.join(jd_skills or []) or '(none parsed)'}\n\n"
-        f"Job description:\n{jd_text[:half]}\n\n"
-        f"Current CV (JSON):\n{json.dumps(cv_structure)[:half]}"
+        f"Job description:\n{_truncate_text(jd_text, half)}\n\n"
+        f"Master CV — the only source of truth (JSON):\n{cv_json}"
     )
     payload = await chat_json(
         config,

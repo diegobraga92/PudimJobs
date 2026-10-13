@@ -4,8 +4,12 @@ Produces one or two *self-contained* tailored-CV artifacts for a job:
 
 * ``rule`` — always, from the deterministic engine (strengthened: the summary
   leads with the JD-matched strengths and a no-match fallback is signalled); and
-* ``llm`` — when enabled, a full LLM rewrite kept alongside the rule variant so
-  the user can compare and choose.
+* ``llm`` — when enabled, a tailored CV produced by the LLM, kept alongside the
+  rule variant so the user can compare and choose. Its prompt asks for a CV that
+  fits ``LLM_TARGET_PAGES`` pages and explicitly *permits* dropping what does not
+  support the application; the page count of the rendered PDF is then measured
+  (``cv_artifact_pages``) rather than enforced, because page length is the
+  template's call, not the model's.
 
 Each artifact is a ``generated_cvs`` row owning its own ``structured_json`` and
 rendered PDF, and is scored with the deterministic ATS scorer (comparable across
@@ -20,20 +24,43 @@ repairs that same row in place instead of reusing an empty card forever.
 
 import asyncio
 import uuid
+from io import BytesIO
 
 import structlog
+from pypdf import PdfReader
 from sqlalchemy import select
 
 from app.database import async_session_factory
 from app.models import Application, CVVariant, GeneratedCV, Job, MasterCV, User
 from app.services.ats_scorer import derive_keywords, score_ats
-from app.services.cv_tailor import TailoredCV, generate_tailored_cv_with_llm, tailor_cv
+from app.services.cv_tailor import (
+    LLM_TARGET_PAGES,
+    TailoredCV,
+    generate_tailored_cv_with_llm,
+    tailor_cv,
+)
 from app.services.jd_parser import parse_jd, parsed_jd_to_dict
 from app.services.llm_config import LlmRuntimeConfig, get_llm_config
 from app.services.pdf_generator import generate_pdf
 from workers.celery_app import celery_app
 
 logger = structlog.get_logger(__name__)
+
+
+def _pdf_pages(pdf_bytes: bytes) -> int | None:
+    """Page count of a rendered CV, or ``None`` when the PDF cannot be read.
+
+    The AI variant's page budget is a *prompt* instruction (page length is decided
+    by the template and the fonts, not by the model), so the only honest way to
+    know whether it was respected is to measure the PDF that was actually stored
+    (``cv_artifact_pages``). This is a best-effort observation: a broken PDF is
+    reported as ``None`` and never fails the run.
+    """
+    try:
+        return len(PdfReader(BytesIO(pdf_bytes)).pages)
+    except Exception:  # noqa: BLE001 - an unreadable PDF must not fail a tailor run
+        logger.warning("cv_artifact_pages_unreadable")
+        return None
 
 
 def _pdf_name(user: User | None) -> str:
@@ -108,9 +135,14 @@ async def _store_variant(
     place instead of being duplicated. Reusing its id keeps ``created_at``, the
     ``applications.generated_cv_id`` link and variant uniqueness intact, so a
     legacy empty artifact cannot linger in the panel forever (ADR 016).
+
+    The rendered page count is logged (`cv_artifact_pages`) and, for the AI
+    variant, compared against ``LLM_TARGET_PAGES`` (`llm_rewrite_over_page_budget`)
+    — measured and reported, never enforced.
     """
     tailored = TailoredCV.from_structure(structure)
     pdf_bytes = generate_pdf(tailored, name=_pdf_name(user), email=user.email if user else "")
+    pages = _pdf_pages(pdf_bytes)
     # Both variants use the *deterministic* scorer so their scores are comparable;
     # the LLM's own estimate is recorded separately when it provided one.
     report = await score_ats(
@@ -142,6 +174,25 @@ async def _store_variant(
         )
     await session.commit()
     await session.refresh(generated)
+    logger.info(
+        "cv_artifact_pages",
+        generated_cv_id=str(generated.id),
+        variant=variant.value,
+        pages=pages,
+    )
+    if variant == CVVariant.llm and pages is not None and pages > LLM_TARGET_PAGES:
+        # Reported, never corrected: the prompt asks the AI variant for at most
+        # LLM_TARGET_PAGES pages, so a longer PDF means the guidance was not
+        # followed. Trimming it here would silently delete content the model (or
+        # the user, after an edit) chose on purpose — the count is surfaced and
+        # both variants stay available to compare.
+        logger.warning(
+            "llm_rewrite_over_page_budget",
+            generated_cv_id=str(generated.id),
+            variant=variant.value,
+            pages=pages,
+            target_pages=LLM_TARGET_PAGES,
+        )
     return generated
 
 

@@ -317,10 +317,18 @@ retrospectives) are listed at the end of the development plan.
 - Optional **second** variant: a full LLM rewrite kept *alongside* the
   deterministic one (an LLM enabled in Admin → LLM with a stored API key; there
   is no env flag since ADR 016 was amended), schema-validated and degrading
-  gracefully. Both variants are scored by the deterministic ATS scorer so they
-  can be compared (ADR 016). Both gates (the admin toggle and the API key) are
-  silent when unmet, so a skipped variant is logged as
-  `cv_tailored_llm_variant_skipped` with the reason — check
+  gracefully. Its prompt asks for a CV **tailored for the job** (the master CV is
+  the only source of truth, and the model *may* omit roles/projects/bullets that
+  do not support the application) that fits **two pages**, expressed as the levers
+  the model controls — keep the 3-4 most relevant roles with 3-5 bullets each,
+  ~550-650 words — because page length is the template's call, not the model's.
+  The page count of the stored PDF is recorded as `cv_artifact_pages`, and
+  `llm_rewrite_over_page_budget` warns when the budget was ignored: it is
+  *reported, never corrected* (nothing is trimmed afterwards, and a shorter
+  structure is a perfectly valid reply). Both variants are scored by the
+  deterministic ATS scorer so they can be compared (ADR 016). Both gates (the
+  admin toggle and the API key) are silent when unmet, so a skipped variant is
+  logged as `cv_tailored_llm_variant_skipped` with the reason — check
   `docker compose logs worker | grep llm_variant_skipped` when only the
   deterministic CV appears. Env *fallback* changes (`TAILORING_LLM_ENABLED`,
   `OPENAI_*`) only reach the worker after

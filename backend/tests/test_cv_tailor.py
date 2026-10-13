@@ -1,8 +1,10 @@
 """Tests for the rule-based CV tailoring engine."""
 
 import json
+import logging
 
 from app.services.cv_tailor import (
+    LLM_TARGET_PAGES,
     TailoredCV,
     _coerce_self_score,
     enhance_with_llm,
@@ -215,6 +217,114 @@ async def test_generate_tailored_cv_with_llm_degrades_on_failure(monkeypatch):
     assert (
         await generate_tailored_cv_with_llm(CV, jd_text="x", config=_enabled_llm_config()) is None
     )
+
+
+# --- the AI variant's prompt: a tailored selection, not a restatement --------
+
+
+async def test_generate_tailored_cv_with_llm_prompt_asks_for_a_two_page_tailored_cv(
+    monkeypatch,
+):
+    """The AI variant is a *selection* for this job, not a restatement of the CV.
+
+    The previous prompt asked the model to "rewrite the candidate's CV so it is
+    maximally relevant" while also demanding that *every* fact be kept — leaving
+    no way to shorten anything, so relevance was demonstrated by adding and
+    splitting bullets and the artifact came back several pages long. These
+    assertions pin the framing (a CV tailored for the job, the master CV as the
+    reference) and the page budget.
+    """
+    from app.services import llm_client
+
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": CV, "ats_self_score": 50})
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    await generate_tailored_cv_with_llm(
+        CV,
+        jd_text="Python role",
+        jd_title="Backend",
+        jd_skills=["python"],
+        config=_enabled_llm_config(),
+    )
+
+    system = fake.requests[0]["messages"][0]["content"]
+    user = fake.requests[0]["messages"][1]["content"]
+    assert "tailored CV for the target job" in system
+    assert "source of truth" in system
+    assert f"at most {LLM_TARGET_PAGES} pages" in system
+    assert "MAY omit" in system  # omitting is what makes the budget reachable
+    assert "NEVER invent" in system  # truthfulness is unchanged
+    assert "Rewrite the candidate's CV" not in system
+    assert "Master CV — the only source of truth" in user
+
+
+async def test_generate_tailored_cv_with_llm_accepts_a_shorter_cv(monkeypatch):
+    """Dropping a role is a valid answer, not a schema error (ADR 016).
+
+    The prompt grants permission to omit, so the contract has to accept a
+    structure with fewer entries than the master CV.
+    """
+    from app.services import llm_client
+
+    shortened = {**CV, "experience": CV["experience"][:1], "projects": []}
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": shortened, "ats_self_score": 60})
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    result = await generate_tailored_cv_with_llm(
+        CV, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+    )
+
+    assert result is not None
+    structure, self_score = result
+    assert len(structure["experience"]) == 1
+    assert structure["projects"] == []
+    assert self_score == 60
+
+
+async def test_generate_tailored_cv_with_llm_trims_an_oversized_master_cv(
+    monkeypatch, caplog
+):
+    """An oversized master CV is trimmed into *valid* JSON, never sliced raw.
+
+    A byte-slice of the serialised JSON sent the model a syntactically broken
+    reference while asking it to write the CV from that reference — a gap that
+    gets filled from imagination. Whole entries are dropped instead.
+    """
+    from app.services import cv_tailor, llm_client
+
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": CV, "ats_self_score": 50})
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(cv_tailor.settings, "tailor_llm_max_chars", 2_000)
+
+    bulky = {
+        **CV,
+        "experience": [
+            {
+                "title": "Engineer",
+                "company": f"Company {i}",
+                "bullets": [f"Built python services number {i} on AWS"] * 3,
+            }
+            for i in range(40)
+        ],
+    }
+    with caplog.at_level(logging.INFO, logger="app.services.cv_tailor"):
+        result = await generate_tailored_cv_with_llm(
+            bulky,
+            jd_text="Python role",
+            jd_skills=["python"],
+            config=_enabled_llm_config(),
+        )
+
+    assert result is not None
+    user = fake.requests[0]["messages"][1]["content"]
+    reference = user.split("source of truth (JSON):\n", 1)[1]
+    assert len(reference) <= 1_000  # half of the monkeypatched budget
+    parsed = json.loads(reference)  # the reference always parses
+    assert 0 < len(parsed["experience"]) < 40
+    assert "llm_cv_input_truncated" in caplog.text
 
 
 async def test_enhance_with_llm_disabled_returns_bullets_unchanged():

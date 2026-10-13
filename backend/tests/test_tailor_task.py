@@ -1,6 +1,9 @@
 """Integration tests for the CV tailoring Celery task (ADR 016)."""
 
+from io import BytesIO
+
 import pytest
+from pypdf import PdfReader
 from sqlalchemy import select
 from structlog.testing import capture_logs
 from workers.tasks import tailor as tailor_module
@@ -8,6 +11,7 @@ from workers.tasks.tailor import _run_tailor
 
 from app.models import Application, CVVariant, GeneratedCV, Job, MasterCV
 from app.services import llm_client
+from app.services.cv_tailor import LLM_TARGET_PAGES
 from app.services.llm_config import LlmRuntimeConfig
 from tests.helpers import create_user
 
@@ -276,6 +280,74 @@ def test_llm_variant_skip_reason_names_the_missing_condition():
     usable = LlmRuntimeConfig(enabled=True, api_key="sk-x", base_url="http://llm", model="m")
     assert tailor_module._llm_variant_skip_reason(usable) == ""
     assert tailor_module._llm_variant_wanted(usable) is True
+
+
+# --- the page budget: measured, not enforced --------------------------------
+
+
+def test_pdf_pages_counts_a_real_cv_and_survives_garbage():
+    """The page count comes from the PDF itself, not from the structure."""
+    from app.services.cv_tailor import TailoredCV
+    from app.services.pdf_generator import generate_pdf
+
+    assert tailor_module._pdf_pages(generate_pdf(TailoredCV(summary="Backend engineer"))) == 1
+    assert tailor_module._pdf_pages(b"%PDF-1.4 truncated") is None
+
+
+async def test_tailor_task_records_the_rendered_page_count(test_engine, db_session):
+    """`cv_artifact_pages` is the measurement the AI page budget rests on.
+
+    The prompt asks the AI variant for at most two pages, but the template and the
+    fonts decide the real length — so what gets recorded is the page count of the
+    PDF that was actually stored.
+    """
+    _, cv, job = await _seed_cv_job(db_session)
+
+    with capture_logs() as logs:
+        await _run_tailor(str(job.id), str(cv.id))
+
+    generated = (await db_session.execute(select(GeneratedCV))).scalars().one()
+    expected = len(PdfReader(BytesIO(generated.pdf)).pages)
+    entries = [entry for entry in logs if entry["event"] == "cv_artifact_pages"]
+    assert len(entries) == 1
+    assert entries[0]["variant"] == "rule"
+    assert entries[0]["pages"] == expected
+
+
+async def test_tailor_task_warns_when_the_ai_variant_exceeds_the_page_budget(
+    test_engine, db_session, monkeypatch
+):
+    """Over budget is reported, never "fixed" by deleting content (ADR 016).
+
+    The over-long artifact is still stored and still selectable — the log line is
+    what tells an operator the prompt guidance was not followed.
+    """
+    _, cv, job = await _seed_cv_job(db_session)
+
+    async def _enabled_config(_session):
+        return LlmRuntimeConfig(
+            enabled=True, api_key="sk-x", base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    async def _fake_rewrite(structure, **_kwargs):
+        return ({**structure, "summary": "Rewritten for the job"}, 90)
+
+    monkeypatch.setattr(tailor_module, "get_llm_config", _enabled_config)
+    monkeypatch.setattr(tailor_module, "generate_tailored_cv_with_llm", _fake_rewrite)
+    # Both variants render to a single page here, so force the over-budget path.
+    monkeypatch.setattr(tailor_module, "_pdf_pages", lambda _pdf: LLM_TARGET_PAGES + 1)
+
+    with capture_logs() as logs:
+        result = await _run_tailor(str(job.id), str(cv.id))
+
+    assert result["llm_generated_cv_id"] is not None  # nothing was dropped
+    warnings = [entry for entry in logs if entry["event"] == "llm_rewrite_over_page_budget"]
+    assert len(warnings) == 1  # the rule variant is never warned about
+    assert warnings[0]["variant"] == "llm"
+    assert warnings[0]["pages"] == LLM_TARGET_PAGES + 1
+    assert warnings[0]["target_pages"] == LLM_TARGET_PAGES
+    stored = [entry for entry in logs if entry["event"] == "cv_artifact_pages"]
+    assert {entry["variant"] for entry in stored} == {"rule", "llm"}
 
 
 # --- content-less artifacts (pre-ADR-016 rows) ------------------------------
