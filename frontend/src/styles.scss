@@ -838,6 +838,7 @@ input[type='radio'] {
     margin: 0;
     font-size: var(--text-xl);
   }
+}
 
 /* ---- Shared: toast ------------------------------------------------------------- */
 .toast-container {
@@ -964,12 +965,11 @@ input[type='radio'] {
 }
 
 
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--space-3);
-    margin-top: var(--space-2);
-  }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 
 @keyframes fade-in {
