@@ -90,6 +90,16 @@ export class CvPanelComponent implements OnChanges {
     return this.selectedStructure?.full_name || 'Your Name';
   }
 
+  /**
+   * Only the deterministic variant exists, so the AI rewrite was skipped
+   * server-side (the LLM is disabled in Admin → LLM, or no API key is stored).
+   * Explaining the requirement here beats leaving the user with a single
+   * unexplained CV.
+   */
+  get llmVariantMissing(): boolean {
+    return this.tailored.length === 1 && this.tailored[0].variant === 'rule';
+  }
+
   /** Reload this job's tailored CVs, keeping the current selection if possible. */
   load(): void {
     this.loading = true;

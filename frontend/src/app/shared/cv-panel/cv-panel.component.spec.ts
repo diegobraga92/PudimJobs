@@ -116,6 +116,28 @@ describe('CvPanelComponent', () => {
     expect(component.isLinked(llm)).toBeFalse();
   });
 
+  it('explains why only the deterministic variant exists', () => {
+    build('gen-1');
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+    fixture.detectChanges();
+
+    expect(component.llmVariantMissing).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain('Only the deterministic variant exists.');
+  });
+
+  it('hides the missing-variant hint once the AI rewrite exists', () => {
+    build('gen-1');
+    http
+      .expectOne((c) => c.url === '/api/cv/generated')
+      .flush([tailored(), tailored({ id: 'gen-2', variant: 'llm' })]);
+    fixture.detectChanges();
+
+    expect(component.llmVariantMissing).toBeFalse();
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Only the deterministic variant exists.'
+    );
+  });
+
   it('records the chosen variant as the CV that was sent', () => {
     build(null);
     http

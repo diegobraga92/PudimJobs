@@ -1,13 +1,13 @@
 """Integration tests for the CV tailoring Celery task (ADR 016)."""
 
+import pytest
 from sqlalchemy import select
+from workers.tasks import tailor as tailor_module
+from workers.tasks.tailor import _run_tailor
 
-from app.config import settings
 from app.models import Application, CVVariant, GeneratedCV, Job, MasterCV
 from app.services.llm_config import LlmRuntimeConfig
 from tests.helpers import create_user
-from workers.tasks import tailor as tailor_module
-from workers.tasks.tailor import _run_tailor
 
 CV_STRUCTURE = {
     "summary": "Backend engineer",
@@ -39,6 +39,22 @@ async def _seed_cv_job(db_session, *, description: str = "Python and FastAPI on 
     await db_session.refresh(cv)
     await db_session.refresh(job)
     return user, cv, job
+
+
+@pytest.fixture(autouse=True)
+def _no_llm_configured_by_default(monkeypatch):
+    """Keep the ambient environment out of this module's LLM decisions.
+
+    The `llm` variant is gated by the LLM config alone (ADR 016, amended), so a
+    developer running the suite with `OPENAI_API_KEY`/`TAILORING_LLM_ENABLED`
+    exported would silently get a second artifact in every test here. Tests that
+    want the variant override this with their own `get_llm_config` stub.
+    """
+
+    async def _disabled_config(_session):
+        return LlmRuntimeConfig(enabled=False, api_key="", base_url="", model="")
+
+    monkeypatch.setattr(tailor_module, "get_llm_config", _disabled_config)
 
 
 async def test_tailor_task_stores_a_self_contained_artifact(test_engine, db_session):
@@ -174,8 +190,10 @@ async def test_tailor_task_ignores_application_for_other_job(test_engine, db_ses
     assert application.generated_cv_id is None
 
 
-async def test_tailor_task_produces_only_the_rule_variant_by_default(test_engine, db_session):
-    """The full-LLM variant is opt-in (feature flag + configured LLM)."""
+async def test_tailor_task_produces_only_the_rule_variant_when_no_llm_is_configured(
+    test_engine, db_session
+):
+    """With no usable LLM config the run degrades to the deterministic variant."""
     _, cv, job = await _seed_cv_job(db_session)
 
     result = await _run_tailor(str(job.id), str(cv.id))
@@ -185,9 +203,8 @@ async def test_tailor_task_produces_only_the_rule_variant_by_default(test_engine
 
 
 async def test_tailor_task_adds_the_llm_variant_when_enabled(test_engine, db_session, monkeypatch):
-    """With the flag on, a second (LLM-rewritten) artifact is kept alongside."""
+    """An enabled LLM config + API key alone opts the run into the second variant."""
     _, cv, job = await _seed_cv_job(db_session)
-    monkeypatch.setattr(settings, "tailoring_llm_variant_enabled", True)
 
     async def _enabled_config(_session):
         return LlmRuntimeConfig(
@@ -220,7 +237,6 @@ async def test_tailor_task_llm_variant_can_be_skipped_after_a_failure(
 ):
     """A failing rewrite degrades gracefully — the rule artifact still ships."""
     _, cv, job = await _seed_cv_job(db_session)
-    monkeypatch.setattr(settings, "tailoring_llm_variant_enabled", True)
 
     async def _enabled_config(_session):
         return LlmRuntimeConfig(
@@ -238,3 +254,23 @@ async def test_tailor_task_llm_variant_can_be_skipped_after_a_failure(
     assert result["llm_generated_cv_id"] is None
     generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
     assert [item.variant for item in generated] == [CVVariant.rule]
+
+
+def test_llm_variant_skip_reason_names_the_missing_condition():
+    """A skipped variant has to be explainable — nothing else fails silently.
+
+    Skipping the AI rewrite is a graceful no-op, so this reason string is the
+    only feedback an operator gets for "I only see the deterministic CV". Only
+    the LLM config is consulted — there is no worker flag to check (ADR 016).
+    """
+    disabled = LlmRuntimeConfig(enabled=False, api_key="sk-x", base_url="http://llm", model="m")
+    assert "disabled" in tailor_module._llm_variant_skip_reason(disabled)
+    assert tailor_module._llm_variant_wanted(disabled) is False
+
+    no_key = LlmRuntimeConfig(enabled=True, api_key="", base_url="http://llm", model="m")
+    assert "API key" in tailor_module._llm_variant_skip_reason(no_key)
+    assert tailor_module._llm_variant_wanted(no_key) is False
+
+    usable = LlmRuntimeConfig(enabled=True, api_key="sk-x", base_url="http://llm", model="m")
+    assert tailor_module._llm_variant_skip_reason(usable) == ""
+    assert tailor_module._llm_variant_wanted(usable) is True

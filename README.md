@@ -155,6 +155,13 @@ docker compose up -d
 docker compose --env-file .env up -d
 ```
 
+> **Upgrading an existing checkout?** Delete the `TAILORING_LLM_VARIANT_ENABLED`
+> line from your `.env` if it is still there — the setting was removed (ADR 016
+> amendment) and `Settings` forbids unknown keys, so a backend/worker process
+> that loads that file (a native run, not Compose) now fails validation at
+> import. The AI rewrite variant is instead turned on by enabling the LLM in
+> Admin → LLM with an API key.
+
 ### 3. Access from the LAN
 
 Replace `SERVER_IP` with the server's LAN address (`hostname -I`):
@@ -303,9 +310,16 @@ retrospectives) are listed at the end of the development plan.
   summary with the JD-matched strengths; reports `used_fallback` when nothing
   matched instead of silently returning the top blocks
 - Optional **second** variant: a full LLM rewrite kept *alongside* the
-  deterministic one (`TAILORING_LLM_VARIANT_ENABLED` + a configured LLM),
-  schema-validated and degrading gracefully. Both variants are scored by the
-  deterministic ATS scorer so they can be compared (ADR 016)
+  deterministic one (an LLM enabled in Admin → LLM with a stored API key; there
+  is no env flag since ADR 016 was amended), schema-validated and degrading
+  gracefully. Both variants are scored by the deterministic ATS scorer so they
+  can be compared (ADR 016). Both gates (the admin toggle and the API key) are
+  silent when unmet, so a skipped variant is logged as
+  `cv_tailored_llm_variant_skipped` with the reason — check
+  `docker compose logs worker | grep llm_variant_skipped` when only the
+  deterministic CV appears. Env *fallback* changes (`TAILORING_LLM_ENABLED`,
+  `OPENAI_*`) only reach the worker after
+  `docker compose up -d --force-recreate worker`
 - PDF generation: Jinja2 template + weasyprint; a tailored CV is a
   **self-contained `generated_cvs` artifact** (its own `structured_json` and
   `variant`, `rule` or `llm`) — a tailor run never creates a `master_cv` version

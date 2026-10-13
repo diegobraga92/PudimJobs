@@ -77,6 +77,10 @@
       </div>
     }
 
+    @if (llmVariantMissing) {
+      <p class="muted small">{{ i18n.t('cv.panel.llmVariantOff') }}</p>
+    }
+
     @if (selected) {
       <div class="tailored-head">
         <span class="variant-name">{{ variantLabel(selected) }}</span>

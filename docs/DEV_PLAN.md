@@ -73,9 +73,9 @@ How this plan is organised:
 - [x] Deterministic tailoring (`cv_tailor.tailor_cv`) with a summary that leads
       with the JD-matched strengths and an explicit `used_fallback` signal —
       ADR 006
-- [x] Optional full-LLM rewrite kept as a *second* variant
-      (`TAILORING_LLM_VARIANT_ENABLED`), schema-validated and degradation-safe —
-      ADR 016
+- [x] Optional full-LLM rewrite kept as a *second* variant (produced when the
+      LLM is enabled in Admin → LLM with an API key), schema-validated and
+      degradation-safe — ADR 016
 - [x] PDF generation via Jinja2 + weasyprint; tailored CVs persisted as
       self-contained `generated_cvs` artifacts (migration `0019`) — ADR 016
 - [x] CV import (`POST /api/cv/parse`): PDF, DOCX and ODT → structured

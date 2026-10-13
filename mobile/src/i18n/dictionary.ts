@@ -410,6 +410,11 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   },
   'cv.variant.rule': { en: 'Deterministic', 'pt-BR': 'Determinística' },
   'cv.variant.llm': { en: 'AI rewrite', 'pt-BR': 'Reescrita por IA' },
+  'cv.panel.llmVariantOff': {
+    en: 'Only the deterministic variant exists. The AI rewrite variant needs an LLM enabled in Admin → LLM with an API key.',
+    'pt-BR':
+      'Só existe a variante determinística. A variante de reescrita por IA exige um LLM habilitado em Admin → LLM com chave de API.',
+  },
   'cv.panel.noContent': {
     en: 'This version has no stored content to preview.',
     'pt-BR': 'Esta versão não tem conteúdo salvo para pré-visualizar.',
@@ -535,8 +540,12 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'admin.details': { en: 'Details', 'pt-BR': 'Detalhes' },
   'admin.hide': { en: 'Hide', 'pt-BR': 'Ocultar' },
   'admin.llmTitle': { en: 'LLM (CV tailoring)', 'pt-BR': 'LLM (personalização de CV)' },
-  'admin.llmIntro': { en: 'Configure an OpenAI-compatible API used to rephrase CV bullet points during tailoring. Leave the API key blank to keep the currently stored key.', 'pt-BR': 'Configure uma API compatível com OpenAI usada para reformular os marcadores do CV durante a personalização. Deixe a chave de API em branco para manter a chave atualmente armazenada.' },
-  'admin.enableLlm': { en: 'Enable LLM rephrasing', 'pt-BR': 'Ativar reformulação com LLM' },
+  'admin.llmIntro': {
+    en: 'Configure an OpenAI-compatible API used for CV import structuring, the ATS review and the full-LLM tailoring variant. Enabling it here (with an API key) is what turns the AI rewrite variant on. Leave the API key blank to keep the currently stored key.',
+    'pt-BR':
+      'Configure uma API compatível com OpenAI usada na estruturação da importação de CV, na revisão de ATS e na variante de personalização por LLM. Habilitá-la aqui (com chave de API) é o que ativa a variante de reescrita por IA. Deixe a chave de API em branco para manter a chave atualmente armazenada.'
+  },
+  'admin.enableLlm': { en: 'Enable LLM features', 'pt-BR': 'Ativar recursos de LLM' },
   'admin.baseUrl': { en: 'Base URL', 'pt-BR': 'URL base' },
   'admin.model': { en: 'Model', 'pt-BR': 'Modelo' },
   'admin.apiKey': { en: 'API key', 'pt-BR': 'Chave de API' },

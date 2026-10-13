@@ -33,6 +33,7 @@ describe('i18n dictionary', () => {
       'cv.panel.useThisOne',
       'cv.panel.editSave',
       'cv.panel.llmSelfScore',
+      'cv.panel.llmVariantOff',
       'cv.variant.rule',
       'cv.variant.llm',
     ];

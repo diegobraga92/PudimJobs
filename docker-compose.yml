@@ -69,6 +69,13 @@ services:
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       # Comma-separated browser origins allowed to call the API directly.
       CORS_ORIGINS: "${PJ_CORS_ORIGINS:-http://localhost:9400,http://127.0.0.1:9400}"
+      # Optional LLM features (ADR 006 / ADR 016). See .env.example: the admin
+      # panel stores enable/base URL/model/API key in the DB; these are the env
+      # fallback used only while no DB row has been saved yet.
+      TAILORING_LLM_ENABLED: "${TAILORING_LLM_ENABLED:-false}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o-mini}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,6 +103,14 @@ services:
       LOG_LEVEL: DEBUG
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       WORKER_METRICS_PORT: "9100"
+      # Optional LLM features (ADR 006 / ADR 016). Enabling the LLM in the admin
+      # panel plus storing an API key is what makes a tailor run also emit the
+      # second, full-LLM `llm` variant; these are the env fallback for a
+      # deployment that has not saved a DB row yet.
+      TAILORING_LLM_ENABLED: "${TAILORING_LLM_ENABLED:-false}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o-mini}"
     depends_on:
       postgres:
         condition: service_healthy

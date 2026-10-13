@@ -47,6 +47,9 @@ description, the notes/retrospective edits and the tailored-CV + ATS panel
 (`app-cv-panel` + `app-ats-report`) — see ADR 015. Since ADR 016 the panel shows
 both tailoring variants (`Deterministic` / `AI rewrite`), lets you edit the
 chosen artifact inline and record which one you actually sent (*Use this one*).
+When only the `Deterministic` card is present the panel spells out what the
+`AI rewrite` variant still needs (enabling the LLM in Admin → LLM and storing an
+API key), because the worker skips it silently by design.
 
 ### CV preview
 

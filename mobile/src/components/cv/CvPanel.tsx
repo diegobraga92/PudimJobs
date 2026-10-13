@@ -225,6 +225,12 @@ export function CvPanel({
             </View>
           ) : null}
 
+          {tailored.length === 1 && tailored[0].variant === 'rule' ? (
+            <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
+              {i18n.t('cv.panel.llmVariantOff')}
+            </Text>
+          ) : null}
+
           <View style={styles.meta}>
             <Text style={[styles.variantName, { color: theme.colors.text }]}>
               {i18n.t(variantLabelKey(selected.variant))}

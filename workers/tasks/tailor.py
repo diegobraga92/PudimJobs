@@ -19,7 +19,6 @@ import uuid
 import structlog
 from sqlalchemy import select
 
-from app.config import settings
 from app.database import async_session_factory
 from app.models import Application, CVVariant, GeneratedCV, Job, MasterCV, User
 from app.services.ats_scorer import derive_keywords, score_ats
@@ -116,9 +115,24 @@ async def _store_variant(
     return generated
 
 
+def _llm_variant_skip_reason(config: LlmRuntimeConfig) -> str:
+    """Why the full-LLM variant will not be produced, or ``""`` when it will.
+
+    Enabling the LLM in Admin -> LLM is what opts a deployment into the second
+    variant (ADR 016); there is no separate flag. Naming the missing half is the
+    point: a skipped variant used to leave no trace at all, so "I only got the
+    deterministic CV" was indistinguishable from a bug.
+    """
+    if not config.enabled:
+        return "the LLM is disabled in Admin -> LLM"
+    if not config.api_key:
+        return "no LLM API key is configured"
+    return ""
+
+
 def _llm_variant_wanted(config: LlmRuntimeConfig) -> bool:
-    """The full-LLM variant needs the feature flag *and* a usable LLM config."""
-    return settings.tailoring_llm_variant_enabled and config.enabled and bool(config.api_key)
+    """The full-LLM variant needs an enabled LLM config with a usable API key."""
+    return not _llm_variant_skip_reason(config)
 
 
 async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None = None) -> dict:
@@ -157,6 +171,14 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
         wanted: list[CVVariant] = [CVVariant.rule]
         if _llm_variant_wanted(llm_config):
             wanted.append(CVVariant.llm)
+        else:
+            # Never skip silently: the user sees a single CV and needs to know
+            # which of the two conditions is missing (ADR 016).
+            logger.info(
+                "cv_tailored_llm_variant_skipped",
+                job_id=job_id,
+                reason=_llm_variant_skip_reason(llm_config),
+            )
 
         existing: dict[CVVariant, GeneratedCV] = {}
         for variant in wanted:

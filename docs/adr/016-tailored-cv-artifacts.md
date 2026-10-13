@@ -4,6 +4,10 @@
 
 Accepted (2026-10-13)
 
+Amended (2026-10-13): the env-only `TAILORING_LLM_VARIANT_ENABLED` switch was
+removed. Enabling the LLM in Admin → LLM (with a stored API key) is now the
+only opt-in for the `llm` variant — same guard, one place to configure it.
+
 Supersedes ADR 015 §5 ("Editing a tailored CV still happens on `/cv`") and
 revisits the "Full CV rewrite by LLM" rejection in ADR 006.
 
@@ -55,12 +59,20 @@ output cannot appear in `GET /api/cv` again.
   instead of being silent. This variant stays fully deterministic — the legacy
   per-bullet `enhance_with_llm` rephrasing is no longer wired into the worker,
   precisely because it would break that property.
-- **`llm`** — only when `TAILORING_LLM_VARIANT_ENABLED=true` *and* an enabled
-  LLM config with an API key exists. A single completion rewrites the whole CV
-  against the JD; the reply is parsed and **validated with
-  `CVStructure.model_validate`** before it is trusted. Any failure (disabled,
-  HTTP error, malformed JSON, schema violation) logs a warning and the run
-  continues with the `rule` artifact only — the LLM can never fail a tailor run.
+- **`llm`** — only when an enabled LLM config with an API key exists. A single
+  completion rewrites the whole CV against the JD; the reply is parsed and
+  **validated with `CVStructure.model_validate`** before it is trusted. Any
+  failure (disabled, HTTP error, malformed JSON, schema violation) logs a
+  warning and the run continues with the `rule` artifact only — the LLM can
+  never fail a tailor run.
+
+Both conditions gate `llm`, and *both* are silent when unmet (nothing fails, so
+nothing warns). To make that debuggable, `_llm_variant_skip_reason()` names the
+missing one and the worker logs `cv_tailored_llm_variant_skipped` whenever it
+skips — `docker compose logs worker | grep llm_variant_skipped` answers "why do I
+only see the deterministic CV?" directly. The CV panel shows the same
+requirement next to a lone `rule` card, for the case where logs are out of
+reach.
 
 Idempotency is per `(user_id, job_id, source_master_cv_id, variant)`, enforced by
 a unique index. Requesting "tailor again" therefore reuses artifacts rather than
@@ -112,7 +124,8 @@ model can therefore produce a *bad second artifact*, never a missing one.
 ### Negative / Risks
 
 - **ADR 006's "full CV rewrite" rejection is reversed.** Cost and hallucination
-  risk are real; the mitigations are: opt-in flag, no-fabrication prompt, schema
+  risk are real; the mitigations are: opt-in (the LLM must be explicitly enabled
+  in Admin → LLM and an API key stored), no-fabrication prompt, schema
   validation, the rule variant always kept, an ATS comparison, the artifact
   marked AI-generated in the UI, and no auto-link.
 - **Two artifacts per job.** The panel has to explain a `rule`/`llm` choice and
