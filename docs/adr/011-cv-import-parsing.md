@@ -25,13 +25,24 @@ Extraction and structuring live in a new service `app/services/cv_parser.py`:
 
 1. **Text extraction is deterministic**: `pypdf` for PDFs, `python-docx` for
    DOCX (paragraphs + table cells), and the stdlib `zipfile` + `xml.etree` for
-   ODT (the `text:h`/`text:p` blocks of `content.xml`).
+   ODT (the `text:h`/`text:p` blocks of `content.xml`). These formats keep the
+   bullet glyph *outside* the run text, so extraction normalizes it: ODT
+   `text:list-item` paragraphs, DOCX paragraphs carrying `w:numPr` list
+   numbering (directly or via their style), and PDF Symbol/Wingdings bullets
+   (private-use-area code points such as `U+F0B7`) are rewritten to a `•`
+   marker so the structurer can recognize them.
 2. **Structuring is hybrid, mirroring ADR 006**:
    - A rule-based heuristic core (`structure_cv`) always runs: whole-line
      section-heading detection (summary/experience/education/skills/projects),
      title/company/date extraction with per-line date-range handling, bullet
      grouping, skill splitting, and project/link capture. Output is always
      validated against the `CVStructure` schema.
+   - Because PDF extraction wraps long lines, a non-bullet line that carries no
+     date range and no title/company separator continues the current bullet
+     (hyphenated wraps such as `code-` + `quality` rejoin without a space), and
+     a bare year line back-fills the year of the preceding education entry.
+     Conversely, a line that *does* carry a date range or separator starts a new
+     entry, so headers split over two lines (title, then company) stay together.
    - An optional LLM (`structure_cv_with_llm`) is tried first **only when** an
      OpenAI-compatible API key is configured (`llm_config` DB row or env
      fallback). It returns strict JSON validated against `CVStructure`; any

@@ -19,6 +19,8 @@ from xml.etree import ElementTree
 
 import httpx
 from docx import Document
+from docx.oxml.ns import qn
+from docx.text.paragraph import Paragraph
 from pydantic import ValidationError
 from pypdf import PdfReader
 
@@ -38,9 +40,18 @@ _LLM_MAX_CHARS = 6_000
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".odt"}
 
 # ODF text namespace; paragraphs (``text:p``) and headings (``text:h``) carry
-# the document body text inside the ZIP's ``content.xml``.
+# the document body text inside the ZIP's ``content.xml``. List items
+# (``text:list-item``) wrap the bulleted paragraphs, but the bullet glyph itself
+# lives in the list style, not the text, so extraction must synthesize a marker.
 _ODT_TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
 _ODT_BLOCK_TAGS = {f"{{{_ODT_TEXT_NS}}}p", f"{{{_ODT_TEXT_NS}}}h"}
+_ODT_LIST_ITEM_TAG = f"{{{_ODT_TEXT_NS}}}list-item"
+
+# Word records list membership via ``w:numPr`` (either on the paragraph's own
+# ``w:pPr`` or on the numbering style it references); the glyph is never in the
+# run text. ODF/Word/PDF bullets are all normalized to this marker on extraction.
+_W_NUM_PR = qn("w:numPr")
+_BULLET_MARKER = "\u2022"
 
 _MONTH = (
     r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|"
@@ -164,7 +175,10 @@ _DEGREE_RE = re.compile(
 )
 
 _BULLET_RE = re.compile(
-    r"^\s*(?:[\u2022\u25cf\u25e6\u25aa\u2023\u2043\u00b7*+\>\-\u2013\u2014]"
+    # The final glyphs are private-use-area symbols used by the Symbol/Wingdings
+    # fonts for bullets in PDFs (e.g. ``\uf0b7`` from LibreOffice exports).
+    r"^\s*(?:[\u2022\u25cf\u25e6\u25aa\u2023\u2043\u00b7*+\>\-\u2013\u2014"
+    r"\uf0b7\uf0a7\uf0d8\uf0fc\uf0a8]"
     r"|\d{1,2}[.)]|\u25aa)\s+(.+)$"
 )
 _SEPARATORS = (" | ", " @ ", " \u2014 ", " \u2013 ", " at ", " / ", " - ")
@@ -195,19 +209,57 @@ def extract_text_from_pdf(content: bytes) -> str:
     return "\n".join(pages)
 
 
+def _is_docx_list_item(paragraph: Paragraph) -> bool:
+    """True when a DOCX paragraph belongs to a bullet/numbered list.
+
+    Word stores list membership as ``w:numPr`` — either directly on the
+    paragraph or on the numbering style it references — so both are checked.
+    """
+    properties = paragraph._p.pPr
+    if properties is not None and properties.find(_W_NUM_PR) is not None:
+        return True
+    style = paragraph.style
+    while style is not None:
+        style_properties = style.element.pPr
+        if style_properties is not None and style_properties.find(_W_NUM_PR) is not None:
+            return True
+        style = style.base_style
+    return False
+
+
 def extract_text_from_docx(content: bytes) -> str:
     """Extract text from a DOCX byte stream (paragraphs + table cells)."""
     try:
         document = Document(BytesIO(content))
     except Exception as exc:
         raise InvalidFileError("Could not read DOCX file") from exc
-    lines = [p.text.strip() for p in document.paragraphs if p.text and p.text.strip()]
+    lines: list[str] = []
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        if _is_docx_list_item(paragraph):
+            lines.append(f"{_BULLET_MARKER} {text}")
+        else:
+            lines.append(text)
     for table in document.tables:
         for row in table.rows:
             cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
             if cells:
                 lines.append(" | ".join(cells))
     return "\n".join(lines)
+
+
+def _is_odt_list_item(
+    element: ElementTree.Element, parents: dict[ElementTree.Element, ElementTree.Element]
+) -> bool:
+    """True when ``element`` sits inside an ODF ``text:list-item`` (a bullet)."""
+    parent = parents.get(element)
+    while parent is not None:
+        if parent.tag == _ODT_LIST_ITEM_TAG:
+            return True
+        parent = parents.get(parent)
+    return False
 
 
 def extract_text_from_odt(content: bytes) -> str:
@@ -228,12 +280,21 @@ def extract_text_from_odt(content: bytes) -> str:
     except ElementTree.ParseError as exc:
         raise InvalidFileError("Could not read ODT file") from exc
 
+    # ElementTree has no parent links, so build a child->parent map once to tell
+    # list-item paragraphs (bullets) apart from regular paragraphs/headings.
+    parents = {child: parent for parent in root.iter() for child in parent}
+
     lines: list[str] = []
     for element in root.iter():
-        if element.tag in _ODT_BLOCK_TAGS:
-            text = "".join(element.itertext()).strip()
-            if text:
-                lines.append(text)
+        if element.tag not in _ODT_BLOCK_TAGS:
+            continue
+        text = "".join(element.itertext()).strip()
+        if not text:
+            continue
+        if _is_odt_list_item(element, parents):
+            lines.append(f"{_BULLET_MARKER} {text}")
+        else:
+            lines.append(text)
     return "\n".join(lines)
 
 
@@ -332,6 +393,30 @@ def _merge_date_range(item: ExperienceItem, line: str) -> None:
         item.end_date = end
 
 
+# Separators that mark a line as a new title/company entry rather than a wrapped
+# bullet fragment (see ``_looks_like_entry_header``). Deliberately narrower than
+# ``_SEPARATORS``: the " at "/" / " forms occur in ordinary prose, so using them
+# here would wrongly split a wrapped bullet into a new job.
+_ENTRY_HEADER_SEPARATORS = (" | ", " @ ", " - ", " \u2013 ", " \u2014 ")
+
+
+def _looks_like_entry_header(line: str) -> bool:
+    """True when a non-bullet line starts a new role rather than continuing one.
+
+    Experience headers carry a date range and/or a title/company separator;
+    wrapped bullet continuations (common in PDF text extraction) carry neither.
+    """
+    if _extract_date_range(line)[0]:
+        return True
+    return any(sep in line for sep in _ENTRY_HEADER_SEPARATORS)
+
+
+def _join_wrapped(previous: str, fragment: str) -> str:
+    """Join a wrapped fragment, preserving hyphenation (``code-`` + ``quality``)."""
+    joiner = "" if previous.endswith("-") else " "
+    return f"{previous}{joiner}{fragment}".strip()
+
+
 def _parse_experience(lines: list[str]) -> list[ExperienceItem]:
     items: list[ExperienceItem] = []
     header_parts: list[str] = []
@@ -340,6 +425,8 @@ def _parse_experience(lines: list[str]) -> list[ExperienceItem]:
     def flush() -> None:
         nonlocal header_parts, bullets
         if header_parts:
+            # Join with a plain space: extractors may wrap a date range across
+            # two lines, and inserting a separator there would hide the range.
             items.append(_experience_from_header(" ".join(header_parts), bullets))
         header_parts, bullets = [], []
 
@@ -356,7 +443,17 @@ def _parse_experience(lines: list[str]) -> list[ExperienceItem]:
             elif items:
                 _merge_date_range(items[-1], line)
             continue
-        flush()
+        if bullets and not _looks_like_entry_header(line):
+            # A non-bullet line with no date range or title/company separator is
+            # a wrapped continuation of the current bullet (PDF text extraction
+            # breaks long bullets across several physical lines), not a new job.
+            bullets[-1] = _join_wrapped(bullets[-1], line)
+            continue
+        if header_parts and _looks_like_entry_header(line):
+            # A line that clearly carries a date range or title/company separator
+            # starts a new entry; anything else extends the header (some layouts
+            # put the title and the company on separate lines).
+            flush()
         header_parts.append(line)
     flush()
     return items
@@ -390,6 +487,10 @@ def _parse_education(lines: list[str]) -> list[EducationItem]:
             p.strip() for p in re.split(r"\s{2,}|\s*[,\-\u2013\u2014|]\s*", cleaned) if p.strip()
         ]
         if not parts:
+            # A bare date line (PDF text extraction wraps the year onto its own
+            # line) back-fills the year of the entry it belongs to.
+            if year and items and not items[-1].year:
+                items[-1].year = year
             continue
         if len(parts) >= 2 and _DEGREE_RE.search(parts[-1]) and not _DEGREE_RE.search(parts[0]):
             degree, institution = parts[-1], parts[0]

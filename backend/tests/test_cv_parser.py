@@ -63,6 +63,39 @@ def test_extract_text_from_docx_includes_paragraphs():
     assert extract_text_from_docx(docx) == "SUMMARY\nBackend engineer."
 
 
+def test_extract_text_from_docx_marks_list_items_as_bullets():
+    # Word keeps the bullet glyph in the list numbering, not the run text.
+    docx = make_docx("SKILLS", "- Python", "- FastAPI")
+    assert extract_text_from_docx(docx) == "SKILLS\n\u2022 Python\n\u2022 FastAPI"
+
+
+def test_extract_text_from_docx_detects_paragraph_level_numbering():
+    # Exporters (e.g. LibreOffice/Markdown tooling) put ``w:numPr`` directly on
+    # the paragraph instead of using a bullet style; that path must work too.
+    from io import BytesIO
+
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = Document()
+    document.add_paragraph("SKILLS")
+    paragraph = document.add_paragraph("Python")
+    properties = paragraph._p.get_or_add_pPr()
+    numbering = OxmlElement("w:numPr")
+    level = OxmlElement("w:ilvl")
+    level.set(qn("w:val"), "0")
+    number_id = OxmlElement("w:numId")
+    number_id.set(qn("w:val"), "1")
+    numbering.append(level)
+    numbering.append(number_id)
+    properties.append(numbering)
+    buffer = BytesIO()
+    document.save(buffer)
+
+    assert extract_text_from_docx(buffer.getvalue()) == "SKILLS\n\u2022 Python"
+
+
 def test_extract_text_dispatches_by_extension():
     assert extract_text("cv.pdf", make_pdf("Hello")) == "Hello"
     assert extract_text("cv.docx", make_docx("Hello")) == "Hello"
@@ -72,6 +105,15 @@ def test_extract_text_dispatches_by_extension():
 def test_extract_text_from_odt_includes_paragraphs():
     odt = make_odt("SUMMARY", "Backend engineer.", "SKILLS", "Python & FastAPI")
     assert extract_text_from_odt(odt) == ("SUMMARY\nBackend engineer.\nSKILLS\nPython & FastAPI")
+
+
+def test_extract_text_from_odt_marks_list_items_as_bullets():
+    # ODF keeps the bullet glyph in the list style, not the text; extraction must
+    # synthesize a marker so list items are recognized as bullets downstream.
+    odt = make_odt("WORK EXPERIENCE", "Engineer | Acme", "- Built pipelines", "- Led a team")
+    assert extract_text_from_odt(odt) == (
+        "WORK EXPERIENCE\nEngineer | Acme\n\u2022 Built pipelines\n\u2022 Led a team"
+    )
 
 
 def test_extract_text_from_odt_rejects_invalid_bytes():
@@ -161,6 +203,93 @@ def test_structure_cv_ignores_unknown_sections():
     cv = structure_cv(text)
     assert len(cv.experience) == 1
     assert cv.skills == ["Python", "SQL"]
+
+
+def test_structure_cv_keeps_wrapped_bullets_with_their_entry():
+    # PDF text extraction yields Symbol-font bullets (\uf0b7) and wraps long
+    # bullets across lines; neither should be mistaken for a new job header.
+    text = (
+        "WORK EXPERIENCE\n"
+        "Engineer | Acme\n"
+        "Jan 2020 - Present\n"
+        "\uf0b7 Built async data pipelines with Python,\n"
+        "using asyncio and PostgreSQL\n"
+        "\uf0b7 Led a 4-person team\n"
+        "Senior Engineer - Globex\n"
+        "2017 - 2019\n"
+        "\uf0b7 Reviewed code-\n"
+        "quality reports\n"
+    )
+    cv = structure_cv(text)
+    assert len(cv.experience) == 2
+
+    first = cv.experience[0]
+    assert first.title == "Engineer"
+    assert first.company == "Acme"
+    assert first.bullets == [
+        "Built async data pipelines with Python, using asyncio and PostgreSQL",
+        "Led a 4-person team",
+    ]
+
+    second = cv.experience[1]
+    assert second.title == "Senior Engineer"
+    assert second.company == "Globex"
+    # Hyphenated wrap ("code-" + "quality") rejoins without a space.
+    assert second.bullets == ["Reviewed code-quality reports"]
+
+
+def test_structure_cv_backfills_wrapped_education_year():
+    # PDF extraction wraps the year onto its own line; it should attach to the
+    # preceding education entry rather than being dropped.
+    text = (
+        "EDUCATION\n"
+        "Specialization \u2013 Computer Engineering, Universidade Municipal de "
+        "Sao Caetano do Sul (USCS),\n"
+        "2017\n"
+    )
+    cv = structure_cv(text)
+    assert len(cv.education) == 1
+    assert cv.education[0].year == "2017"
+    assert cv.education[0].institution == "Universidade Municipal de Sao Caetano do Sul (USCS)"
+
+
+def test_structure_cv_merges_multiline_entry_headers():
+    # Some layouts (e.g. Word exports) split each job over two lines: title+dates
+    # first, then company+location. Those must stay a single entry.
+    text = (
+        "WORK EXPERIENCE\n"
+        "Senior Software Engineer\tJan 2020 - Present\n"
+        "Acme Corp\tRemote\n"
+        "\u2022 Built pipelines\n"
+        "Software Engineer\t2017 - 2019\n"
+        "Globex\tRemote\n"
+        "\u2022 Wrote REST APIs\n"
+    )
+    cv = structure_cv(text)
+    assert len(cv.experience) == 2
+    assert cv.experience[0].start_date == "2020-01"
+    assert cv.experience[0].end_date == "Present"
+    assert cv.experience[0].bullets == ["Built pipelines"]
+    assert cv.experience[1].start_date == "2017"
+    assert cv.experience[1].end_date == "2019"
+    assert cv.experience[1].bullets == ["Wrote REST APIs"]
+
+
+def test_structure_cv_recovers_date_range_wrapped_across_lines():
+    # Regression: PDF extraction can break a header mid-date-range
+    # (the month lands on one line and the year on the next); both ends must
+    # still be recovered.
+    text = (
+        "WORK EXPERIENCE\n"
+        "Microsoft | Software Development Engineer (Sao Paulo - SP) Jan 2022 \u2013 Jul \n"
+        "2022\n"
+        "\u2022 Shipped dashboards\n"
+    )
+    cv = structure_cv(text)
+    assert len(cv.experience) == 1
+    assert cv.experience[0].start_date == "2022-01"
+    assert cv.experience[0].end_date == "2022-07"
+    assert cv.experience[0].bullets == ["Shipped dashboards"]
 
 
 # --- LLM structuring (graceful degradation) --------------------------------
@@ -305,6 +434,21 @@ async def test_parse_cv_file_odt_end_to_end():
     assert result.experience[0].start_date == "2020-01"
     assert result.experience[0].end_date == "Present"
     assert "Python" in result.skills
+
+
+async def test_parse_cv_file_odt_list_bullets_stay_with_entry():
+    # Regression: list-item bullets used to be dropped at extraction, so every
+    # bullet line became its own (bogus) experience entry.
+    odt = make_odt(
+        "WORK EXPERIENCE",
+        "Engineer | Acme",
+        "Jan 2020 - Present",
+        "- Built pipelines",
+        "- Led a team",
+    )
+    result = await parse_cv_file("cv.odt", odt)
+    assert len(result.experience) == 1
+    assert result.experience[0].bullets == ["Built pipelines", "Led a team"]
 
 
 # --- richer structure: contact, certifications, languages -------------------

@@ -24,12 +24,20 @@ async def create_user(
 
 
 def make_docx(*paragraphs: str) -> bytes:
-    """Build a minimal DOCX from plain paragraphs (used by CV parser tests)."""
+    """Build a minimal DOCX from plain paragraphs (used by CV parser tests).
+
+    A paragraph starting with ``"- "`` is added with the built-in ``List Bullet``
+    style — a real Word bullet whose numbering lives on the style rather than the
+    run text — so tests exercise the DOCX list-item path.
+    """
     from docx import Document
 
     document = Document()
     for paragraph in paragraphs:
-        document.add_paragraph(paragraph)
+        if paragraph.startswith("- "):
+            document.add_paragraph(paragraph[2:], style="List Bullet")
+        else:
+            document.add_paragraph(paragraph)
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()
@@ -40,11 +48,32 @@ def make_odt(*paragraphs: str) -> bytes:
 
     Mirrors a real ODT's structure closely enough for the stdlib extractor:
     a ``mimetype`` entry plus a ``content.xml`` holding one ``text:p`` per
-    paragraph. Paragraph text is XML-escaped.
+    paragraph. A paragraph starting with ``"- "`` is emitted as a real
+    ``text:list``/``text:list-item`` bullet (as LibreOffice does) so tests
+    exercise the ODT list-item path. Paragraph text is XML-escaped.
     """
     import zipfile
 
-    body = "".join(f"<text:p>{escape(paragraph)}</text:p>" for paragraph in paragraphs)
+    blocks: list[str] = []
+    list_items: list[str] = []
+
+    def flush_list() -> None:
+        if list_items:
+            items = "".join(
+                f"<text:list-item><text:p>{item}</text:p></text:list-item>" for item in list_items
+            )
+            blocks.append(f"<text:list>{items}</text:list>")
+            list_items.clear()
+
+    for paragraph in paragraphs:
+        if paragraph.startswith("- "):
+            list_items.append(escape(paragraph[2:]))
+            continue
+        flush_list()
+        blocks.append(f"<text:p>{escape(paragraph)}</text:p>")
+    flush_list()
+
+    body = "".join(blocks)
     content = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         "<office:document-content "
