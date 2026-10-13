@@ -18,9 +18,7 @@ async def test_create_and_list_rules(auth_client):
 
 async def test_update_and_delete_rule(auth_client):
     client, _, _ = auth_client
-    created = await client.post(
-        "/api/alert-rules", json={"name": "AWS", "keywords": ["aws"]}
-    )
+    created = await client.post("/api/alert-rules", json={"name": "AWS", "keywords": ["aws"]})
     rule_id = created.json()["id"]
 
     updated = await client.put(

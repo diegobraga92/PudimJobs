@@ -45,9 +45,7 @@ async def test_mark_notification_read(auth_client, db_session):
 async def test_mark_all_read(auth_client, db_session):
     client, user, _ = auth_client
     for _ in range(3):
-        db_session.add(
-            Notification(user_id=user.id, channel="in_app", title="x", status="sent")
-        )
+        db_session.add(Notification(user_id=user.id, channel="in_app", title="x", status="sent"))
     await db_session.commit()
 
     await client.post("/api/notifications/read-all")

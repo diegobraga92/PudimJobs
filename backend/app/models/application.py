@@ -25,6 +25,9 @@ class Application(Base):
     )
     applied_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Free-form retrospective ("what went well / what to improve") captured
+    # after an interview round; surfaced by GET /api/applications/lessons.
+    lessons_learned: Mapped[str | None] = mapped_column(Text, nullable=True)
     cv_version: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("master_cv.id", ondelete="SET NULL"), nullable=True
     )

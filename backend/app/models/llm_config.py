@@ -20,9 +20,7 @@ LLM_CONFIG_ROW_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 class LLMConfig(Base):
     __tablename__ = "llm_config"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, primary_key=True, default=LLM_CONFIG_ROW_ID
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=LLM_CONFIG_ROW_ID)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_url: Mapped[str] = mapped_column(

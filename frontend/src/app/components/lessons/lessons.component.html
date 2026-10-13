@@ -1,0 +1,88 @@
+<div class="page-header">
+  <h2>{{ i18n.t('lessons.title') }}</h2>
+  <span class="muted pipeline-count">
+    {{ i18n.t('lessons.total', { total: visibleLessons.length }) }}
+  </span>
+</div>
+
+@if (error) {
+  <div class="alert alert-error" role="alert">
+    <app-icon class="alert-icon" name="circle-alert" [size]="18" />
+    <span>{{ error }}</span>
+  </div>
+}
+
+<div class="filters panel">
+  <div class="filter-group">
+    <span class="muted small">{{ i18n.t('lessons.filterStatus') }}</span>
+    <button type="button" class="chip" [class.active]="statusFilter === ''" (click)="setStatusFilter('')">
+      {{ i18n.t('lessons.allStatuses') }}
+    </button>
+    @for (status of statuses; track status) {
+      <button
+        type="button"
+        class="chip"
+        [class.active]="statusFilter === status"
+        (click)="setStatusFilter(status)"
+      >
+        {{ statusLabel(status) }}
+      </button>
+    }
+  </div>
+  <div class="form-field search-field">
+    <label for="lessons-search">{{ i18n.t('lessons.search') }}</label>
+    <input
+      id="lessons-search"
+      class="input"
+      [value]="query"
+      (input)="setQuery($any($event.target).value)"
+      [placeholder]="i18n.t('lessons.searchPlaceholder')"
+    />
+  </div>
+</div>
+
+@if (loading) {
+  <div class="loading-text pulse">
+    <app-icon name="loader" [size]="16" />
+    {{ i18n.t('lessons.loading') }}
+  </div>
+} @else if (visibleLessons.length === 0) {
+  <div class="empty-state panel">
+    <span class="empty-icon">
+      <app-icon name="file-text" [size]="26" />
+    </span>
+    <h3>{{ i18n.t('lessons.emptyTitle') }}</h3>
+    <p>{{ i18n.t('lessons.emptyHint') }}</p>
+    <a class="btn btn-primary" routerLink="/applications">
+      <app-icon name="kanban" [size]="16" />
+      {{ i18n.t('lessons.goToApplications') }}
+    </a>
+  </div>
+} @else {
+  <ul class="lesson-list">
+    @for (lesson of visibleLessons; track lesson.application_id) {
+      <li class="lesson-card panel">
+        <div class="lesson-head">
+          <div>
+            <strong>{{ lesson.job_title }}</strong>
+            <div class="muted xs">{{ lesson.job_company }}</div>
+          </div>
+          <span class="badge badge-info">{{ statusLabel(lesson.status) }}</span>
+        </div>
+        <p class="lesson-text">{{ lesson.lessons_learned }}</p>
+        <div class="lesson-meta muted xs">
+          @if (lesson.applied_date) {
+            <span>
+              <app-icon name="calendar" [size]="12" />
+              {{ i18n.t('lessons.appliedOn', { date: lesson.applied_date }) }}
+            </span>
+          }
+          <span>
+            <app-icon name="history" [size]="12" />
+            {{ i18n.t('lessons.updated', { date: (lesson.updated_at | date: 'short') }) }}
+          </span>
+        </div>
+      </li>
+    }
+  </ul>
+}

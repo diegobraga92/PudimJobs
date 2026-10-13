@@ -39,12 +39,8 @@ async def stats(
     sources = await db.execute(select(func.count(Source.id)))
     jobs = await db.execute(select(func.count(Job.id)))
     cutoff = datetime.now(UTC) - timedelta(hours=24)
-    jobs_24h = await db.execute(
-        select(func.count(Job.id)).where(Job.created_at >= cutoff)
-    )
-    failed = await db.execute(
-        select(func.count(ScrapeRun.id)).where(ScrapeRun.status == "failed")
-    )
+    jobs_24h = await db.execute(select(func.count(Job.id)).where(Job.created_at >= cutoff))
+    failed = await db.execute(select(func.count(ScrapeRun.id)).where(ScrapeRun.status == "failed"))
     total_runs = await db.execute(select(func.count(ScrapeRun.id)))
     return StatsResponse(
         sources=sources.scalar() or 0,
@@ -166,12 +162,8 @@ async def audit_actions(
     admin: User = Depends(require_admin),
 ):
     """Distinct entity types/actions recorded in the audit log (for filters)."""
-    types = await db.execute(
-        select(AuditLog.entity_type).distinct().order_by(AuditLog.entity_type)
-    )
-    actions = await db.execute(
-        select(AuditLog.action).distinct().order_by(AuditLog.action)
-    )
+    types = await db.execute(select(AuditLog.entity_type).distinct().order_by(AuditLog.entity_type))
+    actions = await db.execute(select(AuditLog.action).distinct().order_by(AuditLog.action))
     return {
         "entity_types": [row[0] for row in types.all()],
         "actions": [row[0] for row in actions.all()],
@@ -190,9 +182,7 @@ async def quality_overview(
         select(func.count(ScrapeQuality.id)).where(ScrapeQuality.is_duplicate.is_(True))
     )
     normalized = await db.execute(
-        select(func.count(ScrapeQuality.id)).where(
-            ScrapeQuality.normalized_company.is_not(None)
-        )
+        select(func.count(ScrapeQuality.id)).where(ScrapeQuality.normalized_company.is_not(None))
     )
     with_issues = await db.execute(
         select(func.count(ScrapeQuality.id)).where(
@@ -206,9 +196,7 @@ async def quality_overview(
         "assessed": total,
         "avg_completeness": round(float(avg_score.scalar() or 0.0), 3),
         "duplicates": duplicates.scalar() or 0,
-        "normalization_coverage": round(
-            (normalized.scalar() or 0) / total, 3
-        ) if total else 0.0,
+        "normalization_coverage": round((normalized.scalar() or 0) / total, 3) if total else 0.0,
         "jobs_with_issues": with_issues.scalar() or 0,
     }
 

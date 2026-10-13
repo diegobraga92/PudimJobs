@@ -85,9 +85,28 @@
         </p>
       }
 
-      @if (selected.notes) {
-        <p class="notes">{{ selected.notes }}</p>
-      }
+      <div class="form-field">
+        <label for="app-notes">{{ i18n.t('applications.notes') }}</label>
+        <textarea
+          id="app-notes"
+          class="textarea"
+          rows="3"
+          [value]="notesDraft"
+          (input)="notesDraft = $any($event.target).value"
+        ></textarea>
+      </div>
+
+      <div class="form-field">
+        <label for="app-lessons">{{ i18n.t('applications.lessonsLearned') }}</label>
+        <textarea
+          id="app-lessons"
+          class="textarea"
+          rows="4"
+          [value]="lessonsDraft"
+          (input)="lessonsDraft = $any($event.target).value"
+          [placeholder]="i18n.t('applications.lessonsPlaceholder')"
+        ></textarea>
+      </div>
 
       <div class="form-field">
         <label for="app-status">{{ i18n.t('applications.moveToStatus') }}</label>
@@ -104,6 +123,15 @@
       </div>
 
       <div class="modal-actions">
+        <button
+          type="button"
+          class="btn btn-primary"
+          (click)="saveDetail()"
+          [disabled]="savingDetail"
+        >
+          <app-icon name="check" [size]="15" />
+          {{ savingDetail ? i18n.t('applications.saving') : i18n.t('applications.saveDetails') }}
+        </button>
         <button type="button" class="btn btn-danger" (click)="remove(selected)">
           <app-icon name="trash" [size]="15" />
           {{ i18n.t('common.delete') }}

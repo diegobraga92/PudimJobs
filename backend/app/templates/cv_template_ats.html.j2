@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  /* ATS-friendly layout (ADR 013): one column, no tables/floats/images,
+     no decorative glyphs, standard fonts and plain black text. Section titles
+     are literal words a parser can match; contact details are one text line. */
+  @page { size: A4; margin: 2cm 1.9cm; }
+  body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 11pt;
+         color: #000; line-height: 1.4; }
+  h1 { font-size: 16pt; margin: 0 0 4px; font-weight: bold; }
+  .contact { margin: 0 0 14px; font-size: 11pt; }
+  h2 { font-size: 12pt; margin: 16px 0 6px; font-weight: bold; }
+  p { margin: 0 0 6px; }
+  ul { margin: 0 0 8px; padding-left: 20px; }
+  li { margin-bottom: 3px; }
+  .entry { margin-bottom: 10px; }
+  .entry-title { font-weight: bold; }
+  .entry-meta { font-weight: normal; }
+</style>
+</head>
+<body>
+  {% if name %}<h1>{{ name }}</h1>{% endif %}
+  {% set contact_bits = [] %}
+  {% if email %}{% set _ = contact_bits.append(email) %}{% endif %}
+  {% if phone %}{% set _ = contact_bits.append(phone) %}{% endif %}
+  {% if location %}{% set _ = contact_bits.append(location) %}{% endif %}
+  {% if links %}{% set _ = contact_bits.extend(links) %}{% endif %}
+  {% if contact_bits %}<div class="contact">{{ contact_bits | join(' | ') }}</div>{% endif %}
+
+  {% if summary %}
+    <h2>Summary</h2>
+    <p>{{ summary }}</p>
+  {% endif %}
+
+  {% if experience %}
+    <h2>Experience</h2>
+    {% for exp in experience %}
+      <div class="entry">
+        <div class="entry-title">{{ exp.title }}</div>
+        <div class="entry-meta">{{ exp.company }}{% if exp.start_date or exp.end_date %} | {{ exp.start_date or '' }} - {{ exp.end_date or 'Present' }}{% endif %}</div>
+        {% if exp.bullets %}
+          <ul>
+            {% for bullet in exp.bullets %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if education %}
+    <h2>Education</h2>
+    {% for edu in education %}
+      <div class="entry">
+        <div class="entry-title">{{ edu.degree }}</div>
+        <div class="entry-meta">{{ edu.institution }}{% if edu.year %} | {{ edu.year }}{% endif %}</div>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if skills %}
+    <h2>Skills</h2>
+    <p>{{ skills | join(', ') }}</p>
+  {% endif %}
+
+  {% if certifications %}
+    <h2>Certifications</h2>
+    <ul>
+      {% for cert in certifications %}<li>{{ cert }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if projects %}
+    <h2>Projects</h2>
+    {% for proj in projects %}
+      <div class="entry">
+        <div class="entry-title">{{ proj.name }}</div>
+        {% if proj.description %}<p>{{ proj.description }}</p>{% endif %}
+        {% if proj.link %}<div class="entry-meta">{{ proj.link }}</div>{% endif %}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if languages %}
+    <h2>Languages</h2>
+    <p>{{ languages | join(', ') }}</p>
+  {% endif %}
+</body>
+</html>

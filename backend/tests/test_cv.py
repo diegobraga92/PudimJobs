@@ -32,9 +32,7 @@ async def test_create_cv_versions_and_current(auth_client):
     assert first.json()["is_current"] is True
     assert first.json()["label"] == "CV v1"
 
-    second = await client.post(
-        "/api/cv", json={"structured_json": CV_PAYLOAD, "label": "Tailored"}
-    )
+    second = await client.post("/api/cv", json={"structured_json": CV_PAYLOAD, "label": "Tailored"})
     assert second.status_code == 201
     assert second.json()["version"] == 2
     assert second.json()["label"] == "Tailored"
@@ -52,9 +50,7 @@ async def test_cv_creation_writes_audit_log(auth_client, db_session):
     client, user, _ = auth_client
     await client.post("/api/cv", json={"structured_json": CV_PAYLOAD})
 
-    result = await db_session.execute(
-        select(AuditLog).where(AuditLog.user_id == user.id)
-    )
+    result = await db_session.execute(select(AuditLog).where(AuditLog.user_id == user.id))
     entries = result.scalars().all()
     assert len(entries) == 1
     assert entries[0].entity_type == "master_cv"
@@ -78,9 +74,7 @@ async def test_delete_current_cv_promotes_next_version(auth_client):
     client, _, _ = auth_client
     first = (await client.post("/api/cv", json={"structured_json": CV_PAYLOAD})).json()
     second = (
-        await client.post(
-            "/api/cv", json={"structured_json": CV_PAYLOAD, "label": "Tailored"}
-        )
+        await client.post("/api/cv", json={"structured_json": CV_PAYLOAD, "label": "Tailored"})
     ).json()
 
     response = await client.delete(f"/api/cv/{second['id']}")
@@ -99,9 +93,7 @@ async def test_delete_non_current_cv_keeps_current(auth_client):
     client, _, _ = auth_client
     first = (await client.post("/api/cv", json={"structured_json": CV_PAYLOAD})).json()
     second = (
-        await client.post(
-            "/api/cv", json={"structured_json": CV_PAYLOAD, "label": "Tailored"}
-        )
+        await client.post("/api/cv", json={"structured_json": CV_PAYLOAD, "label": "Tailored"})
     ).json()
 
     response = await client.delete(f"/api/cv/{first['id']}")
@@ -152,7 +144,5 @@ async def test_delete_generated_cv(auth_client, db_session):
 
 async def test_delete_generated_cv_unknown_404(auth_client):
     client, _, _ = auth_client
-    response = await client.delete(
-        "/api/cv/generated/00000000-0000-0000-0000-000000000000"
-    )
+    response = await client.delete("/api/cv/generated/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404

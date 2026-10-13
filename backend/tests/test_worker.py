@@ -135,7 +135,10 @@ async def test_scrape_pipeline_stores_jobs_and_records_run(
 
     jobs = (await db_session.execute(select(Job))).scalars().all()
     assert len(jobs) == 2
-    assert {job.url for job in jobs} == {"https://acme.example/jobs/1", "https://acme.example/jobs/2"}
+    assert {job.url for job in jobs} == {
+        "https://acme.example/jobs/1",
+        "https://acme.example/jobs/2",
+    }
 
     runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
     assert len(runs) == 1
@@ -167,9 +170,7 @@ async def test_scrape_deduplicates_on_second_run(
     assert len(jobs) == 2
 
 
-async def test_scrape_fails_fast_on_empty_parse(
-    test_engine, db_session, monkeypatch, redis_client
-):
+async def test_scrape_fails_fast_on_empty_parse(test_engine, db_session, monkeypatch, redis_client):
     """A completed scrape that parses zero jobs fails instead of '0 new'."""
     user = await create_user(db_session)
     source = await _make_source(db_session, user)

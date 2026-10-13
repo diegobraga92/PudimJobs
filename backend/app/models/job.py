@@ -60,10 +60,7 @@ class Job(Base):
     )
     # Soft-hide flag: lets users dismiss "not interesting" jobs (or jobs they
     # already applied to) so they stop cluttering the main listing.
-    hidden: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false")
-    )
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-

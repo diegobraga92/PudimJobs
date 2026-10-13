@@ -29,9 +29,7 @@ _NUMBERED_LINE_RE = re.compile(r"^\d+[.)]\s*(.+)$")
 def _contains_skill(text: str, skill: str) -> bool:
     pattern = _SKILL_RE_CACHE.get(skill)
     if pattern is None:
-        pattern = re.compile(
-            r"(?<![a-z0-9])" + re.escape(skill) + r"(?![a-z0-9])", re.IGNORECASE
-        )
+        pattern = re.compile(r"(?<![a-z0-9])" + re.escape(skill) + r"(?![a-z0-9])", re.IGNORECASE)
         _SKILL_RE_CACHE[skill] = pattern
     return bool(pattern.search(text))
 
@@ -43,6 +41,15 @@ class TailoredCV:
     education: list[dict] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     projects: list[dict] = field(default_factory=list)
+    # Contact header (back-filled from the CV file; used by the PDF renderer).
+    full_name: str = ""
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    links: list[str] = field(default_factory=list)
+    # Kept verbatim: certifications/languages are short and never dropped.
+    certifications: list[str] = field(default_factory=list)
+    languages: list[str] = field(default_factory=list)
     matched_skills: list[str] = field(default_factory=list)
     missing_skills: list[str] = field(default_factory=list)
     relevance: float = 0.0
@@ -120,12 +127,22 @@ def tailor_cv(
         proj_scored = matched_blocks or proj_scored[:_FALLBACK_TOP_N]
     projects = [block for _, _, block in proj_scored]
 
+    def _strings(key: str) -> list[str]:
+        return [str(value) for value in cv_structure.get(key, []) or []]
+
     return TailoredCV(
         summary=cv_structure.get("summary", ""),
         experience=experience,
         education=cv_structure.get("education", []),
         skills=_tailored_skills(cv_skills, matching["matched"]),
         projects=projects,
+        full_name=str(cv_structure.get("full_name", "") or ""),
+        email=str(cv_structure.get("email", "") or ""),
+        phone=str(cv_structure.get("phone", "") or ""),
+        location=str(cv_structure.get("location", "") or ""),
+        links=_strings("links"),
+        certifications=_strings("certifications"),
+        languages=_strings("languages"),
         matched_skills=matching["matched"],
         missing_skills=matching["missing"],
         relevance=matching["relevance"],

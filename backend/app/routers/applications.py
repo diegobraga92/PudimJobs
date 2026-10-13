@@ -1,3 +1,9 @@
+"""Application pipeline + retrospective endpoints.
+
+The kanban CRUD lives here; ``GET /api/applications/lessons`` exposes the
+cross-application ``lessons_learned`` feed (ADR 014).
+"""
+
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,6 +21,7 @@ from app.schemas.application import (
     ApplicationCreate,
     ApplicationResponse,
     ApplicationUpdate,
+    LessonEntry,
 )
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
@@ -25,15 +32,11 @@ async def get_owned_application(
 ) -> Application:
     """Fetch an application owned by the current user or raise 404."""
     result = await db.execute(
-        select(Application).where(
-            Application.id == application_id, Application.user_id == user.id
-        )
+        select(Application).where(Application.id == application_id, Application.user_id == user.id)
     )
     application = result.scalar_one_or_none()
     if application is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
     return application
 
 
@@ -44,6 +47,7 @@ async def to_response(application: Application, job: Job) -> ApplicationResponse
         status=application.status,
         applied_date=application.applied_date,
         notes=application.notes,
+        lessons_learned=application.lessons_learned,
         cv_version=application.cv_version,
         created_at=application.created_at,
         updated_at=application.updated_at,
@@ -72,6 +76,42 @@ async def list_applications(
     return [await to_response(application, job) for application, job in rows]
 
 
+@router.get("/lessons", response_model=list[LessonEntry])
+async def list_lessons(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List retrospective notes ("lessons learned") across applications.
+
+    Only applications that actually carry a non-empty ``lessons_learned`` value
+    are returned, most recently updated first — this backs the "Lessons
+    Learned" page.
+    """
+    stmt = (
+        select(Application, Job)
+        .join(Job, Application.job_id == Job.id)
+        .where(
+            Application.user_id == user.id,
+            Application.lessons_learned.is_not(None),
+            Application.lessons_learned != "",
+        )
+        .order_by(Application.updated_at.desc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        LessonEntry(
+            application_id=application.id,
+            job_title=job.title,
+            job_company=job.company,
+            status=application.status,
+            applied_date=application.applied_date,
+            lessons_learned=application.lessons_learned or "",
+            updated_at=application.updated_at,
+        )
+        for application, job in rows
+    ]
+
+
 @router.post("", response_model=ApplicationResponse, status_code=status.HTTP_201_CREATED)
 async def create_application(
     payload: ApplicationCreate,
@@ -79,9 +119,7 @@ async def create_application(
     user: User = Depends(get_current_user),
 ):
     """Create an application for a job owned by the current user."""
-    result = await db.execute(
-        select(Job).where(Job.id == payload.job_id, Job.user_id == user.id)
-    )
+    result = await db.execute(select(Job).where(Job.id == payload.job_id, Job.user_id == user.id))
     job = result.scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")

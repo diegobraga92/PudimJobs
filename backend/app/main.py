@@ -24,6 +24,7 @@ from app.routers import (
     cv,
     jobs,
     notifications,
+    prep_tasks,
     sources,
 )
 from app.telemetry import init_telemetry
@@ -83,6 +84,7 @@ app.include_router(admin.router)
 app.include_router(alert_rules.router)
 app.include_router(notifications.router)
 app.include_router(app_settings.router)
+app.include_router(prep_tasks.router)
 
 # Rate limiting: expose the limiter to the app and handle 429 responses.
 app.state.limiter = limiter

@@ -44,9 +44,7 @@ async def check_db_health() -> bool:
     """Check if the database is reachable by running a simple query."""
     try:
         async with engine.connect() as conn:
-            await conn.execute(
-                __import__("sqlalchemy").text("SELECT 1")
-            )
+            await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
         return True
     except Exception:  # noqa: BLE001 - any failure means the DB is unreachable
         return False

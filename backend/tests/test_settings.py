@@ -79,9 +79,7 @@ async def test_llm_config_update_writes_audit_without_secret(db_client, db_sessi
             "api_key": "sk-audit-9999",
         },
     )
-    entries = (await db_session.execute(
-        __import__("sqlalchemy").select(AuditLog)
-    )).scalars().all()
+    entries = (await db_session.execute(__import__("sqlalchemy").select(AuditLog))).scalars().all()
     matching = [e for e in entries if e.entity_type == "llm_config" and e.user_id == admin.id]
     assert matching
     assert "sk-audit-9999" not in str(matching[0].changes)

@@ -3,7 +3,15 @@ import { CommonModule } from '@angular/common';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { AuthService } from '../../services/auth.service';
-import { CVStructure, CvService, GeneratedCV, MasterCV } from '../../services/cv.service';
+import {
+  AtsReport,
+  CVStructure,
+  CvService,
+  CvTemplate,
+  GeneratedCV,
+  MasterCV,
+} from '../../services/cv.service';
+import { JobSummary, JobsService } from '../../services/jobs.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
@@ -29,7 +37,6 @@ interface ProjectFormItem {
   description: string;
   link: string;
 }
-
 @Component({
   selector: 'app-cv-editor',
   standalone: true,
@@ -46,25 +53,50 @@ export class CvEditorComponent implements OnInit {
   saving = false;
   importing = false;
   exporting = false;
+  exportTemplate: CvTemplate = 'classic';
   mode: 'edit' | 'preview' = 'edit';
   cvName = 'Your Name';
+
+  // ---- ATS check (see ADR 013) ------------------------------------------
+  jobs: JobSummary[] = [];
+  atsReport: AtsReport | null = null;
+  atsLoading = false;
+  atsJobId = '';
+  atsJobTitle = '';
+  atsJobDescription = '';
+  /** Set while scoring a tailored CV, so the report is cached on it. */
+  atsGeneratedId: string | null = null;
 
   /** Live CV structure derived from the form — drives the preview pane. */
   get previewCv(): CVStructure {
     return this.buildStructure();
   }
 
+  /** Name shown on the preview/PDF: the typed one, else the email-derived one. */
+  get displayName(): string {
+    const typed = String(this.cvForm.value.fullName ?? '').trim();
+    return typed || this.cvName;
+  }
+
   constructor(
     private fb: FormBuilder,
     private service: CvService,
+    private jobsService: JobsService,
     private auth: AuthService,
     private confirm: ConfirmService,
     private toast: ToastService,
     readonly i18n: I18nService
   ) {
     this.cvForm = this.fb.group({
+      fullName: [''],
+      contactEmail: [''],
+      phone: [''],
+      location: [''],
+      linksText: [''],
       summary: [''],
       skillsText: [''],
+      certificationsText: [''],
+      languagesText: [''],
       experience: this.fb.array([]),
       education: this.fb.array([]),
       projects: this.fb.array([]),
@@ -87,6 +119,15 @@ export class CvEditorComponent implements OnInit {
   ngOnInit(): void {
     this.refreshVersions(true);
     this.refreshGenerated();
+    this.loadJobs();
+  }
+
+  /** Jobs available as ATS targets (best-effort; the panel works without one). */
+  private loadJobs(): void {
+    this.jobsService.list().subscribe({
+      next: (jobs) => (this.jobs = jobs),
+      error: () => (this.jobs = []),
+    });
   }
 
   /** Reload master CV versions; optionally re-load the current one into the editor. */
@@ -116,7 +157,17 @@ export class CvEditorComponent implements OnInit {
   }
 
   private resetForm(): void {
-    this.cvForm.patchValue({ summary: '', skillsText: '' });
+    this.cvForm.patchValue({
+      fullName: '',
+      contactEmail: '',
+      phone: '',
+      location: '',
+      linksText: '',
+      summary: '',
+      skillsText: '',
+      certificationsText: '',
+      languagesText: '',
+    });
     this.experience.clear();
     this.education.clear();
     this.projects.clear();
@@ -141,13 +192,14 @@ export class CvEditorComponent implements OnInit {
    * before exporting a fresh PDF.
    */
   editGenerated(item: GeneratedCV): void {
-    const version = this.masterCvVersion(item);
-    if (!version) {
+    const structure = item.structured_json ?? this.masterCvVersion(item)?.structured_json;
+    if (!structure) {
       this.error = this.i18n.t('errors.failedLoadCV');
       return;
     }
-    this.loadIntoForm(version.structured_json);
+    this.loadIntoForm(structure);
     this.mode = 'edit';
+    this.atsGeneratedId = item.id;
     this.message = this.i18n.t('cv.editingTailored', { job: item.job_title ?? '' });
     this.toast.success(
       this.i18n.t('cv.editingTailoredToast', { job: item.job_title ?? '' })
@@ -156,7 +208,7 @@ export class CvEditorComponent implements OnInit {
 
   /** Whether an "Edit" action is available for this generated CV. */
   canEditGenerated(item: GeneratedCV): boolean {
-    return this.masterCvVersion(item) !== undefined;
+    return !!item.structured_json || this.masterCvVersion(item) !== undefined;
   }
 
   private masterCvVersion(item: GeneratedCV): MasterCV | undefined {
@@ -218,20 +270,20 @@ export class CvEditorComponent implements OnInit {
     });
   }
 
-  /** Export the current editor content as a PDF. */
-  exportPdf(): void {
+  /** Export the current editor content as a PDF (classic or ATS-safe layout). */
+  exportPdf(template: CvTemplate = this.exportTemplate): void {
     if (this.exporting) {
       return;
     }
     this.exporting = true;
     this.message = null;
-    this.service.exportPdf(this.buildStructure()).subscribe({
+    this.service.exportPdf(this.buildStructure(), template).subscribe({
       next: (blob) => {
         this.exporting = false;
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = 'cv.pdf';
+        anchor.download = template === 'ats' ? 'cv-ats.pdf' : 'cv.pdf';
         anchor.click();
         URL.revokeObjectURL(url);
         this.toast.success(this.i18n.t('cv.pdfExported'));
@@ -242,6 +294,92 @@ export class CvEditorComponent implements OnInit {
         this.toast.error(this.i18n.t('errors.failedExportPdf'));
       },
     });
+  }
+
+  /** Pick (or clear) the stored job used as the ATS scoring target. */
+  selectAtsJob(jobId: string): void {
+    this.atsJobId = jobId;
+    if (jobId) {
+      // The backend reads the stored job's title/description itself.
+      this.atsJobTitle = '';
+      this.atsJobDescription = '';
+    }
+  }
+
+  /** Run the ATS check for the current form content (ADR 013). */
+  scoreAts(): void {
+    if (this.atsLoading) {
+      return;
+    }
+    this.atsLoading = true;
+    this.service
+      .atsScore({
+        cv: this.buildStructure(),
+        job_id: this.atsJobId || null,
+        job_title: this.atsJobTitle.trim() || null,
+        job_description: this.atsJobDescription.trim() || null,
+        generated_cv_id: this.atsGeneratedId,
+      })
+      .subscribe({
+        next: (report) => {
+          this.atsLoading = false;
+          this.atsReport = report;
+          this.toast.success(
+            this.i18n.t('cv.ats.scored', { score: report.score, method: report.method })
+          );
+          if (this.atsGeneratedId) {
+            // The report was cached on the tailored CV — refresh its badge.
+            this.refreshGenerated();
+          }
+        },
+        error: () => {
+          this.atsLoading = false;
+          this.error = this.i18n.t('errors.failedAtsScore');
+          this.toast.error(this.i18n.t('errors.failedAtsScore'));
+        },
+      });
+  }
+
+  clearAtsReport(): void {
+    this.atsReport = null;
+    this.atsGeneratedId = null;
+    this.atsJobId = '';
+    this.atsJobTitle = '';
+    this.atsJobDescription = '';
+  }
+
+  /** Load a tailored CV into the editor and score it against its own job. */
+  scoreGenerated(item: GeneratedCV): void {
+    const structure = item.structured_json ?? this.masterCvVersion(item)?.structured_json;
+    if (!structure) {
+      this.error = this.i18n.t('errors.failedLoadCV');
+      return;
+    }
+    this.loadIntoForm(structure as CVStructure);
+    this.mode = 'edit';
+    this.atsGeneratedId = item.id;
+    this.atsJobId = item.job_id ?? '';
+    this.atsJobTitle = item.job_title ?? '';
+    this.atsJobDescription = '';
+    this.atsReport = item.ats_report ?? null;
+    this.scoreAts();
+  }
+
+  /** 0..100 score rendered as a bar width. */
+  factorPercent(score: number): number {
+    return Math.max(0, Math.min(100, Math.round(score * 100)));
+  }
+
+  /** Badge colour for an ATS score (green ≥ 75, amber ≥ 50, red below). */
+  atsScoreClass(score: number): string {
+    if (score >= 75) {
+      return 'badge-success';
+    }
+    return score >= 50 ? 'badge-warning' : 'badge-danger';
+  }
+
+  atsMethodLabel(method: string): string {
+    return method === 'hybrid' ? this.i18n.t('cv.ats.methodHybrid') : this.i18n.t('cv.ats.methodHeuristic');
   }
 
   get experience(): FormArray {
@@ -301,7 +439,7 @@ export class CvEditorComponent implements OnInit {
   }
 
   /**
-   * Upload a PDF/DOCX file, parse it on the backend and pre-fill the editor
+   * Upload a PDF/DOCX/ODT file, parse it on the backend and pre-fill the editor
    * so the user can review/edit before saving as a new version.
    */
   onFileSelected(event: Event): void {
@@ -312,7 +450,7 @@ export class CvEditorComponent implements OnInit {
       return;
     }
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext !== 'pdf' && ext !== 'docx') {
+    if (ext !== 'pdf' && ext !== 'docx' && ext !== 'odt') {
       this.error = this.i18n.t('errors.unsupportedCvFile');
       this.toast.error(this.i18n.t('errors.unsupportedCvFile'));
       return;
@@ -357,8 +495,15 @@ export class CvEditorComponent implements OnInit {
 
   private loadIntoForm(cv: CVStructure): void {
     this.cvForm.patchValue({
+      fullName: cv.full_name ?? '',
+      contactEmail: cv.email ?? '',
+      phone: cv.phone ?? '',
+      location: cv.location ?? '',
+      linksText: (cv.links ?? []).join(', '),
       summary: cv.summary ?? '',
       skillsText: (cv.skills ?? []).join(', '),
+      certificationsText: (cv.certifications ?? []).join(', '),
+      languagesText: (cv.languages ?? []).join(', '),
     });
     this.experience.clear();
     this.education.clear();
@@ -398,8 +543,15 @@ export class CvEditorComponent implements OnInit {
   private buildStructure(): CVStructure {
     const value = this.cvForm.value;
     return {
+      full_name: value.fullName ?? '',
+      email: value.contactEmail ?? '',
+      phone: value.phone ?? '',
+      location: value.location ?? '',
+      links: this.parseList(value.linksText ?? ''),
       summary: value.summary ?? '',
       skills: this.parseList(value.skillsText ?? ''),
+      certifications: this.parseList(value.certificationsText ?? ''),
+      languages: this.parseList(value.languagesText ?? ''),
       experience: (value.experience as ExperienceFormItem[]).map((item) => ({
         company: item.company,
         title: item.title,

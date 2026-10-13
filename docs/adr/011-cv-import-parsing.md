@@ -16,15 +16,16 @@ the same cost/quality trade-off applies.
 
 ## Decision
 
-Add `POST /api/cv/parse`: an authenticated multipart upload of a `.pdf` or
-`.docx` (max 5 MB) that returns a `CVStructure` **without persisting anything**.
-The frontend pre-fills the editor, the user reviews/edits, and saves via the
-existing `POST /api/cv` (which keeps the audit trail and versioning).
+Add `POST /api/cv/parse`: an authenticated multipart upload of a `.pdf`,
+`.docx` or `.odt` (max 5 MB) that returns a `CVStructure` **without persisting
+anything**. The frontend pre-fills the editor, the user reviews/edits, and saves
+via the existing `POST /api/cv` (which keeps the audit trail and versioning).
 
 Extraction and structuring live in a new service `app/services/cv_parser.py`:
 
 1. **Text extraction is deterministic**: `pypdf` for PDFs, `python-docx` for
-   DOCX (paragraphs + table cells).
+   DOCX (paragraphs + table cells), and the stdlib `zipfile` + `xml.etree` for
+   ODT (the `text:h`/`text:p` blocks of `content.xml`).
 2. **Structuring is hybrid, mirroring ADR 006**:
    - A rule-based heuristic core (`structure_cv`) always runs: whole-line
      section-heading detection (summary/experience/education/skills/projects),

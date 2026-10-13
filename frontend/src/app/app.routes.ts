@@ -45,6 +45,18 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'lessons',
+        loadComponent: () =>
+          import('./components/lessons/lessons.component').then((m) => m.LessonsComponent),
+      },
+      {
+        path: 'prep-tasks',
+        loadComponent: () =>
+          import('./components/prep-tasks/prep-tasks.component').then(
+            (m) => m.PrepTasksComponent
+          ),
+      },
+      {
         path: 'alerts',
         loadComponent: () =>
           import('./components/alerts/alerts.component').then((m) => m.AlertsComponent),

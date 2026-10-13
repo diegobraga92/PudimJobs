@@ -119,11 +119,18 @@ async def _run_tailor(job_id: str, cv_id: str | None) -> dict:
             version=next_version,
             is_current=False,
             structured_json={
+                "full_name": tailored.full_name,
+                "email": tailored.email,
+                "phone": tailored.phone,
+                "location": tailored.location,
+                "links": tailored.links,
                 "summary": tailored.summary,
                 "experience": tailored.experience,
                 "education": tailored.education,
                 "skills": tailored.skills,
                 "projects": tailored.projects,
+                "certifications": tailored.certifications,
+                "languages": tailored.languages,
             },
         )
         session.add(new_cv)

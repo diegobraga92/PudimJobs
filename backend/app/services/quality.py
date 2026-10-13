@@ -44,9 +44,7 @@ def is_duplicate_of(candidate: Job, others: Iterable[Job], threshold: float = 0.
     for other in others:
         if other.id == candidate.id:
             continue
-        title_ratio = SequenceMatcher(
-            None, candidate.title.lower(), other.title.lower()
-        ).ratio()
+        title_ratio = SequenceMatcher(None, candidate.title.lower(), other.title.lower()).ratio()
         company_ratio = SequenceMatcher(
             None, candidate.company.lower(), other.company.lower()
         ).ratio()

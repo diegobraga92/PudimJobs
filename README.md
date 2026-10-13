@@ -23,7 +23,7 @@ engineering decisions behind each component.
 
 **Engineers / interviewers** — the interesting depth lives in the docs:
 - [Development plan](docs/DEV_PLAN.md) — 8 phases, every checkbox traceable to code
-- [Architecture decision records](docs/adr/) — 9 ADRs (FastAPI, data model, events, reprocessing, resilience, tailoring, alerting, data quality, search)
+- [Architecture decision records](docs/adr/) — 14 ADRs (FastAPI, data model, events, reprocessing, resilience, tailoring, alerting, data quality, search, discovery, CV import, mobile client, ATS scoring, interview prep)
 - [Resilience](docs/stride-threat-model.md) · [runbooks](docs/runbooks/) · [postmortem](docs/postmortems/)
 - [Database performance](docs/database-performance.md) — real `EXPLAIN ANALYZE` numbers
 - [Cost & capacity](docs/cost-estimate.md) · [docs/capacity-plan.md](docs/capacity-plan.md)
@@ -73,7 +73,7 @@ PudimJobs/
 ├── api/              # Event schemas/producer + hand-written OpenAPI specs
 ├── infra/            # Terraform (RDS, ECR) + Prometheus/Grafana provisioning
 ├── scripts/          # Load test + chaos experiment scripts
-├── docs/             # DEV_PLAN, 9 ADRs, SLOs, runbooks, postmortems, tradeoffs
+├── docs/             # DEV_PLAN, 14 ADRs, SLOs, runbooks, postmortems, tradeoffs
 └── docker-compose.yml
 ```
 
@@ -256,7 +256,10 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 | 5 — Observability, data quality & search | ✅ Done |
 | 6 — Security hardening | ✅ Done |
 | 7 — Chaos & incident postmortem | ✅ Done |
-| 8 — Cost analysis & portfolio polish | 🔜 Next |
+| 8 — Cost analysis & portfolio polish | ✅ Done |
+
+Known gaps (mobile parity for the newest features, prep-task reminders, free-text
+retrospectives) are listed at the end of the development plan.
 
 ### What's implemented so far
 
@@ -267,8 +270,8 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 - Audit logging for CV modifications and application status changes
 - Alembic migrations (`alembic upgrade head`) and an idempotent seed
   (`python -m app.seed`)
-- 45 unit + integration tests (PostgreSQL + Redis test services via
-  `TEST_DATABASE_URL` / `REDIS_URL`)
+- 294 backend unit + integration tests, 24 Angular component/shell specs
+  (PostgreSQL + Redis test services via `TEST_DATABASE_URL` / `REDIS_URL`)
 
 **Scraping engine (Celery + RabbitMQ)**
 - Celery worker + Beat scheduler in `workers/`, wired into docker-compose
@@ -300,15 +303,24 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
   rephrasing of bullets behind a feature flag (`TAILORING_LLM_ENABLED`)
 - PDF generation: Jinja2 template + weasyprint; tailored CVs stored as new
   (non-current) `master_cv` versions + `generated_cvs` rows
-- CV import: `POST /api/cv/parse` uploads a PDF/DOCX and returns a structured
-  `CVStructure` (rule-based parser, optional LLM upgrade — ADR 011); the
-  editor is pre-filled for review before saving
+- CV import: `POST /api/cv/parse` uploads a PDF/DOCX/ODT and returns a
+  structured `CVStructure` (rule-based parser, optional LLM upgrade — ADR 011);
+  the editor is pre-filled for review before saving
+- ATS scoring: `POST /api/cv/ats-score` returns a 0–100 score with weighted
+  factors (skills 40%, keywords 15%, completeness 20%, readability 25%),
+  matched/missing skills, recommendations and layout warnings; a qualitative
+  LLM review is blended in at 30% when an LLM is configured, and the report is
+  cached on the generated CV (`ats_score` / `ats_report`) — ADR 013
+- ATS-safe export: the `ats` template (`template=ats`) renders a plain
+  single-column PDF built for parsers, alongside the default `classic` layout
 - API: `POST /api/jobs/{id}/parse`, `POST /api/jobs/{id}/tailor`,
-  `GET /api/jobs/{id}/parsed`, `POST /api/cv/parse`,
-  `GET /api/cv/generated`, `GET /api/cv/generated/{id}/pdf`
+  `GET /api/jobs/{id}/parsed`, `POST /api/cv/parse`, `POST /api/cv/ats-score`,
+  `POST /api/cv/pdf`, `GET /api/cv/generated`, `GET /api/cv/generated/{id}`,
+  `GET /api/cv/generated/{id}/pdf`
 - Frontend: "Tailor CV for this job" button + parsed-JD panel on the job
-  detail page; generated-CV list with PDF download and "Import PDF/DOCX" on
-  the CV editor
+  detail page; generated-CV list with PDF download, cached ATS badge and a
+  "Check score" action; CV editor with contact/links/certifications/languages
+  fields, `PDF`/`DOCX`/`ODT` import and a Classic ⇄ ATS-safe export selector
 
 **Matching alerts & notifications**
 - Alert rules (saved searches): keywords, companies, tags, remote-only,
@@ -322,6 +334,22 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
   (created/sent/failed) for observability
 - API: `/api/alert-rules`, `/api/notifications` (list, mark-read, read-all)
 - Frontend: Alerts page (CRUD + pause/resume) and Notifications page
+
+**Applications, retrospectives & interview prep**
+- Applications keep a per-record `lessons_learned` retrospective note
+  (migration `0016`) plus a cross-application feed surfaced by
+  `GET /api/applications/lessons` (only non-empty notes, newest first)
+- Interview prep tasks: `prep_tasks` table (migration `0017`) with full CRUD
+  under `/api/prep-tasks` — title, category, status, due date, notes and
+  optional job/application link; ownership-checked, validated and audit-logged,
+  with a list ordering that surfaces unfinished work first (pending → in
+  progress → done), then the nearest due date
+- API: `/api/prep-tasks` (list, get, create, update, delete),
+  `GET /api/applications/lessons`
+- Frontend: "Interview prep" workspace (status chips, job filter, inline status
+  cycling, create/edit/delete form, optional job *and* application links) and a
+  "Lessons learned" feed with status/text filtering; the application detail
+  modal edits notes *and* the retrospective note (ADR 014)
 
 **Observability, data quality & search**
 - PostgreSQL Full-Text Search: generated `search_vector` (title A > company B
@@ -367,9 +395,12 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 - Source management (add / edit / delete)
 - Job listing with keyword/company/tag/date search + manual add + detail view
   with "add to applications"
-- Master CV editor (summary, experience, education, skills, projects) with
-  version history and PDF/DOCX import to pre-fill the form
+- Master CV editor (contact block, summary, experience, education, skills,
+  projects, certifications, languages) with version history, PDF/DOCX/ODT
+  import, live preview, ATS scoring panel and Classic/ATS-safe PDF export
 - Application pipeline (Kanban: saved → applied → interview → offer → rejected)
+  with a detail modal for notes and lessons learned
+- Interview prep checklist (`/prep-tasks`) and the lessons-learned feed (`/lessons`)
 - Admin dashboard (source health, scrape stats, dead-letter queue)
 
 **Demo credentials** (seeded by `python -m app.seed`, dev only):
@@ -379,7 +410,7 @@ See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
 
 **Planning & decisions**
 - [Development Plan](docs/DEV_PLAN.md) — phased roadmap with completion checklists (Phases 0–8 ✅)
-- [Architecture Decision Records](docs/adr/) — **9 ADRs** (001–009)
+- [Architecture Decision Records](docs/adr/) — **14 ADRs** (001–014)
 - [Tradeoffs](docs/tradeoffs.md) — every decision at a glance, linked to ADRs
 
 **Operational**

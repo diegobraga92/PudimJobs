@@ -63,9 +63,7 @@ async def _job_counts(db: AsyncSession, user: User) -> dict[uuid.UUID, int]:
     return {source_id: count for source_id, count in result.all()}
 
 
-def _attach_counts(
-    sources: list[Source], counts: dict[uuid.UUID, int]
-) -> list[SourceResponse]:
+def _attach_counts(sources: list[Source], counts: dict[uuid.UUID, int]) -> list[SourceResponse]:
     return [
         SourceResponse.model_validate(source).model_copy(
             update={"jobs_count": counts.get(source.id, 0)}
@@ -125,9 +123,7 @@ async def import_sources(
     and re-running the same catalog skips what the user already has — matched on
     ``url`` + ``type`` — so it is safe to repeat.
     """
-    existing = await db.execute(
-        select(Source.url, Source.type).where(Source.user_id == user.id)
-    )
+    existing = await db.execute(select(Source.url, Source.type).where(Source.user_id == user.id))
     known = {(row.url, row.type) for row in existing.all()}
 
     results: list[SourceImportResult] = []
@@ -191,9 +187,7 @@ async def import_sources(
 
     if not payload.dry_run:
         await db.commit()
-    return SourceImportResponse(
-        created=created, skipped=skipped, invalid=invalid, results=results
-    )
+    return SourceImportResponse(created=created, skipped=skipped, invalid=invalid, results=results)
 
 
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
@@ -403,9 +397,7 @@ async def _run_preview(
     from scrapers.registry import get_scraper
 
     try:
-        scraper = get_scraper(
-            SimpleNamespace(type=source_type, config=config), api_key
-        )
+        scraper = get_scraper(SimpleNamespace(type=source_type, config=config), api_key)
     except ValueError as exc:
         return SourcePreviewResponse(fetched_url=url, error=str(exc))
 
@@ -421,9 +413,7 @@ async def _run_preview(
             return SourcePreviewResponse(
                 fetched_url=fetch_url, error="robots.txt disallows this source"
             )
-        page = await asyncio.wait_for(
-            scraper.fetch(fetch_url, auth=auth), timeout=timeout
-        )
+        page = await asyncio.wait_for(scraper.fetch(fetch_url, auth=auth), timeout=timeout)
         raw_jobs = []
         detail_urls = await _discover_detail_urls(scraper, page)
         if detail_urls:

@@ -236,9 +236,7 @@ class _StubScraper:
 
 
 def _stub_registry(monkeypatch, scraper):
-    monkeypatch.setattr(
-        "scrapers.registry.get_scraper", lambda source, api_key=None: scraper
-    )
+    monkeypatch.setattr("scrapers.registry.get_scraper", lambda source, api_key=None: scraper)
     return scraper
 
 
@@ -316,9 +314,7 @@ async def test_run_preview_redacts_credentials_in_errors(monkeypatch):
 
 async def test_run_preview_honours_robots_when_asked(monkeypatch):
     _stub_registry(monkeypatch, _StubScraper())
-    monkeypatch.setattr(
-        "app.routers.sources.is_allowed_by_robots", lambda url: False
-    )
+    monkeypatch.setattr("app.routers.sources.is_allowed_by_robots", lambda url: False)
     blocked = await _run_preview(
         source_type=SourceType.career_page,
         url="https://acme.example",
@@ -344,9 +340,7 @@ async def test_run_preview_times_out(monkeypatch):
     assert "timed out" in response.error
 
 
-async def test_preview_endpoint_returns_a_sample_without_persisting(
-    auth_client, monkeypatch
-):
+async def test_preview_endpoint_returns_a_sample_without_persisting(auth_client, monkeypatch):
     client, _, _ = auth_client
     _stub_registry(monkeypatch, _StubScraper(jobs_per_page=2))
 
@@ -499,9 +493,7 @@ async def test_update_source_validates_the_effective_config(auth_client):
     source_id = created.json()["id"]
 
     # Dropping the required key via an update is rejected...
-    bad = await client.put(
-        f"/api/sources/{source_id}", json={"config": {"provider": "greenhouse"}}
-    )
+    bad = await client.put(f"/api/sources/{source_id}", json={"config": {"provider": "greenhouse"}})
     assert bad.status_code == 422
     assert "board_token" in bad.json()["detail"]
 

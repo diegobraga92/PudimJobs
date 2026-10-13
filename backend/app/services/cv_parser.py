@@ -1,17 +1,21 @@
-"""PDF/DOCX CV import: extract raw text and structure it into a CVStructure.
+"""PDF/DOCX/ODT CV import: extract raw text and structure it into a CVStructure.
 
-Text extraction is deterministic (``pypdf`` for PDF, ``python-docx`` for DOCX).
-Structuring follows ADR 011 and mirrors the ADR 006 philosophy: a rule-based
-heuristic core always runs, and an optional LLM (OpenAI-compatible) is tried
-first when configured. Any LLM failure degrades gracefully to the heuristics,
-so CV import works out of the box without an API key.
+Text extraction is deterministic (``pypdf`` for PDF, ``python-docx`` for DOCX,
+and the stdlib ``zipfile`` + ``xml.etree`` for ODT — an ODT is a ZIP whose
+``content.xml`` holds the paragraphs). Structuring follows ADR 011 and mirrors
+the ADR 006 philosophy: a rule-based heuristic core always runs, and an
+optional LLM (OpenAI-compatible) is tried first when configured. Any LLM
+failure degrades gracefully to the heuristics, so CV import works out of the
+box without an API key.
 """
 
 import json
 import logging
 import re
+import zipfile
 from io import BytesIO
 from pathlib import Path
+from xml.etree import ElementTree
 
 import httpx
 from docx import Document
@@ -31,7 +35,12 @@ logger = logging.getLogger(__name__)
 # Cap the LLM prompt so a single structuring call stays cheap and fast.
 _LLM_MAX_CHARS = 6_000
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".odt"}
+
+# ODF text namespace; paragraphs (``text:p``) and headings (``text:h``) carry
+# the document body text inside the ZIP's ``content.xml``.
+_ODT_TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+_ODT_BLOCK_TAGS = {f"{{{_ODT_TEXT_NS}}}p", f"{{{_ODT_TEXT_NS}}}h"}
 
 _MONTH = (
     r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|"
@@ -51,6 +60,12 @@ _YEAR_RE = re.compile(rf"{_YEAR}")
 _URL_RE = re.compile(
     r"(?:https?://|www\.)[^\s]+|[A-Za-z0-9_.-]+\.(?:com|dev|io|org|net|github\.io)(?:/[^\s]*)?",
     re.IGNORECASE,
+)
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# Require an explicit international prefix, parentheses or a separator so bare
+# year/date tokens ("2020 - 2021") are never mistaken for a phone number.
+_PHONE_RE = re.compile(
+    r"(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,3}\)[\s.-]?|\d{2,3}[\s.-])\d{4,5}[\s.-]?\d{3,4}"
 )
 
 # Section headings are matched against a *whole* line (anchored fullmatch), so
@@ -79,23 +94,65 @@ _SECTION_HEADINGS: tuple[tuple[str, str], ...] = (
         r"(?:personal\s+|side\s+)?projects|portfolio",
     ),
     (
+        "certifications",
+        r"certifications?|certificates?|licenses?|credentials?",
+    ),
+    (
+        "languages",
+        r"languages?",
+    ),
+    (
         "ignore",
-        r"languages?|certifications?|licenses?|interests?|hobbies?|references"
-        r"|awards?|honors?|volunteering|publications?|courses?|extracurricular",
+        r"interests?|hobbies?|references|awards?|honors?|volunteering"
+        r"|publications?|courses?|extracurricular",
     ),
 )
 
 # Words that usually are not skills (heading leftovers, common CV filler).
 _NON_SKILL_WORDS = {
-    "a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "for", "with",
-    "skills", "skill", "technical", "technologies", "tools", "core",
-    "competencies", "competency", "competences", "summary", "profile",
-    "experience", "education", "projects", "certifications", "languages",
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "of",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "with",
+    "skills",
+    "skill",
+    "technical",
+    "technologies",
+    "tools",
+    "core",
+    "competencies",
+    "competency",
+    "competences",
+    "summary",
+    "profile",
+    "experience",
+    "education",
+    "projects",
+    "certifications",
+    "languages",
 }
 
 _MONTH_INDEX = {
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
 }
 
 # Common degree markers, used to disambiguate "Degree, Institution" ordering.
@@ -118,11 +175,12 @@ class CVParsingError(Exception):
 
 
 class UnsupportedFileTypeError(CVParsingError):
-    """The uploaded file's extension is not .pdf or .docx."""
+    """The uploaded file's extension is not .pdf, .docx or .odt."""
 
 
 class InvalidFileError(CVParsingError):
-    """The file could not be read as a PDF/DOCX."""
+    """The file could not be read as a PDF/DOCX/ODT."""
+
 
 # --- Text extraction -------------------------------------------------------
 
@@ -152,6 +210,33 @@ def extract_text_from_docx(content: bytes) -> str:
     return "\n".join(lines)
 
 
+def extract_text_from_odt(content: bytes) -> str:
+    """Extract text from an ODT byte stream (paragraphs + headings).
+
+    An ODT is a ZIP archive; the document body lives in ``content.xml`` as
+    ``text:p`` (paragraphs) and ``text:h`` (headings) elements. Keeping both
+    in document order lets the heading matcher see section titles, and nested
+    spans are flattened by ``itertext``. No third-party ODF library is needed.
+    """
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            xml_bytes = archive.read("content.xml")
+    except (zipfile.BadZipFile, KeyError, OSError) as exc:
+        raise InvalidFileError("Could not read ODT file") from exc
+    try:
+        root = ElementTree.fromstring(xml_bytes)
+    except ElementTree.ParseError as exc:
+        raise InvalidFileError("Could not read ODT file") from exc
+
+    lines: list[str] = []
+    for element in root.iter():
+        if element.tag in _ODT_BLOCK_TAGS:
+            text = "".join(element.itertext()).strip()
+            if text:
+                lines.append(text)
+    return "\n".join(lines)
+
+
 def extract_text(filename: str, content: bytes) -> str:
     """Dispatch text extraction based on the file's extension."""
     suffix = Path(filename).suffix.lower()
@@ -159,8 +244,10 @@ def extract_text(filename: str, content: bytes) -> str:
         return extract_text_from_pdf(content)
     if suffix == ".docx":
         return extract_text_from_docx(content)
+    if suffix == ".odt":
+        return extract_text_from_odt(content)
     raise UnsupportedFileTypeError(
-        f"Unsupported CV file type: {suffix or '(none)'}; use .pdf or .docx"
+        f"Unsupported CV file type: {suffix or '(none)'}; use .pdf, .docx or .odt"
     )
 
 
@@ -300,9 +387,7 @@ def _parse_education(lines: list[str]) -> list[EducationItem]:
         year = year_match.group(0) if year_match else None
         cleaned = re.sub(r"\(\s*\)", "", _scrub(line))
         parts = [
-            p.strip()
-            for p in re.split(r"\s{2,}|\s*[,\-\u2013\u2014|]\s*", cleaned)
-            if p.strip()
+            p.strip() for p in re.split(r"\s{2,}|\s*[,\-\u2013\u2014|]\s*", cleaned) if p.strip()
         ]
         if not parts:
             continue
@@ -344,6 +429,93 @@ def _parse_skills(lines: list[str]) -> list[str]:
         if len(skills) >= 200:
             break
     return skills
+
+
+# Certifications/languages are phrase-like ("AWS Solutions Architect"), so split
+# only on strong separators — never on whitespace like the skills parser.
+_ITEM_SPLIT_RE = re.compile(r"[,;•|]|\s{2,}")
+
+
+def _parse_items(lines: list[str], *, max_items: int = 50) -> list[str]:
+    """Split free-form bullets into de-duplicated items (certifications, languages)."""
+    seen: set[str] = set()
+    items: list[str] = []
+    for line in lines:
+        for token in _ITEM_SPLIT_RE.split(line):
+            # Keep internal parentheses/colons ("English (fluent)", "CKA: ...").
+            token = token.strip(" \t.,;:\u00b7\u2013\u2014-")
+            if len(token) < 2:
+                continue
+            low = token.lower()
+            if low in seen:
+                continue
+            seen.add(low)
+            items.append(token[:200])
+            if len(items) >= max_items:
+                return items
+    return items
+
+
+def _parse_contact(preamble: list[str]) -> dict:
+    """Best-effort contact block from the header lines before the first section.
+
+    Email, phone and links are extracted deterministically; the display name and
+    location are heuristics (first short, digit-free header line; the remaining
+    comma-separated "City, Country" line). Users can correct them in the editor.
+    """
+    email = ""
+    phone = ""
+    full_name = ""
+    location = ""
+    links: list[str] = []
+
+    for line in preamble:
+        if not email:
+            match = _EMAIL_RE.search(line)
+            if match:
+                email = match.group(0)
+        # Scan for links on the line with the email removed, otherwise the
+        # domain part of "jane@example.com" is mistaken for a link.
+        line_no_email = _EMAIL_RE.sub(" ", line)
+        for link in _URL_RE.findall(line_no_email):
+            if link not in links:
+                links.append(link)
+        if not phone:
+            # Scrub dates first so ranges like "2020 - 2021" can't match.
+            scrubbed = _DATE_RANGE_RE.sub(" ", line_no_email)
+            match = _PHONE_RE.search(scrubbed)
+            if match:
+                phone = match.group(0).strip()
+
+    for line in preamble:
+        # Strip every contact token from the line (details frequently share one
+        # line) so only a bare name/location is left to disambiguate.
+        cleaned = _EMAIL_RE.sub(" ", line)
+        cleaned = _URL_RE.sub(" ", cleaned)
+        cleaned = _DATE_RANGE_RE.sub(" ", cleaned)
+        cleaned = _DATE_RE.sub(" ", cleaned)
+        cleaned = _PHONE_RE.sub(" ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" \t|,;:\u00b7\u2013\u2014")
+        if not cleaned:
+            continue
+        if (
+            not full_name
+            and "," not in cleaned
+            and 1 <= len(cleaned.split()) <= 5
+            and len(cleaned) <= 60
+        ):
+            full_name = cleaned
+            continue
+        if not location and "," in cleaned and len(cleaned) <= 80:
+            location = cleaned
+
+    return {
+        "full_name": full_name[:255],
+        "email": email[:255],
+        "phone": phone[:64],
+        "location": location[:255],
+        "links": links[:10],
+    }
 
 
 def _parse_projects(lines: list[str]) -> list[ProjectItem]:
@@ -401,7 +573,10 @@ def structure_cv(text: str) -> CVStructure:
         "education": [],
         "skills": [],
         "projects": [],
+        "certifications": [],
+        "languages": [],
     }
+    preamble: list[str] = []
     current: str | None = None
     for line in (ln.strip() for ln in text.splitlines()):
         if not line:
@@ -412,13 +587,20 @@ def structure_cv(text: str) -> CVStructure:
             continue
         if current in sections:
             sections[current].append(line)
+        elif current is None:
+            # Lines before the first heading are the contact header block.
+            preamble.append(line)
 
+    contact = _parse_contact(preamble)
     return CVStructure(
+        **contact,
         summary=" ".join(sections["summary"]).strip()[:1000],
         experience=_parse_experience(sections["experience"]),
         education=_parse_education(sections["education"]),
         skills=_parse_skills(sections["skills"]),
         projects=_parse_projects(sections["projects"]),
+        certifications=_parse_items(sections["certifications"]),
+        languages=_parse_items(sections["languages"]),
     )
 
 
@@ -436,18 +618,21 @@ def _strip_code_fence(content: str) -> str:
 async def _llm_structured(text: str, config: LlmRuntimeConfig) -> dict | None:
     """Call an OpenAI-compatible chat API; return the parsed JSON object or None."""
     schema = (
-        '{"summary": "string", "experience": [{"company": "string", "title": "string", '
+        '{"full_name": "string", "email": "string", "phone": "string", '
+        '"location": "string", "links": ["string"], '
+        '"summary": "string", "experience": [{"company": "string", "title": "string", '
         '"start_date": "YYYY-MM or null", "end_date": "YYYY-MM or null", '
         '"bullets": ["string"]}], "education": [{"institution": "string", "degree": "string", '
         '"year": "string or null"}], "skills": ["string"], '
         '"projects": [{"name": "string", "description": "string or null", '
-        '"link": "string or null"}]}'
+        '"link": "string or null"}], "certifications": ["string"], "languages": ["string"]}'
     )
     system = (
         "You extract structured resume data from raw text. Return ONLY a JSON object "
         f"matching exactly this shape: {schema} "
         "Never invent facts, employers, dates, or skills that are not present in the "
-        "text. Use null for missing dates and links."
+        "text. Use empty strings/lists for missing contact fields, certifications and "
+        "languages. Use null for missing dates and links."
     )
     user = f"Resume text:\n\n{text[:_LLM_MAX_CHARS]}"
     try:
@@ -516,4 +701,3 @@ async def parse_cv_file(
         if llm_result is not None:
             return llm_result
     return structure_cv(text)
-

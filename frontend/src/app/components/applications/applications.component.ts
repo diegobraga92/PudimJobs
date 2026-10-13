@@ -33,6 +33,9 @@ export class ApplicationsComponent implements OnInit {
   selected: Application | null = null;
   error: string | null = null;
   total = 0;
+  notesDraft = '';
+  lessonsDraft = '';
+  savingDetail = false;
 
   constructor(
     private service: ApplicationsService,
@@ -103,6 +106,35 @@ export class ApplicationsComponent implements OnInit {
 
   select(application: Application): void {
     this.selected = application;
+    this.notesDraft = application.notes ?? '';
+    this.lessonsDraft = application.lessons_learned ?? '';
+  }
+
+  /** Persist the notes/lessons edits made in the detail modal. */
+  saveDetail(): void {
+    if (!this.selected || this.savingDetail) {
+      return;
+    }
+    this.savingDetail = true;
+    const application = this.selected;
+    this.service
+      .update(application.id, {
+        notes: this.notesDraft.trim() || null,
+        lessons_learned: this.lessonsDraft.trim() || null,
+      })
+      .subscribe({
+        next: (updated) => {
+          this.savingDetail = false;
+          this.selected = updated;
+          this.toast.success(this.i18n.t('applications.detailsSaved'));
+          this.refresh();
+        },
+        error: () => {
+          this.savingDetail = false;
+          this.error = this.i18n.t('errors.failedUpdateApplication');
+          this.toast.error(this.i18n.t('errors.failedUpdateApplication'));
+        },
+      });
   }
 
   closeDetail(): void {

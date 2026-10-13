@@ -8,13 +8,14 @@ from app.services.cv_parser import (
     UnsupportedFileTypeError,
     extract_text,
     extract_text_from_docx,
+    extract_text_from_odt,
     extract_text_from_pdf,
     parse_cv_file,
     structure_cv,
     structure_cv_with_llm,
 )
 from app.services.llm_config import LlmRuntimeConfig
-from tests.helpers import make_docx, make_pdf
+from tests.helpers import make_docx, make_odt, make_pdf
 
 SAMPLE_CV = """\
 Jane Doe
@@ -65,6 +66,28 @@ def test_extract_text_from_docx_includes_paragraphs():
 def test_extract_text_dispatches_by_extension():
     assert extract_text("cv.pdf", make_pdf("Hello")) == "Hello"
     assert extract_text("cv.docx", make_docx("Hello")) == "Hello"
+    assert extract_text("cv.odt", make_odt("Hello")) == "Hello"
+
+
+def test_extract_text_from_odt_includes_paragraphs():
+    odt = make_odt("SUMMARY", "Backend engineer.", "SKILLS", "Python & FastAPI")
+    assert extract_text_from_odt(odt) == ("SUMMARY\nBackend engineer.\nSKILLS\nPython & FastAPI")
+
+
+def test_extract_text_from_odt_rejects_invalid_bytes():
+    with pytest.raises(InvalidFileError):
+        extract_text_from_odt(b"not an odt at all")
+
+
+def test_extract_text_from_odt_rejects_zip_without_content():
+    import zipfile
+    from io import BytesIO
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+    with pytest.raises(InvalidFileError):
+        extract_text_from_odt(buffer.getvalue())
 
 
 def test_extract_text_rejects_unknown_extension():
@@ -138,6 +161,7 @@ def test_structure_cv_ignores_unknown_sections():
     cv = structure_cv(text)
     assert len(cv.experience) == 1
     assert cv.skills == ["Python", "SQL"]
+
 
 # --- LLM structuring (graceful degradation) --------------------------------
 
@@ -262,3 +286,73 @@ async def test_parse_cv_file_pdf_end_to_end():
     assert result.experience[0].start_date == "2020"
     assert result.experience[0].end_date == "Present"
 
+
+async def test_parse_cv_file_odt_end_to_end():
+    odt = make_odt(
+        "SUMMARY",
+        "Backend engineer.",
+        "WORK EXPERIENCE",
+        "Engineer | Acme",
+        "Jan 2020 - Present",
+        "- did things",
+        "SKILLS",
+        "Python, FastAPI",
+    )
+    result = await parse_cv_file("cv.odt", odt)
+    assert "Backend engineer." in result.summary
+    assert result.experience[0].title == "Engineer"
+    assert result.experience[0].company == "Acme"
+    assert result.experience[0].start_date == "2020-01"
+    assert result.experience[0].end_date == "Present"
+    assert "Python" in result.skills
+
+
+# --- richer structure: contact, certifications, languages -------------------
+
+
+def test_structure_cv_extracts_contact_block():
+    cv = structure_cv(SAMPLE_CV)
+    assert cv.full_name == "Jane Doe"
+    assert cv.email == "jane@example.com"
+
+
+def test_structure_cv_extracts_phone_location_and_links():
+    text = (
+        "Jane Doe\n"
+        "jane@example.com | +55 11 91234-5678 | Sao Paulo, Brazil\n"
+        "https://github.com/janedoe\n"
+        "SUMMARY\n"
+        "Backend engineer\n"
+    )
+    cv = structure_cv(text)
+    assert cv.full_name == "Jane Doe"
+    assert cv.email == "jane@example.com"
+    assert cv.phone == "+55 11 91234-5678"
+    assert cv.location == "Sao Paulo, Brazil"
+    assert cv.links == ["https://github.com/janedoe"]
+
+
+def test_structure_cv_parses_certifications_and_languages():
+    text = (
+        "CERTIFICATIONS\n"
+        "AWS Certified Solutions Architect, CKA: Certified Kubernetes Administrator\n"
+        "LANGUAGES\n"
+        "English (fluent), Portuguese (native)\n"
+    )
+    cv = structure_cv(text)
+    assert cv.certifications == [
+        "AWS Certified Solutions Architect",
+        "CKA: Certified Kubernetes Administrator",
+    ]
+    assert cv.languages == ["English (fluent)", "Portuguese (native)"]
+
+
+def test_structure_cv_defaults_contact_when_absent():
+    cv = structure_cv("SUMMARY\nBackend engineer\n")
+    assert cv.full_name == ""
+    assert cv.email == ""
+    assert cv.phone == ""
+    assert cv.location == ""
+    assert cv.links == []
+    assert cv.certifications == []
+    assert cv.languages == []

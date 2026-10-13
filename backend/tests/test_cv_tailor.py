@@ -19,9 +19,7 @@ CV = {
     ],
     "education": [{"institution": "MIT", "degree": "BSc Computer Science"}],
     "skills": ["python", "java"],
-    "projects": [
-        {"name": "Job Tracker", "description": "FastAPI + PostgreSQL pipeline"}
-    ],
+    "projects": [{"name": "Job Tracker", "description": "FastAPI + PostgreSQL pipeline"}],
 }
 
 
@@ -66,9 +64,7 @@ def test_tailor_keeps_fallback_blocks_when_nothing_matches():
 def test_tailor_fallback_is_bounded():
     big_cv = {
         "summary": "x",
-        "experience": [
-            {"title": f"Role {i}", "company": "C", "bullets": []} for i in range(6)
-        ],
+        "experience": [{"title": f"Role {i}", "company": "C", "bullets": []} for i in range(6)],
         "education": [],
         "skills": ["python"],
         "projects": [],
@@ -167,8 +163,6 @@ async def test_enhance_with_llm_pads_short_reply(monkeypatch):
     fake.reply = "1. Only one"
     monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: fake)
 
-    out = await enhance_with_llm(
-        ["a", "b", "c"], ["python"], config=config, max_bullets=5
-    )
+    out = await enhance_with_llm(["a", "b", "c"], ["python"], config=config, max_bullets=5)
     assert out[0] == "Only one"
     assert len(out) == 3  # padded with originals to keep the count stable

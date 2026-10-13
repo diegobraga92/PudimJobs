@@ -57,14 +57,12 @@ def validate_source_config(source_type: SourceType, config: dict | None) -> None
         name = config.get("provider")
         if not name:
             raise ValueError(
-                "discovery sources require config['provider'] "
-                "(see GET /api/sources/providers)"
+                "discovery sources require config['provider'] (see GET /api/sources/providers)"
             )
         scraper_cls = DISCOVERY_PROVIDERS.get(str(name))
         if scraper_cls is None:
             raise ValueError(
-                f"unknown discovery provider {name!r} "
-                f"(known: {_known(DISCOVERY_PROVIDERS)})"
+                f"unknown discovery provider {name!r} (known: {_known(DISCOVERY_PROVIDERS)})"
             )
         _check_contract(scraper_cls.config_metadata(), config, f"provider {name!r}")
     elif source_type == SourceType.aggregator:
@@ -74,8 +72,7 @@ def validate_source_config(source_type: SourceType, config: dict | None) -> None
         scraper_cls = AGGREGATOR_ADAPTERS.get(str(name))
         if scraper_cls is None:
             raise ValueError(
-                f"unknown aggregator adapter {name!r} "
-                f"(known: {_known(AGGREGATOR_ADAPTERS)})"
+                f"unknown aggregator adapter {name!r} (known: {_known(AGGREGATOR_ADAPTERS)})"
             )
         _check_contract(scraper_cls.config_metadata(), config, f"adapter {name!r}")
 
@@ -92,9 +89,7 @@ def _contract(metadata: dict) -> dict:
 
 def _check_contract(metadata: dict, config: dict, label: str) -> None:
     """Collect the missing keys of one contract and raise once, if any."""
-    missing = [
-        key for key in metadata.get("required") or () if not config.get(key)
-    ]
+    missing = [key for key in metadata.get("required") or () if not config.get(key)]
     for group in metadata.get("required_any") or ():
         if not any(config.get(key) for key in group):
             missing.append(" or ".join(group))

@@ -65,9 +65,7 @@ async def mark_all_read(
     user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(Notification).where(
-            Notification.user_id == user.id, Notification.read.is_(False)
-        )
+        select(Notification).where(Notification.user_id == user.id, Notification.read.is_(False))
     )
     for notification in result.scalars().all():
         notification.read = True

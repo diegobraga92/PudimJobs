@@ -1,6 +1,7 @@
 """Test helper functions."""
 
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,34 @@ def make_docx(*paragraphs: str) -> bytes:
         document.add_paragraph(paragraph)
     buffer = BytesIO()
     document.save(buffer)
+    return buffer.getvalue()
+
+
+def make_odt(*paragraphs: str) -> bytes:
+    """Build a minimal ODT (ZIP with ``content.xml``) for CV parser tests.
+
+    Mirrors a real ODT's structure closely enough for the stdlib extractor:
+    a ``mimetype`` entry plus a ``content.xml`` holding one ``text:p`` per
+    paragraph. Paragraph text is XML-escaped.
+    """
+    import zipfile
+
+    body = "".join(f"<text:p>{escape(paragraph)}</text:p>" for paragraph in paragraphs)
+    content = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<office:document-content "
+        'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+        'office:version="1.3">'
+        "<office:body><office:text>"
+        f"{body}"
+        "</office:text></office:body>"
+        "</office:document-content>"
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        archive.writestr("content.xml", content)
     return buffer.getvalue()
 
 
@@ -65,9 +94,8 @@ def make_pdf(*lines: str) -> bytes:
     out += b"0000000000 65535 f \n"
     for offset in offsets:
         out += b"%010d 00000 n \n" % offset
-    out += (
-        b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n"
-        % (len(objects) + 1, xref_pos)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref_pos,
     )
     return bytes(out)
-

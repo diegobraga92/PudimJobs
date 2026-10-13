@@ -11,6 +11,7 @@ class ApplicationCreate(BaseModel):
     status: ApplicationStatus = ApplicationStatus.saved
     applied_date: date | None = None
     notes: str | None = None
+    lessons_learned: str | None = None
     cv_version: uuid.UUID | None = None
 
 
@@ -18,6 +19,7 @@ class ApplicationUpdate(BaseModel):
     status: ApplicationStatus | None = None
     applied_date: date | None = None
     notes: str | None = None
+    lessons_learned: str | None = None
     cv_version: uuid.UUID | None = None
 
 
@@ -27,6 +29,7 @@ class ApplicationResponse(BaseModel):
     status: ApplicationStatus
     applied_date: date | None
     notes: str | None
+    lessons_learned: str | None
     cv_version: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
@@ -37,3 +40,15 @@ class ApplicationResponse(BaseModel):
 
 class ApplicationDetail(ApplicationResponse):
     job_description: str | None = None
+
+
+class LessonEntry(BaseModel):
+    """An application's retrospective, joined with its job for display."""
+
+    application_id: uuid.UUID
+    job_title: str
+    job_company: str
+    status: ApplicationStatus
+    applied_date: date | None
+    lessons_learned: str
+    updated_at: datetime

@@ -16,6 +16,8 @@ summarises the trade-offs at a glance.
 | PostgreSQL FTS | 009 | Elasticsearch/OpenSearch | $0 extra infra; sub-ms at 10⁵ rows; ES only needed beyond 10⁶ |
 | Normalized extract only (no raw HTML) | 004 | Re-fetch on reprocess | Avoids copyright/ToS and storage exposure; recovery = re-scrape |
 | `NullPool` connections | database-performance.md | Pooled sessions | Correct for short-lived worker tasks; switch at >1k req/s |
+| Hybrid ATS scoring + opt-in `ats` CV template | 013 | LLM-only scoring, third-party ATS API | Deterministic zero-config baseline; LLM review blends at 30% and never blocks the score |
+| Prep tasks table + `lessons_learned` on applications | 014 | Separate retrospective entity, calendar/reminders integration | One table and one column cover the planning + learning loop; nothing to sync, nothing new to run |
 
 ## Related operational docs
 

@@ -45,8 +45,7 @@ class Settings(BaseSettings):
     # does not depend on this — it matters for direct browser access to the API
     # (e.g. Swagger UI at /docs) from other hosts. Set via CORS_ORIGINS.
     cors_origins: str = (
-        "http://localhost:4200,http://127.0.0.1:4200,"
-        "http://localhost:9400,http://127.0.0.1:9400"
+        "http://localhost:4200,http://127.0.0.1:4200,http://localhost:9400,http://127.0.0.1:9400"
     )
 
     # Rate limiting (slowapi)

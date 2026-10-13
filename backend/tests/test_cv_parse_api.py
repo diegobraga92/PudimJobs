@@ -1,10 +1,8 @@
 """API tests for POST /api/cv/parse (upload a PDF/DOCX CV)."""
 
-from tests.helpers import make_docx, make_pdf
+from tests.helpers import make_docx, make_odt, make_pdf
 
-PDF_BYTES = make_pdf(
-    "WORK EXPERIENCE", "Engineer | Acme", "2020 - Present", "- did things"
-)
+PDF_BYTES = make_pdf("WORK EXPERIENCE", "Engineer | Acme", "2020 - Present", "- did things")
 DOCX_BYTES = make_docx(
     "SUMMARY",
     "Backend engineer.",
@@ -16,9 +14,19 @@ DOCX_BYTES = make_docx(
     "Python, FastAPI",
 )
 
-_DOCX_MIME = (
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+ODT_BYTES = make_odt(
+    "SUMMARY",
+    "Backend engineer.",
+    "WORK EXPERIENCE",
+    "Engineer | Acme",
+    "Jan 2020 - Present",
+    "- built things",
+    "SKILLS",
+    "Python, FastAPI",
 )
+
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_ODT_MIME = "application/vnd.oasis.opendocument.text"
 
 
 async def test_parse_cv_docx_returns_structure(auth_client):
@@ -49,6 +57,22 @@ async def test_parse_cv_pdf_returns_structure(auth_client):
     assert body["experience"][0]["company"] == "Acme"
     assert body["experience"][0]["start_date"] == "2020"
     assert body["experience"][0]["end_date"] == "Present"
+
+
+async def test_parse_cv_odt_returns_structure(auth_client):
+    client, _, _ = auth_client
+    response = await client.post(
+        "/api/cv/parse",
+        files={"file": ("resume.odt", ODT_BYTES, _ODT_MIME)},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "Backend engineer." in body["summary"]
+    assert body["experience"][0]["title"] == "Engineer"
+    assert body["experience"][0]["company"] == "Acme"
+    assert body["experience"][0]["start_date"] == "2020-01"
+    assert body["experience"][0]["end_date"] == "Present"
+    assert "Python" in body["skills"]
 
 
 async def test_parse_cv_requires_auth(client):

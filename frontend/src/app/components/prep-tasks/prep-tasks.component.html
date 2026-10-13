@@ -1,0 +1,218 @@
+<div class="page-header">
+  <h2>{{ i18n.t('prepTasks.title') }}</h2>
+  <div class="header-actions">
+    <span class="muted small">{{ i18n.t('prepTasks.summary', { pending: pendingCount, done: doneCount }) }}</span>
+    <button type="button" class="btn btn-primary" (click)="openCreate()">
+      <app-icon name="plus" [size]="16" />
+      {{ i18n.t('prepTasks.newTask') }}
+    </button>
+  </div>
+</div>
+
+@if (error) {
+  <div class="alert alert-error" role="alert">
+    <app-icon class="alert-icon" name="circle-alert" [size]="18" />
+    <span>{{ error }}</span>
+  </div>
+}
+
+@if (showForm) {
+  <form class="panel form" [formGroup]="taskForm" (ngSubmit)="save()">
+    <h3>{{ editingId ? i18n.t('prepTasks.editTask') : i18n.t('prepTasks.newTask') }}</h3>
+
+    <div class="form-field">
+      <label for="prep-title">{{ i18n.t('prepTasks.taskTitle') }}</label>
+      <input
+        id="prep-title"
+        class="input"
+        formControlName="title"
+        [placeholder]="i18n.t('prepTasks.titlePlaceholder')"
+      />
+    </div>
+
+    <div class="grid-2">
+      <div class="form-field">
+        <label for="prep-category">{{ i18n.t('prepTasks.categoryLabel') }}</label>
+        <select id="prep-category" class="select" formControlName="category">
+          @for (category of categories; track category) {
+            <option [value]="category">{{ categoryLabel(category) }}</option>
+          }
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="prep-status">{{ i18n.t('prepTasks.statusLabel') }}</label>
+        <select id="prep-status" class="select" formControlName="status">
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ statusLabel(status) }}</option>
+          }
+        </select>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="form-field">
+        <label for="prep-due">{{ i18n.t('prepTasks.dueDate') }}</label>
+        <input id="prep-due" class="input" type="date" formControlName="due_date" />
+      </div>
+      <div class="form-field">
+        <label for="prep-job">{{ i18n.t('prepTasks.job') }}</label>
+        <select id="prep-job" class="select" formControlName="job_id">
+          <option value="">{{ i18n.t('prepTasks.noJob') }}</option>
+          @for (job of jobs; track job.id) {
+            <option [value]="job.id">{{ job.title }} — {{ job.company }}</option>
+          }
+        </select>
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label for="prep-application">{{ i18n.t('prepTasks.application') }}</label>
+      <select id="prep-application" class="select" formControlName="application_id">
+        <option value="">{{ i18n.t('prepTasks.noApplication') }}</option>
+        @for (application of applications; track application.id) {
+          <option [value]="application.id">
+            {{ application.job_title }} — {{ application.job_company }}
+          </option>
+        }
+      </select>
+    </div>
+
+    <div class="form-field">
+      <label for="prep-notes">{{ i18n.t('prepTasks.notes') }}</label>
+      <textarea id="prep-notes" class="textarea" rows="3" formControlName="notes"></textarea>
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn btn-ghost" (click)="cancelForm()">
+        {{ i18n.t('common.cancel') }}
+      </button>
+      <button type="submit" class="btn btn-primary" [disabled]="taskForm.invalid">
+        {{ editingId ? i18n.t('prepTasks.saveChanges') : i18n.t('prepTasks.createTask') }}
+      </button>
+    </div>
+  </form>
+}
+
+<div class="filters panel">
+  <div class="filter-group">
+    <span class="muted small">{{ i18n.t('prepTasks.filterStatus') }}</span>
+    <button
+      type="button"
+      class="chip"
+      [class.active]="statusFilter === ''"
+      (click)="setStatusFilter('')"
+    >
+      {{ i18n.t('prepTasks.allStatuses') }}
+    </button>
+    @for (status of statuses; track status) {
+      <button
+        type="button"
+        class="chip"
+        [class.active]="statusFilter === status"
+        (click)="setStatusFilter(status)"
+      >
+        {{ statusLabel(status) }}
+      </button>
+    }
+  </div>
+  <div class="form-field filter-job">
+    <label for="prep-job-filter">{{ i18n.t('prepTasks.filterJob') }}</label>
+    <select
+      id="prep-job-filter"
+      class="select"
+      [value]="jobFilter"
+      (change)="setJobFilter($any($event.target).value)"
+    >
+      <option value="">{{ i18n.t('prepTasks.allJobs') }}</option>
+      @for (job of jobs; track job.id) {
+        <option [value]="job.id">{{ job.title }} — {{ job.company }}</option>
+      }
+    </select>
+  </div>
+</div>
+
+@if (loading) {
+  <div class="loading-text pulse">
+    <app-icon name="loader" [size]="16" />
+    {{ i18n.t('prepTasks.loading') }}
+  </div>
+} @else if (tasks.length === 0) {
+  <div class="empty-state panel">
+    <span class="empty-icon">
+      <app-icon name="circle-check" [size]="26" />
+    </span>
+    <h3>{{ i18n.t('prepTasks.emptyTitle') }}</h3>
+    <p>{{ i18n.t('prepTasks.emptyHint') }}</p>
+    <button type="button" class="btn btn-primary" (click)="openCreate()">
+      <app-icon name="plus" [size]="16" />
+      {{ i18n.t('prepTasks.createTask') }}
+    </button>
+  </div>
+} @else {
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{ i18n.t('prepTasks.taskTitle') }}</th>
+          <th>{{ i18n.t('prepTasks.categoryLabel') }}</th>
+          <th>{{ i18n.t('common.status') }}</th>
+          <th>{{ i18n.t('prepTasks.dueDate') }}</th>
+          <th>{{ i18n.t('prepTasks.job') }}</th>
+          <th class="row-actions">{{ i18n.t('common.actions') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (task of tasks; track task.id) {
+          <tr>
+            <td>
+              <strong>{{ task.title }}</strong>
+              @if (task.notes) {
+                <div class="muted xs">{{ task.notes }}</div>
+              }
+            </td>
+            <td>{{ categoryLabel(task.category) }}</td>
+            <td>
+              <button
+                type="button"
+                class="badge status-button"
+                [class]="statusBadgeClass(task.status)"
+                (click)="cycleStatus(task)"
+                [attr.title]="i18n.t('prepTasks.nextStatus')"
+              >
+                {{ statusLabel(task.status) }}
+              </button>
+            </td>
+            <td>
+              @if (task.due_date) {
+                <span [class.overdue]="isOverdue(task)">{{ task.due_date | date: 'mediumDate' }}</span>
+              } @else {
+                <span class="muted">—</span>
+              }
+            </td>
+            <td>
+              @if (task.job_id) {
+                <a [routerLink]="['/jobs', task.job_id]">{{ task.job_title }}</a>
+                <div class="muted xs">{{ task.job_company }}</div>
+              } @else if (task.application_id && applicationLabel(task.application_id)) {
+                <a [routerLink]="['/applications']">{{ applicationLabel(task.application_id) }}</a>
+                <div class="muted xs">{{ i18n.t('prepTasks.viaApplication') }}</div>
+              } @else {
+                <span class="muted">—</span>
+              }
+            </td>
+            <td class="row-actions">
+              <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(task)">
+                <app-icon name="pencil" [size]="14" />
+                {{ i18n.t('common.edit') }}
+              </button>
+              <button type="button" class="btn btn-danger btn-sm" (click)="remove(task)">
+                <app-icon name="trash" [size]="14" />
+                {{ i18n.t('common.delete') }}
+              </button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

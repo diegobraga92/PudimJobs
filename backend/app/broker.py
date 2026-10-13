@@ -29,4 +29,3 @@ def enqueue_parse_jd(job_id: str) -> None:
 def enqueue_tailor(job_id: str, cv_id: str | None = None) -> None:
     """Enqueue a CV tailoring task; ``cv_id=None`` uses the current CV."""
     _sender.send_task(TAILOR_CV_TASK, args=[job_id, cv_id])
-

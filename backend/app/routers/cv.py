@@ -23,6 +23,7 @@ from app.models.job import Job
 from app.models.master_cv import MasterCV
 from app.models.user import User
 from app.ratelimit import auth_key, limiter
+from app.schemas.ats import AtsScoreRequest, AtsScoreResponse
 from app.schemas.generated_cv import GeneratedCVResponse
 from app.schemas.master_cv import (
     CVStructure,
@@ -30,15 +31,17 @@ from app.schemas.master_cv import (
     MasterCVResponse,
     MasterCVUpdate,
 )
+from app.services.ats_scorer import derive_keywords, score_ats
 from app.services.cv_parser import CVParsingError, parse_cv_file
 from app.services.cv_tailor import TailoredCV
+from app.services.jd_parser import parse_jd
 from app.services.llm_config import get_llm_config
-from app.services.pdf_generator import generate_pdf
+from app.services.pdf_generator import TEMPLATES, generate_pdf
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
 
 _MAX_CV_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
-_SUPPORTED_CV_EXTENSIONS = {".pdf", ".docx"}
+_SUPPORTED_CV_EXTENSIONS = {".pdf", ".docx", ".odt"}
 
 
 def _pdf_name(email: str) -> str:
@@ -64,9 +67,7 @@ async def list_versions(
     user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(MasterCV)
-        .where(MasterCV.user_id == user.id)
-        .order_by(MasterCV.version.desc())
+        select(MasterCV).where(MasterCV.user_id == user.id).order_by(MasterCV.version.desc())
     )
     return result.scalars().all()
 
@@ -105,7 +106,7 @@ async def parse_uploaded_cv(
     if suffix not in _SUPPORTED_CV_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported file type; upload a PDF or DOCX",
+            detail="Unsupported file type; upload a PDF, DOCX or ODT",
         )
     content = await file.read()
     if not content:
@@ -120,13 +121,9 @@ async def parse_uploaded_cv(
 
     try:
         llm_config = await get_llm_config(db)
-        return await parse_cv_file(
-            file.filename or f"cv{suffix}", content, llm_config=llm_config
-        )
+        return await parse_cv_file(file.filename or f"cv{suffix}", content, llm_config=llm_config)
     except CVParsingError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("", response_model=MasterCVResponse, status_code=status.HTTP_201_CREATED)
@@ -136,14 +133,10 @@ async def create_version(
     user: User = Depends(get_current_user),
 ):
     """Create a new CV version and promote it to current."""
-    result = await db.execute(
-        select(func.max(MasterCV.version)).where(MasterCV.user_id == user.id)
-    )
+    result = await db.execute(select(func.max(MasterCV.version)).where(MasterCV.user_id == user.id))
     next_version = (result.scalar() or 0) + 1
 
-    await db.execute(
-        update(MasterCV).where(MasterCV.user_id == user.id).values(is_current=False)
-    )
+    await db.execute(update(MasterCV).where(MasterCV.user_id == user.id).values(is_current=False))
     cv = MasterCV(
         user_id=user.id,
         version=next_version,
@@ -174,8 +167,9 @@ async def list_generated(
 ):
     """List generated (tailored) CVs with their target job info."""
     result = await db.execute(
-        select(GeneratedCV, Job)
-        .join(Job, GeneratedCV.job_id == Job.id)
+        select(GeneratedCV, Job, MasterCV)
+        .outerjoin(Job, GeneratedCV.job_id == Job.id)
+        .outerjoin(MasterCV, GeneratedCV.master_cv_id == MasterCV.id)
         .where(GeneratedCV.user_id == user.id)
         .order_by(GeneratedCV.created_at.desc())
     )
@@ -188,9 +182,42 @@ async def list_generated(
             job_title=job.title if job else None,
             job_company=job.company if job else None,
             created_at=generated.created_at,
+            structured_json=master.structured_json if master else None,
+            ats_score=generated.ats_score,
+            ats_report=generated.ats_report,
         )
-        for generated, job in rows
+        for generated, job, master in rows
     ]
+
+
+@router.get("/generated/{generated_id}", response_model=GeneratedCVResponse)
+async def get_generated_cv(
+    generated_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Fetch one generated CV, including the structured content it was built from."""
+    result = await db.execute(
+        select(GeneratedCV, Job, MasterCV)
+        .outerjoin(Job, GeneratedCV.job_id == Job.id)
+        .outerjoin(MasterCV, GeneratedCV.master_cv_id == MasterCV.id)
+        .where(GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id)
+    )
+    row = result.first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Generated CV not found")
+    generated, job, master = row
+    return GeneratedCVResponse(
+        id=generated.id,
+        master_cv_id=generated.master_cv_id,
+        job_id=generated.job_id,
+        job_title=job.title if job else None,
+        job_company=job.company if job else None,
+        created_at=generated.created_at,
+        structured_json=master.structured_json if master else None,
+        ats_score=generated.ats_score,
+        ats_report=generated.ats_report,
+    )
 
 
 @router.get("/generated/{generated_id}/pdf")
@@ -201,9 +228,7 @@ async def get_generated_pdf(
 ):
     """Download a generated tailored CV as PDF."""
     result = await db.execute(
-        select(GeneratedCV).where(
-            GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id
-        )
+        select(GeneratedCV).where(GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id)
     )
     generated = result.scalar_one_or_none()
     if generated is None:
@@ -211,9 +236,7 @@ async def get_generated_pdf(
     return Response(
         content=generated.pdf,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="tailored-cv-{generated.id}.pdf"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="tailored-cv-{generated.id}.pdf"'},
     )
 
 
@@ -225,9 +248,7 @@ async def delete_generated_cv(
 ):
     """Delete a generated (tailored) CV and its stored PDF."""
     result = await db.execute(
-        select(GeneratedCV).where(
-            GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id
-        )
+        select(GeneratedCV).where(GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id)
     )
     generated = result.scalar_one_or_none()
     if generated is None:
@@ -241,25 +262,46 @@ async def delete_generated_cv(
 async def export_cv_pdf(
     request: Request,
     payload: CVStructure,
+    template: str = "classic",
     user: User = Depends(get_current_user),
 ):
     """Render an (optionally edited) CV structure to a downloadable PDF.
 
     Lets the user tweak a tailored CV in the editor and export the result
     without going through the tailoring worker again. Nothing is persisted.
+    ``template`` selects the layout: ``classic`` (default, styled) or ``ats``
+    (plain single-column; see ADR 013).
     """
+    if template not in TEMPLATES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown template {template!r}; use one of {sorted(TEMPLATES)}",
+        )
     tailored = TailoredCV(
         summary=payload.summary,
         experience=[item.model_dump() for item in payload.experience],
         education=[item.model_dump() for item in payload.education],
         skills=payload.skills,
         projects=[item.model_dump() for item in payload.projects],
+        full_name=payload.full_name,
+        email=payload.email,
+        phone=payload.phone,
+        location=payload.location,
+        links=payload.links,
+        certifications=payload.certifications,
+        languages=payload.languages,
     )
-    pdf = generate_pdf(tailored, name=_pdf_name(user.email), email=user.email)
+    pdf = generate_pdf(
+        tailored,
+        name=_pdf_name(user.email),
+        email=user.email,
+        template=template,
+    )
+    filename = "cv-ats.pdf" if template == "ats" else "cv.pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",
-        headers={"Content-Disposition": 'attachment; filename="cv.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -291,9 +333,7 @@ async def delete_version(
         next_current_id = result.scalar_one_or_none()
         if next_current_id is not None:
             await db.execute(
-                update(MasterCV)
-                .where(MasterCV.id == next_current_id)
-                .values(is_current=True)
+                update(MasterCV).where(MasterCV.id == next_current_id).values(is_current=True)
             )
 
     await log_audit(
@@ -339,3 +379,67 @@ async def update_version(
         )
         await db.commit()
     return cv
+
+
+@router.post("/ats-score", response_model=AtsScoreResponse)
+@limiter.limit(settings.rate_limit_api, key_func=auth_key)
+async def score_cv_ats(
+    request: Request,
+    payload: AtsScoreRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Score an (optionally edited) CV structure against a job description.
+
+    Always returns a deterministic baseline (skill coverage, keyword coverage,
+    content completeness and ATS-readability heuristics). When an LLM is
+    configured, a qualitative review is blended in (see ADR 013). Job skills and
+    keywords come from the stored ``parsed_jd`` when available; otherwise the
+    raw description is parsed on the fly.
+    """
+    jd_text = payload.job_description or ""
+    jd_title = payload.job_title
+    jd_skills: list[str] = []
+    jd_keywords: list[str] = []
+
+    if payload.job_id is not None:
+        job = await db.get(Job, payload.job_id)
+        if job is None or job.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Job not found")
+        jd_text = jd_text or (job.description or "")
+        jd_title = jd_title or job.title
+        stored = job.parsed_jd or {}
+        jd_skills = [str(s) for s in stored.get("skills") or []]
+        jd_keywords = [str(k) for k in stored.get("keywords") or []]
+
+    # No stored/parsed requirements: parse the description on the fly.
+    if not jd_skills and jd_text:
+        jd_skills = parse_jd(jd_text).skills
+    if not jd_keywords and jd_text:
+        jd_keywords = derive_keywords(jd_text)
+
+    report = await score_ats(
+        payload.cv.model_dump(),
+        jd_skills=jd_skills,
+        jd_keywords=jd_keywords,
+        jd_text=jd_text,
+        job_title=jd_title,
+        llm_config=await get_llm_config(db),
+    )
+
+    if payload.generated_cv_id is not None:
+        generated = await db.get(GeneratedCV, payload.generated_cv_id)
+        if generated is not None and generated.user_id == user.id:
+            generated.ats_score = report["score"]
+            generated.ats_report = report
+            await log_audit(
+                db,
+                user_id=user.id,
+                action="scored",
+                entity_type="generated_cv",
+                entity_id=generated.id,
+                changes={"ats_score": report["score"]},
+            )
+            await db.commit()
+
+    return AtsScoreResponse(**report)

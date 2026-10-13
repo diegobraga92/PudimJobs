@@ -43,9 +43,7 @@ _PATTERNS: list[tuple[str, re.Pattern]] = sorted(
     reverse=True,
 )
 
-_ALIAS_LOOKUP: dict[str, str] = {
-    canonical: canonical for canonical in ALL_SKILLS
-}
+_ALIAS_LOOKUP: dict[str, str] = {canonical: canonical for canonical in ALL_SKILLS}
 for _canonical, _aliases in _ALIASES.items():
     _ALIAS_LOOKUP[_canonical] = _canonical
     for _alias in _aliases:

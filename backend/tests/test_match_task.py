@@ -56,12 +56,8 @@ async def test_match_job_skips_when_no_rule_matches(test_engine, db_session):
 
 async def test_match_job_inactive_rule_is_ignored(test_engine, db_session):
     user = await create_user(db_session)
-    rule = AlertRule(
-        user_id=user.id, name="Off", keywords=["python"], active=False
-    )
-    job = Job(
-        user_id=user.id, title="Python Engineer", company="Acme", description="Python role"
-    )
+    rule = AlertRule(user_id=user.id, name="Off", keywords=["python"], active=False)
+    job = Job(user_id=user.id, title="Python Engineer", company="Acme", description="Python role")
     db_session.add_all([rule, job])
     await db_session.commit()
     await db_session.refresh(job)
@@ -72,17 +68,11 @@ async def test_match_job_inactive_rule_is_ignored(test_engine, db_session):
 
 async def test_match_job_email_channel(test_engine, db_session, monkeypatch):
     sent: list[str] = []
-    monkeypatch.setattr(
-        "workers.tasks.match.send_email", lambda to, subject, html: sent.append(to)
-    )
+    monkeypatch.setattr("workers.tasks.match.send_email", lambda to, subject, html: sent.append(to))
 
     user = await create_user(db_session)
-    rule = AlertRule(
-        user_id=user.id, name="Email me", keywords=["python"], channels=["email"]
-    )
-    job = Job(
-        user_id=user.id, title="Python Engineer", company="Acme", description="Python role"
-    )
+    rule = AlertRule(user_id=user.id, name="Email me", keywords=["python"], channels=["email"])
+    job = Job(user_id=user.id, title="Python Engineer", company="Acme", description="Python role")
     db_session.add_all([rule, job])
     await db_session.commit()
     await db_session.refresh(job)

@@ -33,3 +33,19 @@ class ApplicationStatus(enum.StrEnum):
     interview = "interview"
     offer = "offer"
     rejected = "rejected"
+
+
+class PrepCategory(enum.StrEnum):
+    """Kind of interview-preparation task."""
+
+    technical = "technical"
+    behavioral = "behavioral"
+    research = "research"
+    logistics = "logistics"
+    other = "other"
+
+
+class PrepStatus(enum.StrEnum):
+    pending = "pending"
+    in_progress = "in_progress"
+    done = "done"

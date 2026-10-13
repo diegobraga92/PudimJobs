@@ -20,11 +20,17 @@
   .education-item { margin-bottom: 4px; }
   .project-desc { margin: 2px 0 4px; line-height: 1.5; }
   .project-link { font-size: 9pt; color: #555; margin-bottom: 4px; }
+  .cert-item, .lang-item { margin-bottom: 2px; }
 </style>
 </head>
 <body>
   {% if name %}<h1>{{ name }}</h1>{% endif %}
-  {% if email %}<div class="contact">{{ email }}</div>{% endif %}
+  {% set contact_bits = [] %}
+  {% if email %}{% set _ = contact_bits.append(email) %}{% endif %}
+  {% if phone %}{% set _ = contact_bits.append(phone) %}{% endif %}
+  {% if location %}{% set _ = contact_bits.append(location) %}{% endif %}
+  {% if links %}{% set _ = contact_bits.extend(links) %}{% endif %}
+  {% if contact_bits %}<div class="contact">{{ contact_bits | join(' • ') }}</div>{% endif %}
 
   {% if summary %}
     <h2>Summary</h2>
@@ -72,6 +78,20 @@
       <div class="education-item">
         {{ edu.degree }}, {{ edu.institution }}{% if edu.year %} ({{ edu.year }}){% endif %}
       </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if certifications %}
+    <h2>Certifications</h2>
+    {% for cert in certifications %}
+      <div class="cert-item">{{ cert }}</div>
+    {% endfor %}
+  {% endif %}
+
+  {% if languages %}
+    <h2>Languages</h2>
+    {% for lang in languages %}
+      <div class="lang-item">{{ lang }}</div>
     {% endfor %}
   {% endif %}
 </body>

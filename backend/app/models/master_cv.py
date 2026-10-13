@@ -10,9 +10,7 @@ from app.database import Base
 
 class MasterCV(Base):
     __tablename__ = "master_cv"
-    __table_args__ = (
-        UniqueConstraint("user_id", "version", name="uq_master_cv_user_version"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "version", name="uq_master_cv_user_version"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(

@@ -14,6 +14,12 @@ import { I18nService } from '../../services/i18n.service';
     <div class="cv-preview-sheet">
       <header class="cv-head">
         <h2>{{ name }}</h2>
+        @if (contactLine) {
+          <p class="cv-contact-line">{{ contactLine }}</p>
+        }
+        @if (links.length > 0) {
+          <p class="cv-contact-line cv-links">{{ links.join(' · ') }}</p>
+        }
         <p class="cv-contact">
           @if (cv.summary) {
             <span>{{ cv.summary }}</span>
@@ -68,6 +74,26 @@ import { I18nService } from '../../services/i18n.service';
               <div class="cv-entry-sub">{{ edu.institution }}</div>
             </div>
           }
+        </section>
+      }
+
+      @if (certifications.length > 0) {
+        <section class="cv-section">
+          <h3>{{ i18n.t('cvPreview.certifications') }}</h3>
+          @for (cert of certifications; track cert) {
+            <div class="cv-entry-sub">{{ cert }}</div>
+          }
+        </section>
+      }
+
+      @if (languages.length > 0) {
+        <section class="cv-section">
+          <h3>{{ i18n.t('cvPreview.languages') }}</h3>
+          <div class="cv-skills">
+            @for (language of languages; track language) {
+              <span class="skill-chip">{{ language }}</span>
+            }
+          </div>
         </section>
       }
 
@@ -127,6 +153,18 @@ import { I18nService } from '../../services/i18n.service';
           color: var(--color-text-faint);
           font-style: italic;
         }
+      }
+
+      .cv-contact-line {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: var(--text-sm);
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+
+      .cv-links {
+        color: var(--color-accent);
       }
 
       .cv-section {
@@ -216,6 +254,25 @@ export class CvPreviewComponent {
   @Input({ required: true }) cv!: CVStructure;
   /** Display name for the resume header. */
   @Input() name = 'Your Name';
+
+  /** `email · phone · location`, skipping whatever is missing. */
+  get contactLine(): string {
+    return [this.cv?.email, this.cv?.phone, this.cv?.location]
+      .filter((part) => !!part)
+      .join(' · ');
+  }
+
+  get links(): string[] {
+    return this.cv?.links ?? [];
+  }
+
+  get certifications(): string[] {
+    return this.cv?.certifications ?? [];
+  }
+
+  get languages(): string[] {
+    return this.cv?.languages ?? [];
+  }
 
   formatDates(start: string | null, end: string | null): string {
     if (!start && !end) {

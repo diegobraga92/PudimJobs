@@ -48,18 +48,14 @@ async def test_audit_list_and_filters(db_client, db_session):
     filtered = await db_client.get("/api/admin/audit", params={"action": "created"})
     assert len(filtered.json()) == 1
 
-    type_filtered = await db_client.get(
-        "/api/admin/audit", params={"entity_type": "application"}
-    )
+    type_filtered = await db_client.get("/api/admin/audit", params={"entity_type": "application"})
     assert len(type_filtered.json()) == 1
     assert type_filtered.json()[0]["changes"]["status"]["after"] == "interview"
 
 
 async def test_audit_actions_lists_facets(db_client, db_session):
     admin = await _make_admin(db_client, db_session)
-    db_session.add(
-        AuditLog(user_id=admin.id, action="replay", entity_type="reprocessing")
-    )
+    db_session.add(AuditLog(user_id=admin.id, action="replay", entity_type="reprocessing"))
     await db_session.commit()
 
     response = await db_client.get("/api/admin/audit/actions")

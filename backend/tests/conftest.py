@@ -138,4 +138,3 @@ async def auth_client(db_client, db_session):
     token = response.json()["access_token"]
     db_client.headers["Authorization"] = f"Bearer {token}"
     return db_client, user, token
-

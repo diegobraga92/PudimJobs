@@ -151,4 +151,3 @@ async def test_hide_applied_applies_to_keyword_search(auth_client):
         "/api/jobs", params={"q": "backend", "hide_applied": "false"}
     )
     assert len(with_filter_off.json()) == 1
-

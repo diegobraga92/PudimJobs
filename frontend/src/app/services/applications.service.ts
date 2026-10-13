@@ -10,6 +10,7 @@ export interface Application {
   status: ApplicationStatus;
   applied_date: string | null;
   notes: string | null;
+  lessons_learned: string | null;
   cv_version: string | null;
   created_at: string;
   updated_at: string;
@@ -23,7 +24,19 @@ export interface ApplicationInput {
   status?: ApplicationStatus;
   applied_date?: string | null;
   notes?: string | null;
+  lessons_learned?: string | null;
   cv_version?: string | null;
+}
+
+/** A retrospective note, joined with the job it belongs to. */
+export interface LessonEntry {
+  application_id: string;
+  job_title: string;
+  job_company: string;
+  status: ApplicationStatus;
+  applied_date: string | null;
+  lessons_learned: string;
+  updated_at: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -36,6 +49,11 @@ export class ApplicationsService {
       params = params.set('status_filter', status);
     }
     return this.http.get<Application[]>('/api/applications', { params });
+  }
+
+  /** Retrospectives across every application that recorded one (newest first). */
+  lessons(): Observable<LessonEntry[]> {
+    return this.http.get<LessonEntry[]>('/api/applications/lessons');
   }
 
   create(payload: ApplicationInput): Observable<Application> {

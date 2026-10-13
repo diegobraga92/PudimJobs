@@ -38,6 +38,8 @@ export class LayoutComponent implements OnInit {
     { labelKey: 'layout.nav.sources', route: '/sources', icon: 'globe' },
     { labelKey: 'layout.nav.masterCv', route: '/cv', icon: 'file-text' },
     { labelKey: 'layout.nav.applications', route: '/applications', icon: 'kanban' },
+    { labelKey: 'layout.nav.prepTasks', route: '/prep-tasks', icon: 'circle-check' },
+    { labelKey: 'layout.nav.lessons', route: '/lessons', icon: 'file-text' },
     { labelKey: 'layout.nav.alerts', route: '/alerts', icon: 'bell' },
     { labelKey: 'layout.nav.notifications', route: '/notifications', icon: 'bell-ring' },
     { labelKey: 'layout.nav.admin', route: '/admin', icon: 'shield-check', adminOnly: true },

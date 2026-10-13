@@ -25,11 +25,26 @@ class ProjectItem(BaseModel):
 
 
 class CVStructure(BaseModel):
+    """Structured CV content (persisted in ``master_cv.structured_json``).
+
+    ``full_name``/``email``/``phone``/``location``/``links`` are the header
+    contact block, back-filled from the CV file on import and editable in the
+    UI; when present they take precedence over the email-derived fallbacks used
+    by the PDF renderer.
+    """
+
+    full_name: str = Field(default="", max_length=255)
+    email: str = Field(default="", max_length=255)
+    phone: str = Field(default="", max_length=64)
+    location: str = Field(default="", max_length=255)
+    links: list[str] = Field(default_factory=list)
     summary: str = ""
     experience: list[ExperienceItem] = Field(default_factory=list)
     education: list[EducationItem] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     projects: list[ProjectItem] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
 
 
 class MasterCVCreate(BaseModel):

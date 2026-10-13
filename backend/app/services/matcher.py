@@ -13,9 +13,7 @@ def _term_in_text(text: str, term: str) -> bool:
 
 def job_matches_rule(job: Job, rule: AlertRule) -> bool:
     """Return True when a job satisfies every criterion of an alert rule."""
-    haystack = " ".join(
-        filter(None, [job.title, job.description, job.company, " ".join(job.tags)])
-    )
+    haystack = " ".join(filter(None, [job.title, job.description, job.company, " ".join(job.tags)]))
 
     if rule.keywords and not any(_term_in_text(haystack, kw) for kw in rule.keywords):
         return False

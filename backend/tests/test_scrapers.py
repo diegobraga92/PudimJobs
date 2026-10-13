@@ -195,12 +195,7 @@ def test_aggregator_normalize_skips_invalid():
     assert normalized[0]["external_id"] == "job-1"
     assert scraper.normalize([RawJob(title="", company="", url="")]) == []
     # Whitespace-only titles are dropped, not stored as empty strings.
-    assert (
-        scraper.normalize(
-            [RawJob(title="   ", company="Y", url="https://x.example/job")]
-        )
-        == []
-    )
+    assert scraper.normalize([RawJob(title="   ", company="Y", url="https://x.example/job")]) == []
 
 
 DETAIL_LIST_HTML = """
@@ -253,9 +248,7 @@ def test_aggregator_detail_mode_discovers_link_only_rows():
         "https://board.example/jobs/2",
     ]
     # Without the flag the hook is inert, so list parsing stays single-stage.
-    assert GenericHtmlListScraper({}).discover_urls(
-        _aggregator_page(DETAIL_LIST_HTML)
-    ) == []
+    assert GenericHtmlListScraper({}).discover_urls(_aggregator_page(DETAIL_LIST_HTML)) == []
 
 
 def test_aggregator_detail_mode_parses_detail_page():
@@ -270,9 +263,7 @@ def test_aggregator_detail_mode_parses_detail_page():
             "detail_date_selector": "time.date",
         }
     )
-    raw = scraper.parse(
-        _aggregator_page(DETAIL_PAGE_HTML, "https://board.example/jobs/1")
-    )
+    raw = scraper.parse(_aggregator_page(DETAIL_PAGE_HTML, "https://board.example/jobs/1"))
     assert len(raw) == 1
     assert raw[0].title == "Staff Platform Engineer"
     assert raw[0].company == "Acme"
@@ -508,10 +499,7 @@ def _json_page(payload: dict) -> ScrapedPage:
 
 def test_greenhouse_provider_parses_jobs():
     provider = GreenhouseProvider({"board_token": "acme", "company": "Acme"})
-    assert (
-        provider.results_url()
-        == "https://boards-api.greenhouse.io/v1/boards/acme/jobs"
-    )
+    assert provider.results_url() == "https://boards-api.greenhouse.io/v1/boards/acme/jobs"
     jobs = provider.parse(_json_page(GREENHOUSE_PAYLOAD))
     assert len(jobs) == 1
     assert jobs[0].title == "Backend Engineer"
@@ -649,9 +637,7 @@ def test_json_list_provider_accepts_a_single_object_payload():
         }
     )
     page = ScrapedPage(
-        html_content=json.dumps(
-            {"job": {"name": "Solo", "link": "https://x.example/1"}}
-        ),
+        html_content=json.dumps({"job": {"name": "Solo", "link": "https://x.example/1"}}),
         status_code=200,
         final_url="https://api.example/one",
     )
@@ -685,9 +671,7 @@ def test_json_list_provider_is_registered_and_dispatched():
             config={"provider": "json_list", "url": "https://api.example/list"},
         )
     )
-    assert scraper.first_fetch_url("https://ignored.example") == (
-        "https://api.example/list"
-    )
+    assert scraper.first_fetch_url("https://ignored.example") == ("https://api.example/list")
 
 
 # --- Additional ATS providers (endpoint shapes verified live) ------------------
@@ -879,9 +863,7 @@ def test_workday_provider_parses_and_builds_job_urls():
 
 def test_workday_provider_requires_host_tenant_and_site():
     with pytest.raises(ValueError, match="tenant"):
-        WorkdayProvider(
-            {"host": "acme.wd1.myworkdayjobs.com", "site": "AcmeCareers"}
-        ).results_url()
+        WorkdayProvider({"host": "acme.wd1.myworkdayjobs.com", "site": "AcmeCareers"}).results_url()
 
 
 def test_new_ats_providers_are_registered():
@@ -892,9 +874,7 @@ def test_new_ats_providers_are_registered():
 
 
 def test_google_cse_provider_extracts_links_and_next_offset():
-    provider = GoogleCseProvider(
-        {"query": "site:acme.example python", "cx": "cse-1"}, "KEY-123"
-    )
+    provider = GoogleCseProvider({"query": "site:acme.example python", "cx": "cse-1"}, "KEY-123")
     assert "key=KEY-123" in provider.results_url()
     page = _json_page(
         {
@@ -943,9 +923,7 @@ SERPAPI_LINKEDIN_PAYLOAD = {
         },
         {"title": "Data Engineer", "job_google_link": "https://www.linkedin.com/jobs/view/2"},
     ],
-    "serpapi_pagination": {
-        "next": "https://serpapi.com/search?engine=linkedin_jobs&start=11"
-    },
+    "serpapi_pagination": {"next": "https://serpapi.com/search?engine=linkedin_jobs&start=11"},
 }
 
 SERPAPI_INDEED_PAYLOAD = {
@@ -992,9 +970,9 @@ def test_brightdata_provider_metadata_and_parsing():
     assert provider.family == "search_api"
     assert provider.results_url().startswith("https://api.brightdata.com/serp/req?")
     assert "linkedin.com/jobs/search" in provider._target_url()
-    assert "br.indeed.com" in BrightDataProvider(
-        {"engine": "indeed", "query": "python"}
-    )._target_url()
+    assert (
+        "br.indeed.com" in BrightDataProvider({"engine": "indeed", "query": "python"})._target_url()
+    )
     # A custom target URL (config `url`/`url_tpl`) overrides the engine default.
     custom = BrightDataProvider(
         {"url_tpl": "https://{host}/jobs?q={query}", "host": "acme.example", "query": "python"}
@@ -1031,4 +1009,3 @@ def test_discovery_registry_and_scraper_dispatch():
 
     with pytest.raises(ValueError):
         get_scraper(SimpleNamespace(type=SourceType.discovery, config={}))
-

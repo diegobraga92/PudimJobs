@@ -69,7 +69,5 @@ async def test_replay_failed_run(db_client, db_session, monkeypatch):
 
 async def test_replay_missing_run(db_client, db_session):
     await _make_admin(db_client, db_session)
-    response = await db_client.post(
-        "/api/admin/dlq/00000000-0000-0000-0000-000000000000/replay"
-    )
+    response = await db_client.post("/api/admin/dlq/00000000-0000-0000-0000-000000000000/replay")
     assert response.status_code == 404

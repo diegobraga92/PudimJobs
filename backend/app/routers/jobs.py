@@ -25,9 +25,7 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 async def get_owned_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> Job:
     """Fetch a job owned by the current user or raise 404."""
-    result = await db.execute(
-        select(Job).where(Job.id == job_id, Job.user_id == user.id)
-    )
+    result = await db.execute(select(Job).where(Job.id == job_id, Job.user_id == user.id))
     job = result.scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
@@ -123,9 +121,7 @@ async def list_jobs(
     if has_keyword:
         # select(Job, rank) returns tuples; rehydrate summaries with scores.
         return [
-            JobSummary.model_validate(job).model_copy(
-                update={"score": round(float(score), 4)}
-            )
+            JobSummary.model_validate(job).model_copy(update={"score": round(float(score), 4)})
             for job, score in result.all()
         ]
     return result.scalars().all()

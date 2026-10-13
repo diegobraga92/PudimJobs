@@ -66,9 +66,7 @@ async def test_import_creates_sources_and_skips_duplicates(auth_client):
 
 async def test_import_dry_run_writes_nothing(auth_client):
     client, _, _ = auth_client
-    response = await client.post(
-        "/api/sources/import", json={"sources": CATALOG, "dry_run": True}
-    )
+    response = await client.post("/api/sources/import", json={"sources": CATALOG, "dry_run": True})
     body = response.json()
     assert body["created"] == 2
     assert all(item["reason"] == "dry run" for item in body["results"])
