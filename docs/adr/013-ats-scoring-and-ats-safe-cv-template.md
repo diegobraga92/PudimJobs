@@ -4,6 +4,13 @@
 
 Accepted (2026-10-13)
 
+Amended (2026-10-13): the LLM overlay no longer issues its own HTTP request. The
+`_llm_review` call goes through `app/services/llm_client.chat_json` like every
+other LLM feature (ADR 016), so it inherits the provider's thinking toggle, JSON
+mode and the `llm_empty_content` diagnostic. That mattered here: a thinking-mode
+model answered `200 OK` with empty content and the review silently vanished —
+the report showed the heuristic blend as if no LLM were configured.
+
 ## Context
 
 Tailoring a CV (ADR 006) and exporting it as a PDF (ADR 011) produce a document
@@ -109,3 +116,9 @@ separately as `llm_self_score`). The report is rendered by
 `mobile/src/components/cv/AtsReportView.tsx`, inside the per-application
 workspace (`/applications/:id`) where the job being scored against is implicit —
 previously the user had to pick a job on the `/cv` page.
+
+Since the ADR 016 amendment, `_llm_review` is a thin caller of
+`app/services/llm_client.chat_json` (label `LLM ATS review`, 700 tokens), so the
+rules that keep it honest live in one place: an empty reply, a transport error or
+a non-object reply all degrade to `llm_summary: None` — the deterministic score
+is never replaced by a guess, and the reason is logged instead of swallowed.

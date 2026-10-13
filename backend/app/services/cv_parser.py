@@ -9,7 +9,6 @@ failure degrades gracefully to the heuristics, so CV import works out of the
 box without an API key.
 """
 
-import json
 import logging
 import re
 import zipfile
@@ -17,7 +16,6 @@ from io import BytesIO
 from pathlib import Path
 from xml.etree import ElementTree
 
-import httpx
 from docx import Document
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
@@ -30,7 +28,8 @@ from app.schemas.master_cv import (
     ExperienceItem,
     ProjectItem,
 )
-from app.services.cv_schema import CV_JSON_SCHEMA, strip_code_fence
+from app.services.cv_schema import CV_JSON_SCHEMA
+from app.services.llm_client import chat_json
 from app.services.llm_config import LlmRuntimeConfig
 
 logger = logging.getLogger(__name__)
@@ -710,7 +709,7 @@ def structure_cv(text: str) -> CVStructure:
 
 
 async def _llm_structured(text: str, config: LlmRuntimeConfig) -> dict | None:
-    """Call an OpenAI-compatible chat API; return the parsed JSON object or None."""
+    """Ask the LLM to structure the CV text; ``None`` on any failure."""
     schema = CV_JSON_SCHEMA
     system = (
         "You extract structured resume data from raw text. Return ONLY a JSON object "
@@ -720,31 +719,19 @@ async def _llm_structured(text: str, config: LlmRuntimeConfig) -> dict | None:
         "languages. Use null for missing dates and links."
     )
     user = f"Resume text:\n\n{text[:_LLM_MAX_CHARS]}"
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                f"{config.base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {config.api_key}"},
-                json={
-                    "model": config.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "temperature": 0,
-                    "max_tokens": 1600,
-                },
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-        parsed = json.loads(strip_code_fence(content))
-        return parsed if isinstance(parsed, dict) else None
-    except Exception:
-        logger.warning(
-            "LLM CV structuring failed; falling back to rule-based parsing",
-            exc_info=True,
-        )
-        return None
+    payload = await chat_json(
+        config,
+        system=system,
+        user=user,
+        max_tokens=1600,
+        temperature=0,
+        timeout=30,
+        label="LLM CV structuring",
+    )
+    if payload is None:
+        # `chat_json` already logged exactly why (transport, empty content, ...).
+        logger.warning("LLM CV structuring failed; falling back to rule-based parsing")
+    return payload
 
 
 async def structure_cv_with_llm(text: str, config: LlmRuntimeConfig) -> CVStructure | None:

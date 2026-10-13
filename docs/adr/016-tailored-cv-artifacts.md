@@ -8,6 +8,23 @@ Amended (2026-10-13): the env-only `TAILORING_LLM_VARIANT_ENABLED` switch was
 removed. Enabling the LLM in Admin → LLM (with a stored API key) is now the
 only opt-in for the `llm` variant — same guard, one place to configure it.
 
+Amended (2026-10-13, again): two defects found in production are fixed.
+**(a) A content-less artifact heals itself.** `generated_cvs.structured_json` is
+nullable and rows written before this ADR exist with it NULL — an artifact with
+nothing to preview. The tailor task used to treat such a row as "already
+produced", so the empty card could never be regenerated. A row with no content
+no longer satisfies the idempotency shortcut: the run rebuilds the artifact and
+**repairs that same row in place** (same id, so `created_at`, the
+`applications.generated_cv_id` link and the variant uniqueness all survive).
+**(b) One transport for every LLM call.** `app/services/llm_client.py` is now
+the only place a chat completion is issued (CV structuring, bullet rephrasing,
+full-CV rewrite, ATS review). It disables the provider's chain-of-thought
+(DeepSeek's `thinking: {"type": "disabled"}` — provider-specific, so it is never
+sent to OpenAI), asks for a bare JSON object, and treats a `200 OK` with empty
+`content` as a failure worth logging. Thinking-mode models otherwise spend
+`max_tokens` on `reasoning_content` and answer with nothing, which silently
+dropped every feature onto its rule-based fallback.
+
 Supersedes ADR 015 §5 ("Editing a tailored CV still happens on `/cv`") and
 revisits the "Full CV rewrite by LLM" rejection in ADR 006.
 
@@ -120,6 +137,10 @@ model can therefore produce a *bad second artifact*, never a missing one.
   create a master version (the failure mode that motivated ADR 015).
 - **Idempotent and cheap by default.** With no LLM configured, behaviour and cost
   are exactly the deterministic engine's.
+- **A broken artifact heals itself.** Re-running the tailor task repairs a
+  content-less row instead of reusing it, so a card that shows nothing (or a
+  legacy row with no `structured_json`) disappears on the next run — no manual
+  SQL, no migration that deletes user data.
 
 ### Negative / Risks
 
@@ -138,6 +159,17 @@ model can therefore produce a *bad second artifact*, never a missing one.
   versions from `structured_json`, but they get fresh ids and a generic
   "Tailored (restored)" label.
 - **Two clients to keep aligned**, as with every UI decision since ADR 012.
+- **Provider quirks now live in one file.** `llm_client` special-cases DeepSeek
+  (thinking off) by inspecting the base URL. A provider that behaves differently
+  again needs that one module updated, and its "thinking" toggle would silently
+  stop being applied if the endpoint URL is proxied through a brand that does not
+  contain "deepseek". The `llm_empty_content` / `llm_request_failed` log lines
+  are the tripwire: they name the model, `finish_reason`, whether
+  `reasoning_content` was present, and the token budget.
+- **Repair needs a re-run.** A `variant=llm` row left empty by an earlier failed
+  rewrite is only repaired when a later run actually produces a rewrite; if the
+  LLM stays broken, the empty row remains (it is simply not advertised by the
+  task result, which reports only artifacts that exist with content).
 
 ## Alternatives Not Selected
 
@@ -160,7 +192,12 @@ model can therefore produce a *bad second artifact*, never a missing one.
 - `app/services/cv_tailor.py` (`tailor_cv`, `_tailored_summary`,
   `generate_tailored_cv_with_llm`), `app/services/cv_schema.py`
   (`CV_JSON_SCHEMA`, shared with `cv_parser`),
-  `workers/tasks/tailor.py` (dual-variant orchestration)
+  `workers/tasks/tailor.py` (dual-variant orchestration, in-place repair of a
+  content-less artifact via `_has_content`)
+- `app/services/llm_client.py` (`request_body`, `chat_text`, `chat_json` — the
+  only caller of `/chat/completions`; thinking-off toggle, JSON mode, empty
+  content treated as failure), used by `cv_tailor`, `cv_parser`, `ats_scorer`
+  and the admin probe in `app/routers/app_settings.py`
 - `app/routers/cv.py` (`PUT /api/cv/generated/{id}`,
   `GET /api/cv/generated?job_id=`), `app/routers/applications.py`
   (ownership check on `generated_cv_id`), `app/services/ats_scorer.py`

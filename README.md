@@ -161,6 +161,11 @@ docker compose --env-file .env up -d
 > that loads that file (a native run, not Compose) now fails validation at
 > import. The AI rewrite variant is instead turned on by enabling the LLM in
 > Admin → LLM with an API key.
+>
+> No data migration is needed for tailored CVs: artifacts written before ADR 016
+> (a `generated_cvs` row with `structured_json` NULL) are **repaired in place** by
+> the next tailor run for that job — same row id, so the application link and the
+> PDF keep working. Nothing is deleted.
 
 ### 3. Access from the LAN
 
@@ -320,6 +325,20 @@ retrospectives) are listed at the end of the development plan.
   deterministic CV appears. Env *fallback* changes (`TAILORING_LLM_ENABLED`,
   `OPENAI_*`) only reach the worker after
   `docker compose up -d --force-recreate worker`
+- Every LLM call in the app (CV structuring, bullet rephrasing, full-CV rewrite,
+  ATS review) goes through `app/services/llm_client.py`, which is also where
+  provider quirks are handled: DeepSeek endpoints get
+  `thinking: {"type": "disabled"}` (with thinking on, `max_tokens` is spent on
+  `reasoning_content` and the answer arrives **empty**, silently degrading the
+  feature), JSON callers ask for a bare object (retried without it if the
+  provider rejects `response_format`), and an empty reply is logged as
+  `llm_empty_content` with the model, `finish_reason` and token budget instead of
+  being treated as success. Admin → LLM "Test connection" uses the same client and
+  therefore requires a *usable* reply, not merely HTTP 200
+- Self-healing tailored artifacts: a `generated_cvs` row with no
+  `structured_json` (pre-ADR-016 leftovers) does not count as "already tailored",
+  so the next run repairs that same row in place — retaining the row id,
+  `created_at` and the `applications.generated_cv_id` link
 - PDF generation: Jinja2 template + weasyprint; a tailored CV is a
   **self-contained `generated_cvs` artifact** (its own `structured_json` and
   `variant`, `rule` or `llm`) — a tailor run never creates a `master_cv` version

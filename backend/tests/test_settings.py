@@ -1,6 +1,8 @@
 """Tests for the admin LLM-config settings API."""
 
 from app.models import AuditLog
+from app.routers import app_settings
+from app.services.llm_config import LlmRuntimeConfig
 from tests.helpers import create_user
 
 
@@ -83,3 +85,65 @@ async def test_llm_config_update_writes_audit_without_secret(db_client, db_sessi
     matching = [e for e in entries if e.entity_type == "llm_config" and e.user_id == admin.id]
     assert matching
     assert "sk-audit-9999" not in str(matching[0].changes)
+
+
+# --- connection probe -------------------------------------------------------
+
+
+async def _enable_deepseek(db_client) -> None:
+    response = await db_client.put(
+        "/api/admin/settings/llm",
+        json={
+            "enabled": True,
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-flash",
+            "api_key": "sk-probe-1234",
+        },
+    )
+    assert response.status_code == 200
+
+
+async def test_llm_test_probe_uses_the_stored_config(db_client, db_session, monkeypatch):
+    """A green probe has to mean the features will work too."""
+    await _make_admin(db_client, db_session)
+    await _enable_deepseek(db_client)
+    seen: dict = {}
+
+    async def _reply(config: LlmRuntimeConfig, **_kwargs):
+        seen["config"] = config
+        return "pong"
+
+    monkeypatch.setattr(app_settings, "chat_text", _reply)
+
+    response = await db_client.post("/api/admin/settings/llm/test")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "status_code": 200,
+        "model": "deepseek-flash",
+    }
+    assert seen["config"].model == "deepseek-flash"
+    assert seen["config"].base_url == "https://api.deepseek.com/v1"
+
+
+async def test_llm_test_probe_fails_when_the_reply_is_unusable(db_client, db_session, monkeypatch):
+    """The regression: a 200 with empty content is not a working setup.
+
+    Thinking-mode models answered ``200 OK`` with no content while every feature
+    silently fell back, and this probe reported success — the one signal an
+    operator had.
+    """
+
+    async def _nothing(*_args, **_kwargs):
+        return None
+
+    await _make_admin(db_client, db_session)
+    await _enable_deepseek(db_client)
+    monkeypatch.setattr(app_settings, "chat_text", _nothing)
+
+    body = (await db_client.post("/api/admin/settings/llm/test")).json()
+
+    assert body["ok"] is False
+    assert body["status_code"] is None
+    assert "no usable reply" in body["error"]

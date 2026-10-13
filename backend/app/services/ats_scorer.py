@@ -12,12 +12,11 @@ Mirrors the graceful-degradation pattern used by the CV parser/tailor
 deterministic baseline; it never fails the request.
 """
 
-import json
 import re
 
-import httpx
 import structlog
 
+from app.services.llm_client import chat_json
 from app.services.llm_config import LlmRuntimeConfig
 from app.services.skill_matcher import extract_skills, match_skills
 
@@ -343,32 +342,20 @@ async def _llm_review(
         f"Resume:\n{text[:6000]}\n\n"
         f"Current deterministic subscores: {current}"
     )
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                f"{config.base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {config.api_key}"},
-                json={
-                    "model": config.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "temperature": 0,
-                    "max_tokens": 700,
-                },
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-        stripped = content.strip()
-        if stripped.startswith("```"):
-            stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-            stripped = re.sub(r"\s*```$", "", stripped)
-        parsed = json.loads(stripped)
-        return parsed if isinstance(parsed, dict) else None
-    except Exception:
-        logger.warning("LLM ATS review failed; using deterministic score only", exc_info=True)
-        return None
+    payload = await chat_json(
+        config,
+        system=system,
+        user=user,
+        max_tokens=700,
+        temperature=0,
+        timeout=30,
+        label="LLM ATS review",
+    )
+    if payload is None:
+        # `chat_json` already logged exactly why (transport, empty content, ...);
+        # an empty reply used to be indistinguishable from a real review failure.
+        logger.warning("LLM ATS review failed; using deterministic score only")
+    return payload
 
 
 async def score_ats(

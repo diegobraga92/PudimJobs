@@ -1,6 +1,5 @@
 """Admin settings API (currently: LLM configuration)."""
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +12,8 @@ from app.models import LLMConfig, User
 from app.models.llm_config import LLM_CONFIG_ROW_ID
 from app.ratelimit import limiter
 from app.schemas.llm_config import LLMConfigResponse, LLMConfigUpdate
+from app.services.llm_client import chat_text
+from app.services.llm_config import LlmRuntimeConfig
 from app.services.secrets import decrypt_secret, encrypt_secret, mask_secret
 
 router = APIRouter(prefix="/api/admin/settings", tags=["admin-settings"])
@@ -101,7 +102,18 @@ async def test_llm(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Validate the configured LLM endpoint/model/key with a tiny request."""
+    """Validate the configured LLM endpoint/model/key with a tiny request.
+
+    The probe runs through the *same* client the features use, so it also
+    exercises the provider-specific thinking toggle. A status code alone is not
+    proof of a working setup: a thinking-mode model answers ``200 OK`` with an
+    empty ``content``, which made this button report success while every feature
+    silently kept its non-LLM fallback. The reply must therefore be usable.
+
+    ``status_code`` is only reported for a successful probe; on failure ``error``
+    carries the endpoint's own message (e.g. ``401 Unauthorized``) and points at
+    the ``llm_request_failed`` / ``llm_empty_content`` log line.
+    """
     row = await _get_or_create_row(db)
     key = _current_plain_key(row)
     if not row.enabled or not key:
@@ -109,22 +121,28 @@ async def test_llm(
             status_code=400,
             detail="LLM is not enabled or no API key is configured",
         )
-    url = f"{row.base_url.rstrip('/')}/chat/completions"
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                url,
-                headers={"Authorization": f"Bearer {key}"},
-                json={
-                    "model": row.model,
-                    "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 1,
-                },
-            )
-        return {
-            "ok": response.status_code == 200,
-            "status_code": response.status_code,
-            "model": row.model,
-        }
-    except Exception as exc:  # noqa: BLE001 - connection errors are reported to the UI
-        return {"ok": False, "status_code": None, "error": str(exc)[:300]}
+    config = LlmRuntimeConfig(
+        enabled=True, api_key=key, base_url=row.base_url, model=row.model
+    )
+    reply = await chat_text(
+        config,
+        system="You are a connectivity probe. Reply with a single short word.",
+        user="ping",
+        max_tokens=16,
+        temperature=0,
+        timeout=30,
+        label="admin LLM test",
+    )
+    if reply is not None:
+        # Same shape as before this fix, so both clients keep working unchanged.
+        return {"ok": True, "status_code": 200, "model": row.model}
+    return {
+        "ok": False,
+        "status_code": None,
+        "model": row.model,
+        "error": (
+            "The endpoint returned no usable reply — check the API key, model name "
+            "and quota (see the llm_request_failed / llm_empty_content log line for "
+            "the provider's own message)."
+        ),
+    }

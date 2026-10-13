@@ -16,12 +16,12 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-import httpx
 from pydantic import ValidationError
 
 from app.config import settings
 from app.schemas.master_cv import CVStructure
-from app.services.cv_schema import CV_JSON_SCHEMA, strip_code_fence
+from app.services.cv_schema import CV_JSON_SCHEMA
+from app.services.llm_client import chat_json, chat_text
 from app.services.llm_config import LlmRuntimeConfig
 from app.services.skill_matcher import match_skills
 
@@ -274,39 +274,27 @@ async def enhance_with_llm(
         "person past tense, no fabrication. Return ONLY a numbered list.\n\n"
         + "\n".join(f"{i + 1}. {b}" for i, b in enumerate(head))
     )
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                f"{config.base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {config.api_key}"},
-                json={
-                    "model": config.model,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You rewrite CV bullet points to emphasize "
-                                "specific skills. Never invent facts, dates, "
-                                "or employers."
-                            ),
-                        },
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.4,
-                    "max_tokens": 1024,
-                },
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-        rephrased = _parse_rephrased(content)
-        if not rephrased:
-            return bullets
-        # Keep the count stable: pad a short reply with the originals (head),
-        # and leave any bullets beyond the cap untouched.
-        return (rephrased + head)[: len(head)] + tail
-    except Exception:
-        logger.warning("LLM enhancement failed; using original bullets", exc_info=True)
+    content = await chat_text(
+        config,
+        system=(
+            "You rewrite CV bullet points to emphasize specific skills. "
+            "Never invent facts, dates, or employers."
+        ),
+        user=prompt,
+        max_tokens=1024,
+        temperature=0.4,
+        timeout=30,
+        label="LLM bullet rephrase",
+    )
+    if content is None:
+        logger.warning("LLM enhancement failed; using original bullets")
         return bullets
+    rephrased = _parse_rephrased(content)
+    if not rephrased:
+        return bullets
+    # Keep the count stable: pad a short reply with the originals (head),
+    # and leave any bullets beyond the cap untouched.
+    return (rephrased + head)[: len(head)] + tail
 
 
 def _coerce_self_score(value: object) -> int | None:
@@ -366,28 +354,18 @@ async def generate_tailored_cv_with_llm(
         f"Job description:\n{jd_text[:half]}\n\n"
         f"Current CV (JSON):\n{json.dumps(cv_structure)[:half]}"
     )
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                f"{config.base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {config.api_key}"},
-                json={
-                    "model": config.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 4000,
-                },
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-        payload = json.loads(strip_code_fence(content))
-    except Exception:
-        logger.warning("LLM CV rewrite failed; keeping the deterministic variant", exc_info=True)
-        return None
-    if not isinstance(payload, dict):
+    payload = await chat_json(
+        config,
+        system=system,
+        user=user,
+        max_tokens=4000,
+        temperature=0.2,
+        timeout=60,
+        label="LLM CV rewrite",
+    )
+    if payload is None:
+        # `chat_json` already logged exactly why (transport, empty content, ...).
+        logger.warning("LLM CV rewrite failed; keeping the deterministic variant")
         return None
     try:
         structure = CVStructure.model_validate(payload.get("cv"))

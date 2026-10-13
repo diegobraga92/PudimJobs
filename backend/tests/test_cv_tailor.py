@@ -161,11 +161,11 @@ async def test_generate_tailored_cv_with_llm_missing_key_returns_none():
 
 
 async def test_generate_tailored_cv_with_llm_validates_the_reply(monkeypatch):
-    from app.services import cv_tailor
+    from app.services import llm_client
 
     fake = _FakeLLMClient()
     fake.reply = json.dumps({"cv": {**CV, "summary": "Rewritten"}, "ats_self_score": 77})
-    monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     result = await generate_tailored_cv_with_llm(
         CV,
@@ -183,11 +183,11 @@ async def test_generate_tailored_cv_with_llm_validates_the_reply(monkeypatch):
 
 
 async def test_generate_tailored_cv_with_llm_rejects_an_invalid_structure(monkeypatch):
-    from app.services import cv_tailor
+    from app.services import llm_client
 
     fake = _FakeLLMClient()
     fake.reply = json.dumps({"cv": {"experience": "not-a-list"}, "ats_self_score": 90})
-    monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     assert (
         await generate_tailored_cv_with_llm(CV, jd_text="x", config=_enabled_llm_config()) is None
@@ -195,7 +195,7 @@ async def test_generate_tailored_cv_with_llm_rejects_an_invalid_structure(monkey
 
 
 async def test_generate_tailored_cv_with_llm_degrades_on_failure(monkeypatch):
-    from app.services import cv_tailor
+    from app.services import llm_client
 
     class _BoomClient:
         def __init__(self, *args, **kwargs):
@@ -210,7 +210,7 @@ async def test_generate_tailored_cv_with_llm_degrades_on_failure(monkeypatch):
         async def post(self, *args, **kwargs):
             raise RuntimeError("llm down")
 
-    monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: _BoomClient())
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: _BoomClient())
 
     assert (
         await generate_tailored_cv_with_llm(CV, jd_text="x", config=_enabled_llm_config()) is None
@@ -236,6 +236,9 @@ async def test_enhance_with_llm_missing_key_returns_bullets_unchanged():
 class _FakeLLMResponse:
     def __init__(self, content: str):
         self._content = content
+        # Read by `llm_client._rejects_json_mode` (retry-on-400 path).
+        self.status_code = 200
+        self.text = ""
 
     def raise_for_status(self):
         pass
@@ -264,7 +267,7 @@ class _FakeLLMClient:
 
 
 async def test_enhance_with_llm_caps_bullets_and_parses(monkeypatch):
-    from app.services import cv_tailor
+    from app.services import llm_client
 
     config = LlmRuntimeConfig(
         enabled=True,
@@ -273,7 +276,7 @@ async def test_enhance_with_llm_caps_bullets_and_parses(monkeypatch):
         model="gpt-4o-mini",
     )
     fake = _FakeLLMClient()
-    monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     bullets = [f"bullet {i}" for i in range(8)]
     out = await enhance_with_llm(bullets, ["python"], config=config, max_bullets=5)
@@ -289,7 +292,7 @@ async def test_enhance_with_llm_caps_bullets_and_parses(monkeypatch):
 
 
 async def test_enhance_with_llm_pads_short_reply(monkeypatch):
-    from app.services import cv_tailor
+    from app.services import llm_client
 
     config = LlmRuntimeConfig(
         enabled=True,
@@ -299,7 +302,7 @@ async def test_enhance_with_llm_pads_short_reply(monkeypatch):
     )
     fake = _FakeLLMClient()
     fake.reply = "1. Only one"
-    monkeypatch.setattr(cv_tailor.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     out = await enhance_with_llm(["a", "b", "c"], ["python"], config=config, max_bullets=5)
     assert out[0] == "Only one"

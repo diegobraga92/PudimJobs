@@ -298,6 +298,9 @@ def test_structure_cv_recovers_date_range_wrapped_across_lines():
 class _FakeResponse:
     def __init__(self, content: str):
         self._content = content
+        # Read by `llm_client._rejects_json_mode` (retry-on-400 path).
+        self.status_code = 200
+        self.text = ""
 
     def raise_for_status(self) -> None:
         pass
@@ -338,10 +341,10 @@ def _llm_config() -> LlmRuntimeConfig:
 
 
 async def test_structure_cv_with_llm_parses_json(monkeypatch):
-    from app.services import cv_parser
+    from app.services import llm_client
 
     fake = _FakeClient()
-    monkeypatch.setattr(cv_parser.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     result = await structure_cv_with_llm("raw text", _llm_config())
     assert result is not None
@@ -351,21 +354,21 @@ async def test_structure_cv_with_llm_parses_json(monkeypatch):
 
 
 async def test_structure_cv_with_llm_returns_none_on_garbage(monkeypatch):
-    from app.services import cv_parser
+    from app.services import llm_client
 
     fake = _FakeClient()
     fake.reply = "not json at all"
-    monkeypatch.setattr(cv_parser.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     assert await structure_cv_with_llm("raw text", _llm_config()) is None
 
 
 async def test_structure_cv_with_llm_returns_none_on_invalid_shape(monkeypatch):
-    from app.services import cv_parser
+    from app.services import llm_client
 
     fake = _FakeClient()
     fake.reply = '{"summary": 123}'
-    monkeypatch.setattr(cv_parser.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     assert await structure_cv_with_llm("raw text", _llm_config()) is None
 
@@ -374,10 +377,10 @@ async def test_structure_cv_with_llm_returns_none_on_invalid_shape(monkeypatch):
 
 
 async def test_parse_cv_file_uses_llm_when_configured(monkeypatch):
-    from app.services import cv_parser
+    from app.services import llm_client
 
     fake = _FakeClient()
-    monkeypatch.setattr(cv_parser.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     docx = make_docx("WORK EXPERIENCE", "Engineer | Acme", "Jan 2020 - Present", "- did things")
     result = await parse_cv_file("cv.docx", docx, llm_config=_llm_config())
@@ -386,11 +389,11 @@ async def test_parse_cv_file_uses_llm_when_configured(monkeypatch):
 
 
 async def test_parse_cv_file_falls_back_to_rule_based_when_llm_fails(monkeypatch):
-    from app.services import cv_parser
+    from app.services import llm_client
 
     fake = _FakeClient()
     fake.reply = "boom"
-    monkeypatch.setattr(cv_parser.httpx, "AsyncClient", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
     docx = make_docx("WORK EXPERIENCE", "Engineer | Acme", "Jan 2020 - Present", "- did things")
     result = await parse_cv_file("cv.docx", docx, llm_config=_llm_config())

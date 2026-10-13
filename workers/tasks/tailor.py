@@ -11,6 +11,11 @@ Each artifact is a ``generated_cvs`` row owning its own ``structured_json`` and
 rendered PDF, and is scored with the deterministic ATS scorer (comparable across
 variants). The master CV is never modified, so tailored output no longer leaks
 into the master version history.
+
+Re-running is idempotent per ``(user, job, source CV version, variant)`` — with
+one exception: a stored artifact that has no content (``structured_json`` NULL,
+as left behind by pre-ADR-016 rows) does *not* count as produced, and the run
+repairs that same row in place instead of reusing an empty card forever.
 """
 
 import asyncio
@@ -54,6 +59,17 @@ async def _find_generated(
     return result.scalar_one_or_none()
 
 
+def _has_content(row: GeneratedCV) -> bool:
+    """True when an artifact actually carries its own CV content.
+
+    Rows written before ADR 016 (or by a run that persisted a PDF without the
+    structured payload) exist with ``structured_json`` NULL: there is nothing to
+    preview and no ATS report to show. Counting such a row as "already produced"
+    is what made a broken card impossible to regenerate.
+    """
+    return bool(row.structured_json)
+
+
 async def _link_application(
     session, application_id: str | None, cv: MasterCV, job: Job, generated_cv_id: uuid.UUID
 ) -> None:
@@ -84,8 +100,15 @@ async def _store_variant(
     jd_keywords: list[str],
     jd_text: str,
     llm_self_score: int | None = None,
+    existing: GeneratedCV | None = None,
 ) -> GeneratedCV:
-    """Render, deterministically score and persist one tailored artifact."""
+    """Render, deterministically score and persist one tailored artifact.
+
+    ``existing`` is a *content-less* row for the same key: it is repaired in
+    place instead of being duplicated. Reusing its id keeps ``created_at``, the
+    ``applications.generated_cv_id`` link and variant uniqueness intact, so a
+    legacy empty artifact cannot linger in the panel forever (ADR 016).
+    """
     tailored = TailoredCV.from_structure(structure)
     pdf_bytes = generate_pdf(tailored, name=_pdf_name(user), email=user.email if user else "")
     # Both variants use the *deterministic* scorer so their scores are comparable;
@@ -99,17 +122,24 @@ async def _store_variant(
     )
     if llm_self_score is not None:
         report["llm_self_score"] = llm_self_score
-    generated = GeneratedCV(
+    generated = existing if existing is not None else GeneratedCV(
         user_id=cv.user_id,
         source_master_cv_id=cv.id,
         job_id=job.id,
         variant=variant,
-        structured_json=structure,
-        pdf=pdf_bytes,
-        ats_score=report["score"],
-        ats_report=report,
     )
-    session.add(generated)
+    generated.structured_json = structure
+    generated.pdf = pdf_bytes
+    generated.ats_score = report["score"]
+    generated.ats_report = report
+    if existing is None:
+        session.add(generated)
+    else:
+        logger.info(
+            "cv_tailored_empty_artifact_repaired",
+            generated_cv_id=str(generated.id),
+            variant=variant.value,
+        )
     await session.commit()
     await session.refresh(generated)
     return generated
@@ -181,10 +211,24 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
             )
 
         existing: dict[CVVariant, GeneratedCV] = {}
+        # Content-less rows are kept aside: they must not satisfy the
+        # idempotency shortcut, and the run repairs them in place instead.
+        empty: dict[CVVariant, GeneratedCV] = {}
         for variant in wanted:
             found = await _find_generated(session, cv, job, variant)
-            if found is not None:
+            if found is None:
+                continue
+            if _has_content(found):
                 existing[variant] = found
+            else:
+                empty[variant] = found
+        if empty:
+            logger.info(
+                "cv_tailored_empty_artifact_found",
+                job_id=job_id,
+                variants=sorted(variant.value for variant in empty),
+                generated_cv_ids=[str(row.id) for row in empty.values()],
+            )
 
         # Idempotency: re-tailoring the same job against the same source CV
         # version reuses the artifacts instead of minting new ones.
@@ -223,6 +267,7 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
                 jd_skills=jd_skills,
                 jd_keywords=jd_keywords,
                 jd_text=jd_text,
+                existing=empty.get(CVVariant.rule),
             )
 
         # Optional full-LLM variant, kept alongside the deterministic one. A
@@ -248,6 +293,7 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
                     jd_keywords=jd_keywords,
                     jd_text=jd_text,
                     llm_self_score=self_score,
+                    existing=empty.get(CVVariant.llm),
                 )
 
         # Auto-link the deterministic variant only; the LLM variant is linked when
