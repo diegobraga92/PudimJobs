@@ -98,3 +98,12 @@ the last result without spending an LLM call.
 | Third-party ATS scoring API | External dependency, per-call cost and privacy concerns for user CV data |
 | Make the ATS template the default | Would silently change every existing/new export and discard the styled layout users already rely on |
 | Recompute the score on every page load | Wasted work and LLM cost; a cached `ats_report` is enough for display |
+
+## Where the score is surfaced
+
+The scorer, the `generated_cvs` cache and the two templates are unchanged by
+ADR 015; only the UI moved. The report is rendered by
+`frontend/src/app/shared/ats-report/` (web) and
+`mobile/src/components/cv/AtsReportView.tsx`, inside the per-application
+workspace (`/applications/:id`) where the job being scored against is implicit —
+previously the user had to pick a job on the `/cv` page.

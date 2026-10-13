@@ -20,3 +20,6 @@ class GeneratedCVResponse(BaseModel):
 
 class TailorRequest(BaseModel):
     cv_id: uuid.UUID | None = None
+    # When set, the application is pointed at the tailored CV version once the
+    # task completes (answers "which CV did I send for this application?").
+    application_id: uuid.UUID | None = None

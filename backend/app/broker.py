@@ -26,6 +26,12 @@ def enqueue_parse_jd(job_id: str) -> None:
     _sender.send_task(PARSE_JD_TASK, args=[job_id])
 
 
-def enqueue_tailor(job_id: str, cv_id: str | None = None) -> None:
-    """Enqueue a CV tailoring task; ``cv_id=None`` uses the current CV."""
-    _sender.send_task(TAILOR_CV_TASK, args=[job_id, cv_id])
+def enqueue_tailor(
+    job_id: str, cv_id: str | None = None, application_id: str | None = None
+) -> None:
+    """Enqueue a CV tailoring task; ``cv_id=None`` uses the current CV.
+
+    ``application_id`` is optional: when given, the task points that application
+    at the tailored version it produced (``Application.cv_version``).
+    """
+    _sender.send_task(TAILOR_CV_TASK, args=[job_id, cv_id, application_id])

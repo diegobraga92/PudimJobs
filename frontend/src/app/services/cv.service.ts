@@ -119,8 +119,13 @@ export class CvService {
     return this.http.delete<void>(`/api/cv/${id}`);
   }
 
-  generated(): Observable<GeneratedCV[]> {
-    return this.http.get<GeneratedCV[]>('/api/cv/generated');
+  /** Tailored CVs, newest first; `jobId` scopes them to a single job. */
+  generated(jobId?: string): Observable<GeneratedCV[]> {
+    let params = new HttpParams();
+    if (jobId) {
+      params = params.set('job_id', jobId);
+    }
+    return this.http.get<GeneratedCV[]>('/api/cv/generated', { params });
   }
 
   getGenerated(id: string): Observable<GeneratedCV> {

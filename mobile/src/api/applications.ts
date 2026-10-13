@@ -1,10 +1,16 @@
-import { Application, ApplicationInput, ApplicationStatus } from '@/types';
+import { Application, ApplicationDetail, ApplicationInput, ApplicationStatus } from '@/types';
 import { apiClient } from './client';
 
 export async function listApplications(status?: ApplicationStatus): Promise<Application[]> {
   const { data } = await apiClient.get<Application[]>(`/api/applications`, {
     params: status ? { status_filter: status } : undefined,
   });
+  return data;
+}
+
+/** One application plus its job description (per-application workspace). */
+export async function getApplication(id: string): Promise<ApplicationDetail> {
+  const { data } = await apiClient.get<ApplicationDetail>(`/api/applications/${id}`);
   return data;
 }
 

@@ -79,10 +79,26 @@ export class JobsService {
     return this.http.post<{ enqueued: boolean; job_id: string }>(`/api/jobs/${id}/parse`, {});
   }
 
-  tailor(id: string, cvId?: string): Observable<{ enqueued: boolean; job_id: string }> {
-    return this.http.post<{ enqueued: boolean; job_id: string }>(
+  /**
+   * Enqueue CV tailoring for a job. `cvId` picks the source master version
+   * (defaults to the current one); `applicationId` links the application to the
+   * tailored version once the task finishes. Runs async — the caller polls.
+   */
+  tailor(
+    id: string,
+    cvId?: string,
+    applicationId?: string
+  ): Observable<{ enqueued: boolean; job_id: string; application_id: string | null }> {
+    const body: { cv_id?: string; application_id?: string } = {};
+    if (cvId) {
+      body.cv_id = cvId;
+    }
+    if (applicationId) {
+      body.application_id = applicationId;
+    }
+    return this.http.post<{ enqueued: boolean; job_id: string; application_id: string | null }>(
       `/api/jobs/${id}/tailor`,
-      cvId ? { cv_id: cvId } : {}
+      body
     );
   }
 

@@ -12,7 +12,7 @@ import structlog
 from sqlalchemy import func, select
 
 from app.database import async_session_factory
-from app.models import GeneratedCV, Job, MasterCV, User
+from app.models import Application, GeneratedCV, Job, MasterCV, User
 from app.services.cv_tailor import enhance_with_llm, tailor_cv
 from app.services.jd_parser import parse_jd, parsed_jd_to_dict
 from app.services.llm_config import get_llm_config
@@ -42,7 +42,25 @@ async def _find_generated(session, cv: MasterCV, job: Job) -> GeneratedCV | None
     return result.scalar_one_or_none()
 
 
-async def _run_tailor(job_id: str, cv_id: str | None) -> dict:
+async def _link_application(
+    session, application_id: str | None, cv: MasterCV, job: Job, master_cv_id: uuid.UUID
+) -> None:
+    """Point an application at the CV version it was tailored with.
+
+    Best-effort and guarded: a missing, foreign, or mismatched id is ignored, so
+    a stale request can never cross-link another user's pipeline. Does not
+    commit — the caller commits.
+    """
+    if not application_id:
+        return
+    application = await session.get(Application, uuid.UUID(application_id))
+    if application is None or application.user_id != cv.user_id or application.job_id != job.id:
+        logger.warning("cv_tailor_application_link_skipped", application_id=application_id)
+        return
+    application.cv_version = master_cv_id
+
+
+async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None = None) -> dict:
     job_uuid = uuid.UUID(job_id)
     async with async_session_factory() as session:
         job = await session.get(Job, job_uuid)
@@ -80,6 +98,7 @@ async def _run_tailor(job_id: str, cv_id: str | None) -> dict:
         # version reuses the existing artifact instead of minting a new one.
         existing = await _find_generated(session, cv, job)
         if existing is not None:
+            await _link_application(session, application_id, cv, job, existing.master_cv_id)
             await session.commit()  # releases the advisory lock
             logger.info(
                 "cv_tailored_reused",
@@ -150,6 +169,10 @@ async def _run_tailor(job_id: str, cv_id: str | None) -> dict:
         await session.commit()
         await session.refresh(generated)
 
+        # Point the application (if any) at the tailored version it just got.
+        await _link_application(session, application_id, cv, job, new_cv.id)
+        await session.commit()
+
         logger.info(
             "cv_tailored",
             job_id=job_id,
@@ -172,5 +195,5 @@ async def _run_tailor(job_id: str, cv_id: str | None) -> dict:
     max_retries=2,
     default_retry_delay=30,
 )
-def tailor_cv_task(job_id: str, cv_id: str | None = None) -> dict:
-    return asyncio.run(_run_tailor(job_id, cv_id))
+def tailor_cv_task(job_id: str, cv_id: str | None = None, application_id: str | None = None) -> dict:
+    return asyncio.run(_run_tailor(job_id, cv_id, application_id))

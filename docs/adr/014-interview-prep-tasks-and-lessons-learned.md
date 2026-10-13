@@ -53,14 +53,15 @@ pipeline by `GET /api/applications/lessons`
 - The feed returns only applications whose `lessons_learned` is non-empty, joined
   with the job for display, ordered by `updated_at` descending.
 - Keeping the note on the application avoids a second entity that would need its
-  own lifecycle, and means the kanban detail modal is the single place to write
+  own lifecycle, and means the application workspace is the single place to write
   it (no separate "add a lesson" flow).
 
 **3. Both surfaces are first-class in the web client**: an "Interview prep"
 workspace (`/prep-tasks`) with status chips, job filter, inline status cycling
 and a create/edit form, and a "Lessons learned" workspace (`/lessons`) with
-status/text filtering. The application detail modal edits notes *and*
-`lessons_learned`.
+status/text filtering. The application workspace (`/applications/:id`) edits
+notes, the applied date and `lessons_learned`, next to the job description and
+the tailored-CV/ATS panel described in ADR 015.
 
 ## Consequences
 
@@ -93,5 +94,7 @@ status/text filtering. The application detail modal edits notes *and*
 - Migration `0016` (`lessons_learned`), migration `0017` (`prep_tasks`)
 - `app/routers/prep_tasks.py`, `app/routers/applications.py`
 - `frontend/src/app/components/prep-tasks/`,
-  `frontend/src/app/components/lessons/`
-- ADR 002 (data model), ADR 007 (matching and alerting)
+  `frontend/src/app/components/lessons/`,
+  `frontend/src/app/components/application-detail/`
+- ADR 002 (data model), ADR 007 (matching and alerting), ADR 015
+  (per-application workspace)

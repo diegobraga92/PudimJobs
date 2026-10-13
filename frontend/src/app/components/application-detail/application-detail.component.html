@@ -1,0 +1,133 @@
+<div class="page-header">
+  <div class="title-block">
+    <a class="back-link" routerLink="/applications">
+      <app-icon name="arrow-left" [size]="15" />
+      {{ i18n.t('applications.backToPipeline') }}
+    </a>
+    @if (application) {
+      <h2>{{ application.job_title }}</h2>
+      <p class="muted">{{ application.job_company }}</p>
+    } @else {
+      <h2>{{ i18n.t('applications.workspace') }}</h2>
+    }
+  </div>
+
+  @if (application) {
+    <div class="header-actions">
+      <a class="btn btn-ghost" [routerLink]="['/jobs', application.job_id]">
+        <app-icon name="briefcase" [size]="15" />
+        {{ i18n.t('applications.openJob') }}
+      </a>
+      @if (application.job_url) {
+        <a
+          class="btn btn-ghost"
+          [href]="application.job_url"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <app-icon name="external-link" [size]="15" />
+          {{ i18n.t('applications.viewPosting') }}
+        </a>
+      }
+      <button type="button" class="btn btn-danger" (click)="remove()">
+        <app-icon name="trash" [size]="15" />
+        {{ i18n.t('common.delete') }}
+      </button>
+    </div>
+  }
+</div>
+
+@if (error) {
+  <div class="alert alert-error" role="alert">
+    <app-icon class="alert-icon" name="circle-alert" [size]="18" />
+    <span>{{ error }}</span>
+  </div>
+}
+
+@if (loading) {
+  <p class="muted">{{ i18n.t('applications.loading') }}</p>
+}
+
+@if (application; as app) {
+  <div class="workspace">
+    <div class="workspace-main">
+      <app-cv-panel
+        [jobId]="app.job_id"
+        [jobTitle]="app.job_title"
+        [applicationId]="app.id"
+        [linkedCvId]="app.cv_version"
+      />
+    </div>
+
+    <div class="workspace-side">
+      <section class="panel details">
+        <h3>{{ i18n.t('applications.title') }}</h3>
+
+        <div class="form-field">
+          <label for="app-status">{{ i18n.t('applications.moveToStatus') }}</label>
+          <select
+            id="app-status"
+            class="select"
+            [value]="app.status"
+            (change)="changeStatus($any($event.target).value)"
+          >
+            @for (status of statuses; track status) {
+              <option [value]="status">{{ statusLabel(status) }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label for="app-applied">{{ i18n.t('applications.appliedOn') }}</label>
+          <input
+            id="app-applied"
+            type="date"
+            class="input"
+            [value]="appliedDateDraft"
+            (input)="appliedDateDraft = $any($event.target).value"
+          />
+        </div>
+
+        <div class="form-field">
+          <label for="app-notes">{{ i18n.t('applications.notes') }}</label>
+          <textarea
+            id="app-notes"
+            class="textarea"
+            rows="4"
+            [value]="notesDraft"
+            (input)="notesDraft = $any($event.target).value"
+          ></textarea>
+        </div>
+
+        <div class="form-field">
+          <label for="app-lessons">{{ i18n.t('applications.lessonsLearned') }}</label>
+          <textarea
+            id="app-lessons"
+            class="textarea"
+            rows="4"
+            [value]="lessonsDraft"
+            [placeholder]="i18n.t('applications.lessonsPlaceholder')"
+            (input)="lessonsDraft = $any($event.target).value"
+          ></textarea>
+        </div>
+
+        <button type="button" class="btn btn-primary" (click)="save()" [disabled]="saving">
+          @if (saving) {
+            <app-icon class="spinner" name="loader" [size]="15" />
+          }
+          <app-icon name="check" [size]="15" />
+          {{ saving ? i18n.t('applications.saving') : i18n.t('applications.saveDetails') }}
+        </button>
+      </section>
+
+      <section class="panel">
+        <h3>{{ i18n.t('applications.jobDescription') }}</h3>
+        @if (app.job_description) {
+          <p class="job-description">{{ app.job_description }}</p>
+        } @else {
+          <p class="muted small">{{ i18n.t('applications.noDescription') }}</p>
+        }
+      </section>
+    </div>
+  </div>
+}

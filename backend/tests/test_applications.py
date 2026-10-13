@@ -131,3 +131,55 @@ async def test_lessons_require_auth(client):
 
 async def test_applications_require_auth(client):
     assert (await client.get("/api/applications")).status_code == 401
+
+
+async def test_get_application_detail_includes_job_description(auth_client):
+    """The per-application workspace needs the job description and CV link."""
+    client, _, _ = auth_client
+    job = await _create_job(client)
+    application_id = (await client.post("/api/applications", json={"job_id": job["id"]})).json()[
+        "id"
+    ]
+
+    response = await client.get(f"/api/applications/{application_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == application_id
+    assert body["job_title"] == "Data Engineer"
+    assert body["job_company"] == "Acme"
+    assert body["job_description"] == "ETL pipelines"
+    assert body["cv_version"] is None
+
+
+async def test_get_application_detail_returns_cv_version(auth_client):
+    """A linked CV version is surfaced on the detail payload."""
+    client, _, _ = auth_client
+    job = await _create_job(client)
+    cv = (await client.post("/api/cv", json={"structured_json": {"summary": "x"}})).json()
+    application_id = (
+        await client.post(
+            "/api/applications", json={"job_id": job["id"], "cv_version": cv["id"]}
+        )
+    ).json()["id"]
+
+    body = (await client.get(f"/api/applications/{application_id}")).json()
+
+    assert body["cv_version"] == cv["id"]
+
+
+async def test_get_application_detail_unknown_404(auth_client):
+    client, _, _ = auth_client
+    response = await client.get("/api/applications/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 404
+
+
+async def test_get_application_detail_requires_auth(client):
+    response = await client.get("/api/applications/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 401
+
+
+async def test_lessons_route_not_shadowed_by_detail_route(auth_client):
+    """``/lessons`` is static and must win over ``/{application_id}``."""
+    client, _, _ = auth_client
+    assert (await client.get("/api/applications/lessons")).status_code == 200

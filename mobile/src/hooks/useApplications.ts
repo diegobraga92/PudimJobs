@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createApplication,
   deleteApplication,
+  getApplication,
   listApplications,
   updateApplication,
 } from '@/api/applications';
@@ -13,6 +14,14 @@ export function useApplications() {
   return useQuery({
     queryKey: ['applications'],
     queryFn: () => listApplications(),
+  });
+}
+
+export function useApplication(id: string) {
+  return useQuery({
+    queryKey: ['applications', id],
+    queryFn: () => getApplication(id),
+    enabled: !!id,
   });
 }
 

@@ -204,11 +204,20 @@ async def tailor_for_job(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Enqueue CV tailoring; ``cv_id=None`` uses the current master CV."""
+    """Enqueue CV tailoring; ``cv_id=None`` uses the current master CV.
+
+    ``application_id`` (optional) links the application to the tailored version.
+    """
     await get_owned_job(job_id, user, db)
     cv_id = str(payload.cv_id) if payload and payload.cv_id else None
-    enqueue_tailor(str(job_id), cv_id)
-    return {"enqueued": True, "job_id": str(job_id), "cv_id": cv_id}
+    application_id = str(payload.application_id) if payload and payload.application_id else None
+    enqueue_tailor(str(job_id), cv_id, application_id)
+    return {
+        "enqueued": True,
+        "job_id": str(job_id),
+        "cv_id": cv_id,
+        "application_id": application_id,
+    }
 
 
 @router.get("/{job_id}/parsed", response_model=ParsedJDResponse | None)

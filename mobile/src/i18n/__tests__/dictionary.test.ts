@@ -11,7 +11,9 @@ describe('i18n dictionary', () => {
 
   it('keeps keys dot-namespaced', () => {
     for (const key of Object.keys(DICTIONARY)) {
-      expect(key).toMatch(/^[a-z][a-zA-Z0-9.]+$/);
+      // Underscores are allowed because some keys mirror backend enum values
+      // (e.g. `prepTasks.status.in_progress`).
+      expect(key).toMatch(/^[a-z][a-zA-Z0-9._]+$/);
     }
   });
 
@@ -25,6 +27,9 @@ describe('i18n dictionary', () => {
       'jobDetail.backToJobs',
       'common.description',
       'errors.failedLoadJobs',
+      'applications.workspace',
+      'cv.panel.title',
+      'cv.ats.check',
     ];
     for (const key of required) {
       expect(DICTIONARY[key]).toBeDefined();

@@ -7,10 +7,10 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { AdminScreen } from '@/screens/AdminScreen';
 import { AlertsScreen } from '@/screens/AlertsScreen';
-import { ApplicationsScreen } from '@/screens/ApplicationsScreen';
 import { CvEditorScreen } from '@/screens/CvEditorScreen';
 import { NotificationsScreen } from '@/screens/NotificationsScreen';
 import { SourcesScreen } from '@/screens/SourcesScreen';
+import { ApplicationsStack } from './ApplicationsStack';
 import { JobsStack } from './JobsStack';
 import { AppDrawerParamList } from './types';
 
@@ -44,15 +44,6 @@ function WrappedCvScreen() {
   return (
     <WithAppBar title={i18n.t('layout.nav.masterCv')}>
       <CvEditorScreen />
-    </WithAppBar>
-  );
-}
-
-function WrappedApplicationsScreen() {
-  const i18n = useI18n();
-  return (
-    <WithAppBar title={i18n.t('layout.nav.applications')}>
-      <ApplicationsScreen />
     </WithAppBar>
   );
 }
@@ -115,7 +106,7 @@ export function AppDrawer() {
       />
       <Drawer.Screen
         name="Applications"
-        component={WrappedApplicationsScreen}
+        component={ApplicationsStack}
         options={{ title: i18n.t('layout.nav.applications') }}
       />
       <Drawer.Screen

@@ -153,6 +153,15 @@
   font-size: var(--text-xs);
 }
 
+/* Flags a card whose application carries a retrospective worth reading. */
+.card-flag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+}
+
 .notes {
   white-space: pre-wrap;
   padding: var(--space-3);

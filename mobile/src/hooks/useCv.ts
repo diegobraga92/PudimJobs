@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  atsScore,
   createCv,
   deleteCvVersion,
   deleteGeneratedCv,
@@ -8,7 +9,7 @@ import {
   listGeneratedCvs,
   updateCv,
 } from '@/api/cv';
-import { CVInput, CVStructure } from '@/types';
+import { AtsScoreInput, CVInput, CVStructure } from '@/types';
 
 export function useCvVersions() {
   return useQuery({
@@ -17,10 +18,19 @@ export function useCvVersions() {
   });
 }
 
-export function useGeneratedCvs() {
+export function useGeneratedCvs(jobId?: string) {
   return useQuery({
-    queryKey: ['cv', 'generated'],
-    queryFn: listGeneratedCvs,
+    queryKey: ['cv', 'generated', jobId ?? 'all'],
+    queryFn: () => listGeneratedCvs(jobId),
+  });
+}
+
+/** Scores a CV, optionally caching the report on a tailored CV. */
+export function useAtsScore() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AtsScoreInput) => atsScore(payload),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['cv', 'generated'] }),
   });
 }
 

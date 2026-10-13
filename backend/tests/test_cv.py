@@ -146,3 +146,24 @@ async def test_delete_generated_cv_unknown_404(auth_client):
     client, _, _ = auth_client
     response = await client.delete("/api/cv/generated/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
+
+
+async def test_list_generated_filters_by_job(auth_client, db_session):
+    """``?job_id=`` scopes the list — this powers the application CV panel."""
+    client, user, _ = auth_client
+    job_a = (await client.post("/api/jobs", json={"title": "A", "company": "Acme"})).json()
+    job_b = (await client.post("/api/jobs", json={"title": "B", "company": "Acme"})).json()
+
+    db_session.add_all(
+        [
+            GeneratedCV(user_id=user.id, job_id=uuid.UUID(job_a["id"]), pdf=b"%PDF-1.4 a"),
+            GeneratedCV(user_id=user.id, job_id=uuid.UUID(job_b["id"]), pdf=b"%PDF-1.4 b"),
+        ]
+    )
+    await db_session.commit()
+
+    unfiltered = await client.get("/api/cv/generated")
+    assert len(unfiltered.json()) == 2
+
+    scoped = await client.get("/api/cv/generated", params={"job_id": job_a["id"]})
+    assert [row["job_id"] for row in scoped.json()] == [job_a["id"]]

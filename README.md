@@ -23,7 +23,7 @@ engineering decisions behind each component.
 
 **Engineers / interviewers** — the interesting depth lives in the docs:
 - [Development plan](docs/DEV_PLAN.md) — 8 phases, every checkbox traceable to code
-- [Architecture decision records](docs/adr/) — 14 ADRs (FastAPI, data model, events, reprocessing, resilience, tailoring, alerting, data quality, search, discovery, CV import, mobile client, ATS scoring, interview prep)
+- [Architecture decision records](docs/adr/) — 15 ADRs (FastAPI, data model, events, reprocessing, resilience, tailoring, alerting, data quality, search, discovery, CV import, mobile client, ATS scoring, interview prep, per-application CV workspace)
 - [Resilience](docs/stride-threat-model.md) · [runbooks](docs/runbooks/) · [postmortem](docs/postmortems/)
 - [Database performance](docs/database-performance.md) — real `EXPLAIN ANALYZE` numbers
 - [Cost & capacity](docs/cost-estimate.md) · [docs/capacity-plan.md](docs/capacity-plan.md)
@@ -73,7 +73,7 @@ PudimJobs/
 ├── api/              # Event schemas/producer + hand-written OpenAPI specs
 ├── infra/            # Terraform (RDS, ECR) + Prometheus/Grafana provisioning
 ├── scripts/          # Load test + chaos experiment scripts
-├── docs/             # DEV_PLAN, 14 ADRs, SLOs, runbooks, postmortems, tradeoffs
+├── docs/             # DEV_PLAN, 15 ADRs, SLOs, runbooks, postmortems, tradeoffs
 └── docker-compose.yml
 ```
 
@@ -313,14 +313,17 @@ retrospectives) are listed at the end of the development plan.
   cached on the generated CV (`ats_score` / `ats_report`) — ADR 013
 - ATS-safe export: the `ats` template (`template=ats`) renders a plain
   single-column PDF built for parsers, alongside the default `classic` layout
-- API: `POST /api/jobs/{id}/parse`, `POST /api/jobs/{id}/tailor`,
+- API: `POST /api/jobs/{id}/parse`, `POST /api/jobs/{id}/tailor`
+  (optional `application_id` links the run to an application),
   `GET /api/jobs/{id}/parsed`, `POST /api/cv/parse`, `POST /api/cv/ats-score`,
-  `POST /api/cv/pdf`, `GET /api/cv/generated`, `GET /api/cv/generated/{id}`,
-  `GET /api/cv/generated/{id}/pdf`
+  `POST /api/cv/pdf`, `GET /api/cv/generated` (optional `?job_id=`),
+  `GET /api/cv/generated/{id}`, `GET /api/cv/generated/{id}/pdf`
 - Frontend: "Tailor CV for this job" button + parsed-JD panel on the job
-  detail page; generated-CV list with PDF download, cached ATS badge and a
-  "Check score" action; CV editor with contact/links/certifications/languages
-  fields, `PDF`/`DOCX`/`ODT` import and a Classic ⇄ ATS-safe export selector
+  detail page; CV editor with contact/links/certifications/languages fields,
+  `PDF`/`DOCX`/`ODT` import and a Classic ⇄ ATS-safe export selector. The
+  tailored CV, its PDF download, its cached ATS badge and the "Check score"
+  action live in the **application workspace** (`/applications/:id`) — the
+  master CV page is master-only (ADR 015)
 
 **Matching alerts & notifications**
 - Alert rules (saved searches): keywords, companies, tags, remote-only,
@@ -336,6 +339,11 @@ retrospectives) are listed at the end of the development plan.
 - Frontend: Alerts page (CRUD + pause/resume) and Notifications page
 
 **Applications, retrospectives & interview prep**
+- Per-application workspace (`/applications/:id`): the job it targets
+  (`GET /api/applications/{id}`, returning the description), the pipeline fields
+  (status, applied date, notes, retrospective), the job description and the
+  tailored-CV panel — where `Application.cv_version` records the version that
+  was sent (ADR 015)
 - Applications keep a per-record `lessons_learned` retrospective note
   (migration `0016`) plus a cross-application feed surfaced by
   `GET /api/applications/lessons` (only non-empty notes, newest first)
@@ -345,11 +353,12 @@ retrospectives) are listed at the end of the development plan.
   with a list ordering that surfaces unfinished work first (pending → in
   progress → done), then the nearest due date
 - API: `/api/prep-tasks` (list, get, create, update, delete),
-  `GET /api/applications/lessons`
+  `GET /api/applications/{id}`, `GET /api/applications/lessons`
 - Frontend: "Interview prep" workspace (status chips, job filter, inline status
-  cycling, create/edit/delete form, optional job *and* application links) and a
-  "Lessons learned" feed with status/text filtering; the application detail
-  modal edits notes *and* the retrospective note (ADR 014)
+  cycling, create/edit/delete form, optional job *and* application links), a
+  "Lessons learned" feed with status/text filtering, and an application
+  workspace that edits the notes/retrospective next to the CV panel (ADR 014,
+  ADR 015)
 
 **Observability, data quality & search**
 - PostgreSQL Full-Text Search: generated `search_vector` (title A > company B
@@ -397,9 +406,10 @@ retrospectives) are listed at the end of the development plan.
   with "add to applications"
 - Master CV editor (contact block, summary, experience, education, skills,
   projects, certifications, languages) with version history, PDF/DOCX/ODT
-  import, live preview, ATS scoring panel and Classic/ATS-safe PDF export
-- Application pipeline (Kanban: saved → applied → interview → offer → rejected)
-  with a detail modal for notes and lessons learned
+  import, live preview and Classic/ATS-safe PDF export
+- Application pipeline (Kanban: saved → applied → interview → offer → rejected);
+  cards open a per-application workspace holding the job description, the
+  notes/retrospective edits and the tailored-CV + ATS panel
 - Interview prep checklist (`/prep-tasks`) and the lessons-learned feed (`/lessons`)
 - Admin dashboard (source health, scrape stats, dead-letter queue)
 
@@ -410,7 +420,7 @@ retrospectives) are listed at the end of the development plan.
 
 **Planning & decisions**
 - [Development Plan](docs/DEV_PLAN.md) — phased roadmap with completion checklists (Phases 0–8 ✅)
-- [Architecture Decision Records](docs/adr/) — **14 ADRs** (001–014)
+- [Architecture Decision Records](docs/adr/) — **15 ADRs** (001–015)
 - [Tradeoffs](docs/tradeoffs.md) — every decision at a glance, linked to ADRs
 
 **Operational**

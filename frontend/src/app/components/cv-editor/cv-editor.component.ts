@@ -1,17 +1,10 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { AuthService } from '../../services/auth.service';
-import {
-  AtsReport,
-  CVStructure,
-  CvService,
-  CvTemplate,
-  GeneratedCV,
-  MasterCV,
-} from '../../services/cv.service';
-import { JobSummary, JobsService } from '../../services/jobs.service';
+import { CVStructure, CvService, CvTemplate, MasterCV } from '../../services/cv.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
@@ -37,6 +30,17 @@ interface ProjectFormItem {
   description: string;
   link: string;
 }
+/**
+ * Master CV page.
+ *
+ * Owns the single source-of-truth document: edit it, import it from a file,
+ * preview it, export it and keep the version history. Tailored (per-job) CVs —
+ * and their ATS check — now live with the application they belong to, on
+ * `/applications/:id`.
+ *
+ * Deep link: `/cv?generated=<id>` loads a tailored CV into the editor so it can
+ * be hand-edited and saved as a new master version.
+ */
 @Component({
   selector: 'app-cv-editor',
   standalone: true,
@@ -47,7 +51,6 @@ interface ProjectFormItem {
 export class CvEditorComponent implements OnInit {
   cvForm;
   versions: MasterCV[] = [];
-  generated: GeneratedCV[] = [];
   error: string | null = null;
   message: string | null = null;
   saving = false;
@@ -56,16 +59,6 @@ export class CvEditorComponent implements OnInit {
   exportTemplate: CvTemplate = 'classic';
   mode: 'edit' | 'preview' = 'edit';
   cvName = 'Your Name';
-
-  // ---- ATS check (see ADR 013) ------------------------------------------
-  jobs: JobSummary[] = [];
-  atsReport: AtsReport | null = null;
-  atsLoading = false;
-  atsJobId = '';
-  atsJobTitle = '';
-  atsJobDescription = '';
-  /** Set while scoring a tailored CV, so the report is cached on it. */
-  atsGeneratedId: string | null = null;
 
   /** Live CV structure derived from the form — drives the preview pane. */
   get previewCv(): CVStructure {
@@ -81,10 +74,10 @@ export class CvEditorComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private service: CvService,
-    private jobsService: JobsService,
     private auth: AuthService,
     private confirm: ConfirmService,
     private toast: ToastService,
+    private route: ActivatedRoute,
     readonly i18n: I18nService
   ) {
     this.cvForm = this.fb.group({
@@ -117,16 +110,37 @@ export class CvEditorComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.refreshVersions(true);
-    this.refreshGenerated();
-    this.loadJobs();
+    this.loadRequestedTailored();
   }
 
-  /** Jobs available as ATS targets (best-effort; the panel works without one). */
-  private loadJobs(): void {
-    this.jobsService.list().subscribe({
-      next: (jobs) => (this.jobs = jobs),
-      error: () => (this.jobs = []),
+  /**
+   * Load the CV the editor was asked to open: the current master version by
+   * default, or — when `/cv?generated=<id>` was followed — that tailored CV.
+   */
+  private loadRequestedTailored(): void {
+    const generatedId = this.route.snapshot.queryParamMap.get('generated');
+    if (!generatedId) {
+      this.refreshVersions(true);
+      return;
+    }
+    // Don't clobber the incoming tailored CV with the current master version.
+    this.refreshVersions(false);
+    this.service.getGenerated(generatedId).subscribe({
+      next: (item) => {
+        if (!item.structured_json) {
+          this.error = this.i18n.t('errors.failedLoadCV');
+          this.refreshVersions(true);
+          return;
+        }
+        this.loadIntoForm(item.structured_json);
+        this.mode = 'edit';
+        this.message = this.i18n.t('cv.editingTailored', { job: item.job_title ?? '' });
+        this.toast.success(this.i18n.t('cv.editingTailoredToast'));
+      },
+      error: () => {
+        this.error = this.i18n.t('errors.failedLoadCV');
+        this.refreshVersions(true);
+      },
     });
   }
 
@@ -148,14 +162,6 @@ export class CvEditorComponent implements OnInit {
     });
   }
 
-  /** Reload the tailored (generated) CV list. */
-  private refreshGenerated(): void {
-    this.service.generated().subscribe({
-      next: (generated) => (this.generated = generated),
-      error: () => undefined,
-    });
-  }
-
   private resetForm(): void {
     this.cvForm.patchValue({
       fullName: '',
@@ -171,51 +177,6 @@ export class CvEditorComponent implements OnInit {
     this.experience.clear();
     this.education.clear();
     this.projects.clear();
-  }
-
-  downloadPdf(id: string): void {
-    this.service.downloadPdf(id).subscribe({
-      next: (blob) => {
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `tailored-cv-${id}.pdf`;
-        anchor.click();
-        URL.revokeObjectURL(url);
-      },
-      error: () => (this.error = this.i18n.t('errors.failedDownloadPdf')),
-    });
-  }
-
-  /**
-   * Load a tailored CV version into the editor so the user can modify it
-   * before exporting a fresh PDF.
-   */
-  editGenerated(item: GeneratedCV): void {
-    const structure = item.structured_json ?? this.masterCvVersion(item)?.structured_json;
-    if (!structure) {
-      this.error = this.i18n.t('errors.failedLoadCV');
-      return;
-    }
-    this.loadIntoForm(structure);
-    this.mode = 'edit';
-    this.atsGeneratedId = item.id;
-    this.message = this.i18n.t('cv.editingTailored', { job: item.job_title ?? '' });
-    this.toast.success(
-      this.i18n.t('cv.editingTailoredToast', { job: item.job_title ?? '' })
-    );
-  }
-
-  /** Whether an "Edit" action is available for this generated CV. */
-  canEditGenerated(item: GeneratedCV): boolean {
-    return !!item.structured_json || this.masterCvVersion(item) !== undefined;
-  }
-
-  private masterCvVersion(item: GeneratedCV): MasterCV | undefined {
-    if (!item.master_cv_id) {
-      return undefined;
-    }
-    return this.versions.find((v) => v.id === item.master_cv_id);
   }
 
   /** Delete a master CV version (after confirmation). */
@@ -244,32 +205,6 @@ export class CvEditorComponent implements OnInit {
     });
   }
 
-  /** Delete a tailored/generated CV (after confirmation). */
-  async removeGenerated(item: GeneratedCV): Promise<void> {
-    const title =
-      item.job_title ?? item.job_company ?? this.i18n.t('cv.tailoredCvs');
-    const confirmed = await this.confirm.confirm({
-      title: this.i18n.t('cv.deleteTailoredTitle'),
-      message: this.i18n.t('cv.deleteTailoredMessage', { title }),
-      confirmLabel: this.i18n.t('common.delete'),
-      destructive: true,
-    });
-    if (!confirmed) {
-      return;
-    }
-    this.service.deleteGenerated(item.id).subscribe({
-      next: () => {
-        this.message = this.i18n.t('cv.tailoredDeleted');
-        this.toast.success(this.i18n.t('cv.tailoredDeleted'));
-        this.refreshGenerated();
-      },
-      error: () => {
-        this.error = this.i18n.t('errors.failedDeleteGeneratedCV');
-        this.toast.error(this.i18n.t('errors.failedDeleteGeneratedCV'));
-      },
-    });
-  }
-
   /** Export the current editor content as a PDF (classic or ATS-safe layout). */
   exportPdf(template: CvTemplate = this.exportTemplate): void {
     if (this.exporting) {
@@ -294,92 +229,6 @@ export class CvEditorComponent implements OnInit {
         this.toast.error(this.i18n.t('errors.failedExportPdf'));
       },
     });
-  }
-
-  /** Pick (or clear) the stored job used as the ATS scoring target. */
-  selectAtsJob(jobId: string): void {
-    this.atsJobId = jobId;
-    if (jobId) {
-      // The backend reads the stored job's title/description itself.
-      this.atsJobTitle = '';
-      this.atsJobDescription = '';
-    }
-  }
-
-  /** Run the ATS check for the current form content (ADR 013). */
-  scoreAts(): void {
-    if (this.atsLoading) {
-      return;
-    }
-    this.atsLoading = true;
-    this.service
-      .atsScore({
-        cv: this.buildStructure(),
-        job_id: this.atsJobId || null,
-        job_title: this.atsJobTitle.trim() || null,
-        job_description: this.atsJobDescription.trim() || null,
-        generated_cv_id: this.atsGeneratedId,
-      })
-      .subscribe({
-        next: (report) => {
-          this.atsLoading = false;
-          this.atsReport = report;
-          this.toast.success(
-            this.i18n.t('cv.ats.scored', { score: report.score, method: report.method })
-          );
-          if (this.atsGeneratedId) {
-            // The report was cached on the tailored CV — refresh its badge.
-            this.refreshGenerated();
-          }
-        },
-        error: () => {
-          this.atsLoading = false;
-          this.error = this.i18n.t('errors.failedAtsScore');
-          this.toast.error(this.i18n.t('errors.failedAtsScore'));
-        },
-      });
-  }
-
-  clearAtsReport(): void {
-    this.atsReport = null;
-    this.atsGeneratedId = null;
-    this.atsJobId = '';
-    this.atsJobTitle = '';
-    this.atsJobDescription = '';
-  }
-
-  /** Load a tailored CV into the editor and score it against its own job. */
-  scoreGenerated(item: GeneratedCV): void {
-    const structure = item.structured_json ?? this.masterCvVersion(item)?.structured_json;
-    if (!structure) {
-      this.error = this.i18n.t('errors.failedLoadCV');
-      return;
-    }
-    this.loadIntoForm(structure as CVStructure);
-    this.mode = 'edit';
-    this.atsGeneratedId = item.id;
-    this.atsJobId = item.job_id ?? '';
-    this.atsJobTitle = item.job_title ?? '';
-    this.atsJobDescription = '';
-    this.atsReport = item.ats_report ?? null;
-    this.scoreAts();
-  }
-
-  /** 0..100 score rendered as a bar width. */
-  factorPercent(score: number): number {
-    return Math.max(0, Math.min(100, Math.round(score * 100)));
-  }
-
-  /** Badge colour for an ATS score (green ≥ 75, amber ≥ 50, red below). */
-  atsScoreClass(score: number): string {
-    if (score >= 75) {
-      return 'badge-success';
-    }
-    return score >= 50 ? 'badge-warning' : 'badge-danger';
-  }
-
-  atsMethodLabel(method: string): string {
-    return method === 'hybrid' ? this.i18n.t('cv.ats.methodHybrid') : this.i18n.t('cv.ats.methodHeuristic');
   }
 
   get experience(): FormArray {
@@ -483,7 +332,7 @@ export class CvEditorComponent implements OnInit {
         this.saving = false;
         this.message = this.i18n.t('cv.savedAs', { label: saved.label });
         this.toast.success(this.i18n.t('cv.savedAsToast', { label: saved.label }));
-        this.ngOnInit();
+        this.loadRequestedTailored();
       },
       error: () => {
         this.saving = false;

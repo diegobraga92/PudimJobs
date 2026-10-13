@@ -19,7 +19,7 @@ How this plan is organised:
 | [5](#phase-5--observability-data-quality--search) | Observability, quality, search | `app/services/quality.py`, `infra/` |
 | [6](#phase-6--security-hardening) | Security hardening | `docs/stride-threat-model.md`, slowapi limits |
 | [7](#phase-7--chaos-engineering--postmortem) | Chaos & incident response | `scripts/chaos/`, `docs/runbooks/` |
-| [8](#phase-8--cost-analysis--portfolio-polish) | Cost analysis & portfolio polish | `docs/cost-estimate.md`, ADRs 011–014 |
+| [8](#phase-8--cost-analysis--portfolio-polish) | Cost analysis & portfolio polish | `docs/cost-estimate.md`, ADRs 011–015 |
 
 ---
 
@@ -145,6 +145,8 @@ How this plan is organised:
 - [x] React Native (Expo) mobile client mirroring the web app (ADR 012)
 - [x] CV import/parsing (ADR 011), ATS scoring + ATS-safe template (ADR 013)
 - [x] Application retrospectives and interview prep tasks (ADR 014)
+- [x] Per-application workspace: tailored CV + ATS move to `/applications/:id`,
+      `/cv` is master-only (ADR 015)
 - [x] This development plan, kept in sync with the README status table
 
 ### Demo walkthrough (recorded script)
@@ -157,11 +159,13 @@ The demo follows one job through the whole system, in this order:
 2. **Data quality** — admin → Quality: normalization fixes, completeness
    scores, cross-source duplicates for the freshly scraped jobs.
 3. **Search** — Jobs page: keyword search, filters, tag chips (PostgreSQL FTS).
-4. **Tailor + ATS** — open a job → *Parse now* → *Tailor CV for this job* →
-   CV page: inspect the generated PDF, run the **ATS check** against that job
-   (score, missing skills, recommendations), switch the template to *ATS-safe*
-   and download `cv-ats.pdf`. Import an existing `PDF`/`DOCX`/`ODT` CV to show
-   the parser pre-filling the editor.
+4. **Tailor + ATS** — open a job → *Parse now* → *Add to applications* → open
+   the application workspace → *Tailor CV for this job*, refresh the panel once
+   the worker lands it, inspect the PDF preview and run the **ATS check** for
+   that job (score, missing skills, recommendations). The master CV page is
+   master-only: import an existing `PDF`/`DOCX`/`ODT` CV there to show the
+   parser pre-filling the editor, and use *Edit in CV editor* from the panel to
+   hand-edit a tailored version (saved as a new master version).
 5. **Alert + notification** — create an alert rule matching the job, add a
    matching job, show the in-app notification (and the Mailpit email).
 6. **Pipeline + prep** — *Add to applications*, drag the card
@@ -177,9 +181,9 @@ The demo follows one job through the whole system, in this order:
 |------|---------|----------------|
 | Backend lint | `cd backend && ruff check .` | clean |
 | Backend format | `cd backend && ruff format --check .` | clean (107 files) |
-| Backend tests | `cd backend && pytest` | 294 passed |
+| Backend tests | `cd backend && pytest` | 311 passed |
 | Migration graph | `alembic heads` | single head `0018` |
-| Frontend tests | `cd frontend && ng test --watch=false --browsers=ChromeHeadless` | 24 passed |
+| Frontend tests | `cd frontend && ng test --watch=false --browsers=ChromeHeadless` | 39 passed |
 | Frontend build | `cd frontend && ng build` | clean (no budget warnings) |
 | Mobile | `cd mobile && npm run typecheck && npm run lint && npm test` | see `mobile-ci.yml` |
 
@@ -191,15 +195,17 @@ neither is reachable.
 
 Deliberately out of scope so far — kept here instead of hidden:
 
-- **Mobile parity for the newest features**: the Expo client has no ATS score
-  panel, no ATS-safe template selector, no `.odt` document-picker filter, and
-  no prep-tasks/lessons screens yet (the API is ready for all four).
+- **Mobile parity for the newest features**: the Expo client has no ATS-safe
+  template selector, no `.odt` document-picker filter, and no prep-tasks/lessons
+  screens yet (the API is ready for all three). The application workspace and
+  the tailored-CV/ATS panel *are* implemented (ADR 015).
 - **ATS `job_title`** is folded into the keyword pool and recommendations; it
   does not feed the LLM prompt (the description does).
 - **Prep tasks have no reminders**: `due_date` is a planning hint, not a
   scheduler — notifications remain reserved for job alerts (ADR 007).
 - **`lessons_learned` is free text**, so it cannot be aggregated automatically.
 - **Angular component-style budget** was raised from 4 kB to 6 kB (warning
-  only; the error ceiling stays at 8 kB) because the CV editor + ATS panel is
-  now the largest component stylesheet in the app.
+  only; the error ceiling stays at 8 kB) because the CV editor and the
+  application workspace (CV + ATS panels) are the largest component stylesheets
+  in the app.
 

@@ -100,7 +100,15 @@ export function useParseJob() {
 export function useTailorCv() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, cvId }: { id: string; cvId?: string }) => tailorCv(id, cvId),
+    mutationFn: ({
+      id,
+      cvId,
+      applicationId,
+    }: {
+      id: string;
+      cvId?: string;
+      applicationId?: string;
+    }) => tailorCv(id, cvId, applicationId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['cv', 'generated'] });
     },

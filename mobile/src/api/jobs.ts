@@ -53,11 +53,23 @@ export async function parseJob(id: string): Promise<EnqueueResult> {
   return data;
 }
 
-export async function tailorCv(id: string, cvId?: string): Promise<EnqueueResult> {
-  const { data } = await apiClient.post<EnqueueResult>(
-    `/api/jobs/${id}/tailor`,
-    cvId ? { cv_id: cvId } : {},
-  );
+/**
+ * Enqueues CV tailoring for a job. `applicationId` links the application to the
+ * tailored version once the worker finishes (async — the caller refreshes).
+ */
+export async function tailorCv(
+  id: string,
+  cvId?: string,
+  applicationId?: string,
+): Promise<EnqueueResult> {
+  const body: { cv_id?: string; application_id?: string } = {};
+  if (cvId) {
+    body.cv_id = cvId;
+  }
+  if (applicationId) {
+    body.application_id = applicationId;
+  }
+  const { data } = await apiClient.post<EnqueueResult>(`/api/jobs/${id}/tailor`, body);
   return data;
 }
 

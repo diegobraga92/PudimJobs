@@ -1,0 +1,64 @@
+<div class="ats-score">
+  <span
+    class="ats-score-value"
+    [class.good]="report.score >= 75"
+    [class.mid]="report.score >= 50 && report.score < 75"
+    [class.low]="report.score < 50"
+    >{{ report.score }}</span
+  >
+  <span class="badge" [class]="atsScoreClass(report.score)">
+    {{ atsMethodLabel(report.method) }}
+  </span>
+</div>
+
+<ul class="ats-factors">
+  @for (factor of report.factors; track factor.key) {
+    <li>
+      <div class="ats-factor-head">
+        <span>{{ factor.label }}</span>
+        <span class="muted xs">{{ factorPercent(factor.score) }}%</span>
+      </div>
+      <div class="ats-bar">
+        <span [style.width.%]="factorPercent(factor.score)"></span>
+      </div>
+      <p class="muted xs">{{ factor.detail }}</p>
+    </li>
+  }
+</ul>
+
+@if (report.matched_skills.length > 0) {
+  <h4 class="ats-sub">{{ i18n.t('cv.ats.matchedSkills') }}</h4>
+  <div class="chip-row">
+    @for (skill of report.matched_skills; track skill) {
+      <span class="tag tag-ok">{{ skill }}</span>
+    }
+  </div>
+}
+@if (report.missing_skills.length > 0) {
+  <h4 class="ats-sub">{{ i18n.t('cv.ats.missingSkills') }}</h4>
+  <div class="chip-row">
+    @for (skill of report.missing_skills; track skill) {
+      <span class="tag tag-missing">{{ skill }}</span>
+    }
+  </div>
+}
+@if (report.recommendations.length > 0) {
+  <h4 class="ats-sub">{{ i18n.t('cv.ats.recommendations') }}</h4>
+  <ul class="ats-list">
+    @for (tip of report.recommendations; track tip) {
+      <li>{{ tip }}</li>
+    }
+  </ul>
+}
+@if (report.warnings.length > 0) {
+  <h4 class="ats-sub">{{ i18n.t('cv.ats.warnings') }}</h4>
+  <ul class="ats-list ats-warnings">
+    @for (warning of report.warnings; track warning) {
+      <li>{{ warning }}</li>
+    }
+  </ul>
+}
+@if (report.llm_summary) {
+  <h4 class="ats-sub">{{ i18n.t('cv.ats.llmSummary') }}</h4>
+  <p class="ats-summary">{{ report.llm_summary }}</p>
+}

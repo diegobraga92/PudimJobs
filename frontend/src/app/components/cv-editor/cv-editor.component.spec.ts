@@ -1,9 +1,9 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
-import { AtsReport, CVStructure, GeneratedCV, MasterCV } from '../../services/cv.service';
+import { CVStructure, GeneratedCV, MasterCV } from '../../services/cv.service';
 import { I18nService } from '../../services/i18n.service';
 import { CvEditorComponent } from './cv-editor.component';
 
@@ -40,20 +40,7 @@ const MASTER_CV: MasterCV = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
-const REPORT: AtsReport = {
-  score: 82,
-  method: 'heuristic',
-  factors: [
-    { key: 'skills', label: 'Skill coverage', score: 0.8, weight: 0.4, detail: '4/5 skills.' },
-  ],
-  matched_skills: ['python', 'fastapi'],
-  missing_skills: ['terraform'],
-  recommendations: ['add or emphasise these required skills: terraform.'],
-  warnings: [],
-  llm_summary: null,
-};
-
-function generatedCv(): GeneratedCV {
+function tailoredCv(): GeneratedCV {
   return {
     id: 'gen-1',
     master_cv_id: 'cv-1',
@@ -61,10 +48,34 @@ function generatedCv(): GeneratedCV {
     job_title: 'Backend Engineer',
     job_company: 'Acme',
     created_at: '2026-02-01T00:00:00Z',
-    structured_json: STRUCTURED,
+    structured_json: { ...STRUCTURED, summary: 'Tailored summary', skills: ['python'] },
     ats_score: 61,
-    ats_report: REPORT,
+    ats_report: null,
   };
+}
+
+async function setup(generatedId?: string): Promise<{
+  fixture: ComponentFixture<CvEditorComponent>;
+  component: CvEditorComponent;
+  http: HttpTestingController;
+}> {
+  const builder = TestBed.configureTestingModule({
+    imports: [CvEditorComponent],
+    providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+  });
+  if (generatedId) {
+    builder.overrideProvider(ActivatedRoute, {
+      useValue: { snapshot: { queryParamMap: convertToParamMap({ generated: generatedId }) } },
+    });
+  }
+  await builder.compileComponents();
+
+  const fixture = TestBed.createComponent(CvEditorComponent);
+  const component = fixture.componentInstance;
+  TestBed.inject(I18nService).setLanguage('en');
+  const http = TestBed.inject(HttpTestingController);
+  fixture.detectChanges();
+  return { fixture, component, http };
 }
 
 describe('CvEditorComponent', () => {
@@ -72,43 +83,15 @@ describe('CvEditorComponent', () => {
   let component: CvEditorComponent;
   let http: HttpTestingController;
 
-  function flushInitialRequests(generated: GeneratedCV[] = []): void {
-    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
-    http.expectOne('/api/cv').flush([MASTER_CV]);
-    http.expectOne('/api/cv/generated').flush(generated);
-    http
-      .expectOne('/api/jobs')
-      .flush([
-        {
-          id: 'job-1',
-          title: 'Backend Engineer',
-          company: 'Acme',
-          url: null,
-          posted_date: null,
-          tags: [],
-          hidden: false,
-          created_at: '2026-02-01T00:00:00Z',
-        },
-      ]);
-  }
-
   beforeEach(async () => {
-    await TestBed.configureTestingModule({
-      imports: [CvEditorComponent],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
-    }).compileComponents();
-
-    fixture = TestBed.createComponent(CvEditorComponent);
-    component = fixture.componentInstance;
-    TestBed.inject(I18nService).setLanguage('en');
-    http = TestBed.inject(HttpTestingController);
-    fixture.detectChanges();
+    ({ fixture, component, http } = await setup());
   });
 
   afterEach(() => http.verify());
 
   it('pre-fills the editor from the current master CV (contact + certifications)', () => {
-    flushInitialRequests();
+    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
+    http.expectOne('/api/cv').flush([MASTER_CV]);
 
     expect(component.cvForm.value.fullName).toBe('Ada Lovelace');
     expect(component.cvForm.value.contactEmail).toBe('ada@example.com');
@@ -117,11 +100,18 @@ describe('CvEditorComponent', () => {
     expect(component.cvForm.value.certificationsText).toBe('AWS Solutions Architect');
     expect(component.cvForm.value.languagesText).toBe('English');
     expect(component.displayName).toBe('Ada Lovelace');
-    expect(component.jobs.length).toBe(1);
+  });
+
+  it('does not touch the tailored-CV endpoints any more', () => {
+    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
+    http.expectOne('/api/cv').flush([MASTER_CV]);
+
+    http.expectNone('/api/cv/generated');
   });
 
   it('parses ODT uploads and rejects other extensions', () => {
-    flushInitialRequests();
+    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
+    http.expectOne('/api/cv').flush([MASTER_CV]);
 
     const odt = fileInput('cv.odt');
     component.onFileSelected({ target: odt } as unknown as Event);
@@ -133,33 +123,9 @@ describe('CvEditorComponent', () => {
     expect(component.error).toBe(component.i18n.t('errors.unsupportedCvFile'));
   });
 
-  it('scores the editor content and renders the report', () => {
-    flushInitialRequests();
-
-    component.atsJobTitle = 'Backend Engineer';
-    component.atsJobDescription = 'Python, FastAPI, Terraform.';
-    component.scoreAts();
-
-    const request = http.expectOne('/api/cv/ats-score');
-    expect(request.request.body.job_title).toBe('Backend Engineer');
-    expect(request.request.body.generated_cv_id).toBeNull();
-    expect(request.request.body.cv.full_name).toBe('Ada Lovelace');
-    expect(request.request.body.cv.skills).toEqual(['python', 'fastapi']);
-
-    request.flush(REPORT);
-    fixture.detectChanges();
-
-    expect(component.atsReport?.score).toBe(82);
-    const element = fixture.nativeElement as HTMLElement;
-    const text = element.textContent ?? '';
-    expect(text).toContain('82');
-    expect(text).toContain('terraform');
-    // score 82 → success badge, and the static `badge` class survives.
-    expect(element.querySelector('.badge.badge-success')).toBeTruthy();
-  });
-
   it('exports the current CV with the selected template', () => {
-    flushInitialRequests();
+    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
+    http.expectOne('/api/cv').flush([MASTER_CV]);
 
     component.exportPdf('ats');
 
@@ -171,22 +137,43 @@ describe('CvEditorComponent', () => {
 
     expect(component.exporting).toBeFalse();
   });
+});
 
-  it('caches a tailored CV score via generated_cv_id', () => {
-    flushInitialRequests([generatedCv()]);
+describe('CvEditorComponent (tailored deep link)', () => {
+  let fixture: ComponentFixture<CvEditorComponent>;
+  let component: CvEditorComponent;
+  let http: HttpTestingController;
 
-    component.scoreGenerated(generatedCv());
+  beforeEach(async () => {
+    ({ fixture, component, http } = await setup('gen-1'));
+  });
 
-    const request = http.expectOne('/api/cv/ats-score');
-    expect(request.request.body.generated_cv_id).toBe('gen-1');
-    expect(request.request.body.job_id).toBe('job-1');
-    request.flush({ ...REPORT, score: 91 });
+  afterEach(() => http.verify());
 
-    // The cached report triggers a refresh of the tailored-CV list.
-    http.expectOne('/api/cv/generated').flush([generatedCv()]);
+  it('loads the tailored CV named in ?generated=', () => {
+    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
+    http.expectOne('/api/cv').flush([MASTER_CV]);
+    http.expectOne('/api/cv/generated/gen-1').flush(tailoredCv());
 
-    expect(component.atsReport?.score).toBe(91);
-    expect(component.atsGeneratedId).toBe('gen-1');
+    expect(component.cvForm.value.summary).toBe('Tailored summary');
+    expect(component.cvForm.value.skillsText).toBe('python');
+    expect(component.mode).toBe('edit');
+    expect(component.message).toBe(
+      component.i18n.t('cv.editingTailored', { job: 'Backend Engineer' })
+    );
+  });
+
+  it('falls back to the current master CV when the tailored one is gone', () => {
+    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
+    http.expectOne('/api/cv').flush([MASTER_CV]);
+    http
+      .expectOne('/api/cv/generated/gen-1')
+      .flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+    // The second /api/cv load brings the master document back into the editor.
+    http.expectOne('/api/cv').flush([MASTER_CV]);
+
+    expect(component.cvForm.value.summary).toBe(STRUCTURED.summary);
+    expect(component.error).toBe(component.i18n.t('errors.failedLoadCV'));
   });
 });
 

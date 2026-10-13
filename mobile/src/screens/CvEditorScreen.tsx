@@ -15,20 +15,15 @@ import { Icon } from '@/components/icons/Icon';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { useToast } from '@/components/toast/ToastProvider';
-import {
-  useCvVersions,
-  useDeleteCvVersion,
-  useDeleteGeneratedCv,
-  useGeneratedCvs,
-  useSaveCv,
-} from '@/hooks/useCv';
+import { useCvVersions, useDeleteCvVersion, useSaveCv } from '@/hooks/useCv';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/theme/ThemeProvider';
-import { CVStructure, ExperienceItem, GeneratedCV, MasterCV } from '@/types';
+import { CVStructure, ExperienceItem, MasterCV } from '@/types';
 import { shortDate, dateLocale } from '@/utils/dates';
 import { parseLines, parseList } from '@/utils/lists';
-import { sharePdfBlob, sharePdfFromUrl } from '@/utils/pdf';
+import { displayNameFromEmail } from '@/utils/names';
+import { sharePdfBlob } from '@/utils/pdf';
 
 interface ExperienceForm {
   company: string;
@@ -114,20 +109,6 @@ function toStructure(form: CvFormState): CVStructure {
   };
 }
 
-function displayNameFromEmail(email: string | undefined): string {
-  if (!email) {
-    return 'Your Name';
-  }
-  const local = email.split('@')[0] || '';
-  return (
-    local
-      .split(/[._-]/)
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ') || 'Your Name'
-  );
-}
-
 export function CvEditorScreen() {
   const { theme } = useTheme();
   const i18n = useI18n();
@@ -136,10 +117,8 @@ export function CvEditorScreen() {
   const user = useAuthStore((state) => state.user);
 
   const { data: versions = [], isPending: versionsPending } = useCvVersions();
-  const { data: generated = [] } = useGeneratedCvs();
   const saveCv = useSaveCv();
   const deleteVersion = useDeleteCvVersion();
-  const deleteGenerated = useDeleteGeneratedCv();
 
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
   const [form, setForm] = useState<CvFormState>(EMPTY_FORM);
@@ -314,51 +293,6 @@ export function CvEditorScreen() {
       onError: () => {
         setError(i18n.t('errors.failedDeleteCV'));
         toast.error(i18n.t('errors.failedDeleteCV'));
-      },
-    });
-  };
-
-  const masterCvVersion = (item: GeneratedCV): MasterCV | undefined =>
-    item.master_cv_id ? versions.find((version) => version.id === item.master_cv_id) : undefined;
-
-  const editGenerated = (item: GeneratedCV) => {
-    const version = masterCvVersion(item);
-    if (!version) {
-      setError(i18n.t('errors.failedLoadCV'));
-      return;
-    }
-    setForm(fromStructure(version.structured_json));
-    setMode('edit');
-    setMessage(i18n.t('cv.editingTailored', { job: item.job_title ?? '' }));
-    toast.success(i18n.t('cv.editingTailoredToast', { job: item.job_title ?? '' }));
-  };
-
-  const downloadGenerated = (id: string) => {
-    sharePdfFromUrl(`/api/cv/generated/${id}/pdf`, `tailored-cv-${id}.pdf`).catch(() => {
-      setError(i18n.t('errors.failedDownloadPdf'));
-      toast.error(i18n.t('errors.failedDownloadPdf'));
-    });
-  };
-
-  const removeGenerated = async (item: GeneratedCV) => {
-    const title = item.job_title ?? item.job_company ?? i18n.t('cv.tailoredCvs');
-    const confirmed = await confirm.confirm({
-      title: i18n.t('cv.deleteTailoredTitle'),
-      message: i18n.t('cv.deleteTailoredMessage', { title }),
-      confirmLabel: i18n.t('common.delete'),
-      destructive: true,
-    });
-    if (!confirmed) {
-      return;
-    }
-    deleteGenerated.mutate(item.id, {
-      onSuccess: () => {
-        setMessage(i18n.t('cv.tailoredDeleted'));
-        toast.success(i18n.t('cv.tailoredDeleted'));
-      },
-      onError: () => {
-        setError(i18n.t('errors.failedDeleteGeneratedCV'));
-        toast.error(i18n.t('errors.failedDeleteGeneratedCV'));
       },
     });
   };
@@ -637,47 +571,9 @@ export function CvEditorScreen() {
           ))
         )}
 
-        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-          {i18n.t('cv.tailoredCvs')}
+        <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
+          {i18n.t('cv.tailoredMoved')}
         </Text>
-        {generated.length === 0 ? (
-          <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
-            {i18n.t('cv.noTailored')}
-          </Text>
-        ) : (
-          generated.map((item) => (
-            <View
-              key={item.id}
-              style={[styles.generatedRow, { borderTopColor: theme.colors.border }]}
-            >
-              <View style={styles.generatedInfo}>
-                <Text style={[styles.generatedTitle, { color: theme.colors.text }]}>
-                  {item.job_title ?? '—'}
-                </Text>
-                <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
-                  {item.job_company ?? ''}
-                </Text>
-              </View>
-              <View style={styles.generatedActions}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={!masterCvVersion(item)}
-                  onPress={() => editGenerated(item)}
-                >
-                  {i18n.t('cv.edit')}
-                </Button>
-                <Button variant="ghost" size="sm" onPress={() => downloadGenerated(item.id)}>
-                  <Icon name="download" size={14} />
-                  {i18n.t('cv.pdf')}
-                </Button>
-                <Button variant="ghost" size="sm" onPress={() => void removeGenerated(item)}>
-                  <Icon name="trash" size={14} />
-                </Button>
-              </View>
-            </View>
-          ))
-        )}
       </View>
     </ScrollView>
   );
@@ -768,23 +664,5 @@ const styles = StyleSheet.create({
   },
   historyDate: {
     fontSize: 12,
-  },
-  generatedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-  },
-  generatedInfo: {
-    flex: 1,
-  },
-  generatedTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  generatedActions: {
-    flexDirection: 'row',
-    gap: 4,
   },
 });

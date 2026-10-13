@@ -79,6 +79,8 @@ export interface EnqueueResult {
   enqueued: boolean;
   job_id: string;
   cv_id?: string | null;
+  /** Set when the tailor run was linked to an application. */
+  application_id?: string | null;
 }
 
 // ---- Applications ------------------------------------------------------
@@ -91,6 +93,7 @@ export interface Application {
   status: ApplicationStatus;
   applied_date: string | null;
   notes: string | null;
+  lessons_learned: string | null;
   cv_version: string | null;
   created_at: string;
   updated_at: string;
@@ -99,11 +102,17 @@ export interface Application {
   job_url: string | null;
 }
 
+/** One application plus its job description (the per-application workspace). */
+export interface ApplicationDetail extends Application {
+  job_description: string | null;
+}
+
 export interface ApplicationInput {
   job_id: string;
   status?: ApplicationStatus;
   applied_date?: string | null;
   notes?: string | null;
+  lessons_learned?: string | null;
   cv_version?: string | null;
 }
 
@@ -346,4 +355,34 @@ export interface GeneratedCV {
   job_title: string | null;
   job_company: string | null;
   created_at: string;
+  /** Structured content behind the artifact (drives the preview). */
+  structured_json: CVStructure | null;
+  ats_score: number | null;
+  ats_report: AtsReport | null;
+}
+
+/** One weighted component of an ATS score (mirrors `app/schemas/ats.py`). */
+export interface AtsFactor {
+  key: string;
+  label: string;
+  score: number;
+  weight: number;
+  detail: string;
+}
+
+export interface AtsReport {
+  score: number;
+  method: 'heuristic' | 'hybrid' | string;
+  factors: AtsFactor[];
+  matched_skills: string[];
+  missing_skills: string[];
+  recommendations: string[];
+  warnings: string[];
+  llm_summary: string | null;
+}
+
+export interface AtsScoreInput {
+  cv: CVStructure;
+  job_id?: string | null;
+  generated_cv_id?: string | null;
 }

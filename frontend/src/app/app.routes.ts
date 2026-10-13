@@ -45,6 +45,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'applications/:id',
+        loadComponent: () =>
+          import('./components/application-detail/application-detail.component').then(
+            (m) => m.ApplicationDetailComponent
+          ),
+      },
+      {
         path: 'lessons',
         loadComponent: () =>
           import('./components/lessons/lessons.component').then((m) => m.LessonsComponent),

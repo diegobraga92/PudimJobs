@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { CdkDragDrop, DragDropModule, moveItemInArray, transferArrayItem } from '@angular/cdk/drag-drop';
 
 import {
@@ -8,12 +9,19 @@ import {
   ApplicationsService,
 } from '../../services/applications.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
-import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
 
+/**
+ * Application pipeline (kanban).
+ *
+ * A navigation surface: cards open the per-application workspace
+ * (`/applications/:id`), where the notes, retrospective and the tailored CV +
+ * ATS panel live. Dragging a card between columns persists the status change
+ * here, so the board stays a fast triage view.
+ */
 @Component({
   selector: 'app-applications',
   standalone: true,
@@ -30,16 +38,12 @@ export class ApplicationsComponent implements OnInit {
     rejected: [],
   };
   statuses = STATUSES;
-  selected: Application | null = null;
   error: string | null = null;
   total = 0;
-  notesDraft = '';
-  lessonsDraft = '';
-  savingDetail = false;
 
   constructor(
     private service: ApplicationsService,
-    private confirm: ConfirmService,
+    private router: Router,
     private toast: ToastService,
     readonly i18n: I18nService
   ) {}
@@ -50,6 +54,11 @@ export class ApplicationsComponent implements OnInit {
 
   statusLabel(status: ApplicationStatus): string {
     return this.i18n.t(`pipeline.${status}`);
+  }
+
+  /** Open the application workspace for a card. */
+  openWorkspace(application: Application): void {
+    this.router.navigate(['/applications', application.id]);
   }
 
   /**
@@ -100,85 +109,6 @@ export class ApplicationsComponent implements OnInit {
       error: () => {
         this.error = this.i18n.t('errors.failedLoadApplications');
         this.toast.error(this.i18n.t('errors.failedLoadApplications'));
-      },
-    });
-  }
-
-  select(application: Application): void {
-    this.selected = application;
-    this.notesDraft = application.notes ?? '';
-    this.lessonsDraft = application.lessons_learned ?? '';
-  }
-
-  /** Persist the notes/lessons edits made in the detail modal. */
-  saveDetail(): void {
-    if (!this.selected || this.savingDetail) {
-      return;
-    }
-    this.savingDetail = true;
-    const application = this.selected;
-    this.service
-      .update(application.id, {
-        notes: this.notesDraft.trim() || null,
-        lessons_learned: this.lessonsDraft.trim() || null,
-      })
-      .subscribe({
-        next: (updated) => {
-          this.savingDetail = false;
-          this.selected = updated;
-          this.toast.success(this.i18n.t('applications.detailsSaved'));
-          this.refresh();
-        },
-        error: () => {
-          this.savingDetail = false;
-          this.error = this.i18n.t('errors.failedUpdateApplication');
-          this.toast.error(this.i18n.t('errors.failedUpdateApplication'));
-        },
-      });
-  }
-
-  closeDetail(): void {
-    this.selected = null;
-  }
-
-  changeStatus(status: ApplicationStatus): void {
-    if (!this.selected) {
-      return;
-    }
-    const app = this.selected;
-    this.service.update(app.id, { status }).subscribe({
-      next: () => {
-        this.selected = null;
-        this.toast.success(this.i18n.t('applications.movedTo', { status: this.i18n.t(`pipeline.${status}`) }));
-        this.refresh();
-      },
-      error: () => {
-        this.error = this.i18n.t('errors.failedUpdateStatus');
-        this.toast.error(this.i18n.t('errors.failedUpdateStatus'));
-      },
-    });
-  }
-
-  async remove(application: Application): Promise<void> {
-    const confirmed = await this.confirm.confirm({
-      title: this.i18n.t('applications.removeTitle'),
-      message: this.i18n.t('applications.removeMessage', { title: application.job_title }),
-      confirmLabel: this.i18n.t('common.remove'),
-      cancelLabel: this.i18n.t('applications.keepIt'),
-      destructive: true,
-    });
-    if (!confirmed) {
-      return;
-    }
-    this.service.delete(application.id).subscribe({
-      next: () => {
-        this.selected = null;
-        this.toast.success(this.i18n.t('applications.removed'));
-        this.refresh();
-      },
-      error: () => {
-        this.error = this.i18n.t('errors.failedDeleteApplication');
-        this.toast.error(this.i18n.t('errors.failedDeleteApplication'));
       },
     });
   }

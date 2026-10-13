@@ -1,4 +1,4 @@
-import { CVInput, CVStructure, GeneratedCV, MasterCV } from '@/types';
+import { AtsReport, AtsScoreInput, CVInput, CVStructure, GeneratedCV, MasterCV } from '@/types';
 import { apiClient } from './client';
 
 export async function listCvs(): Promise<MasterCV[]> {
@@ -20,8 +20,19 @@ export async function deleteCvVersion(id: string): Promise<void> {
   await apiClient.delete(`/api/cv/${id}`);
 }
 
-export async function listGeneratedCvs(): Promise<GeneratedCV[]> {
-  const { data } = await apiClient.get<GeneratedCV[]>('/api/cv/generated');
+export async function listGeneratedCvs(jobId?: string): Promise<GeneratedCV[]> {
+  const { data } = await apiClient.get<GeneratedCV[]>('/api/cv/generated', {
+    params: jobId ? { job_id: jobId } : undefined,
+  });
+  return data;
+}
+
+/**
+ * Scores a CV against a job. Passing `generated_cv_id` caches the report on
+ * that tailored CV so later reads are free.
+ */
+export async function atsScore(payload: AtsScoreInput): Promise<AtsReport> {
+  const { data } = await apiClient.post<AtsReport>('/api/cv/ats-score', payload);
   return data;
 }
 

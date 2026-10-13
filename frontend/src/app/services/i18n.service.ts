@@ -268,6 +268,16 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'applications.saveDetails': { en: 'Save details', 'pt-BR': 'Salvar detalhes' },
   'applications.saving': { en: 'Saving…', 'pt-BR': 'Salvando…' },
   'applications.detailsSaved': { en: 'Application updated.', 'pt-BR': 'Candidatura atualizada.' },
+  'applications.workspace': { en: 'Application workspace', 'pt-BR': 'Área da candidatura' },
+  'applications.backToPipeline': { en: 'Back to pipeline', 'pt-BR': 'Voltar ao pipeline' },
+  'applications.openJob': { en: 'Job details', 'pt-BR': 'Detalhes da vaga' },
+  'applications.appliedOn': { en: 'Applied on', 'pt-BR': 'Candidatura em' },
+  'applications.jobDescription': { en: 'Job description', 'pt-BR': 'Descrição da vaga' },
+  'applications.noDescription': {
+    en: 'No description saved for this job.',
+    'pt-BR': 'Nenhuma descrição salva para esta vaga.',
+  },
+  'applications.loading': { en: 'Loading application…', 'pt-BR': 'Carregando candidatura…' },
 
   // ---- CV editor -----------------------------------------------------------
   'cv.title': { en: 'Master CV', 'pt-BR': 'CV principal' },
@@ -342,8 +352,8 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'cv.pdfExported': { en: 'PDF exported.', 'pt-BR': 'PDF exportado.' },
   'cv.editTailored': { en: 'Edit tailored CV', 'pt-BR': 'Editar CV personalizado' },
   'cv.editingTailored': {
-    en: 'Loaded {job} into the editor — edit it, then export or save as a new version.',
-    'pt-BR': '{job} carregado no editor — edite e depois exporte ou salve como nova versão.',
+    en: 'Loaded the tailored CV for {job} — edit it, then save as a new master version or export a PDF.',
+    'pt-BR': '{job} carregado a partir do CV personalizado — edite e depois salve como nova versão principal ou exporte um PDF.',
   },
   'cv.editingTailoredToast': { en: 'Tailored CV loaded for editing.', 'pt-BR': 'CV personalizado carregado para edição.' },
   'cv.deleteVersion': { en: 'Delete version', 'pt-BR': 'Excluir versão' },
@@ -360,6 +370,33 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     'pt-BR': 'Excluir o CV personalizado de "{title}"? Esta ação não pode ser desfeita.',
   },
   'cv.tailoredDeleted': { en: 'Tailored CV deleted.', 'pt-BR': 'CV personalizado excluído.' },
+  'cv.tailoredMoved': {
+    en: 'Tailored CVs and their ATS check now live with each application.',
+    'pt-BR': 'Os CVs personalizados e sua verificação ATS agora ficam em cada candidatura.',
+  },
+
+  // ---- Tailored CV panel (application workspace) ---------------------------
+  'cv.panel.title': { en: 'Tailored CV', 'pt-BR': 'CV personalizado' },
+  'cv.panel.refresh': { en: 'Refresh', 'pt-BR': 'Atualizar' },
+  'cv.panel.tailor': { en: 'Tailor CV for this job', 'pt-BR': 'Personalizar CV para esta vaga' },
+  'cv.panel.retailor': { en: 'Tailor again', 'pt-BR': 'Personalizar novamente' },
+  'cv.panel.pending': {
+    en: 'Tailoring queued — the worker is generating it. Refresh in a moment.',
+    'pt-BR': 'Personalização na fila — o worker está gerando. Atualize em instantes.',
+  },
+  'cv.panel.enqueued': { en: 'Tailoring queued.', 'pt-BR': 'Personalização na fila.' },
+  'cv.panel.emptyTitle': { en: 'No tailored CV yet', 'pt-BR': 'Nenhum CV personalizado ainda' },
+  'cv.panel.emptyHint': {
+    en: 'Generate a version tuned to this job, then check how it scores.',
+    'pt-BR': 'Gere uma versão ajustada para esta vaga e veja como ela pontua.',
+  },
+  'cv.panel.versions': { en: 'Tailored versions', 'pt-BR': 'Versões personalizadas' },
+  'cv.panel.linked': { en: 'sent', 'pt-BR': 'enviado' },
+  'cv.panel.editInEditor': { en: 'Edit in CV editor', 'pt-BR': 'Editar no editor de CV' },
+  'cv.panel.noContent': {
+    en: 'This version has no stored content to preview.',
+    'pt-BR': 'Esta versão não tem conteúdo salvo para pré-visualizar.',
+  },
 
   // ---- ATS check (ADR 013) -------------------------------------------------
   'cv.ats.title': { en: 'ATS check', 'pt-BR': 'Verificação ATS' },
@@ -663,6 +700,18 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'errors.failedSaveCV': { en: 'Failed to save CV', 'pt-BR': 'Falha ao salvar o CV' },
   'errors.failedDeleteCV': { en: 'Failed to delete CV version', 'pt-BR': 'Falha ao excluir a versão do CV' },
   'errors.failedDeleteGeneratedCV': { en: 'Failed to delete tailored CV', 'pt-BR': 'Falha ao excluir o CV personalizado' },
+  'errors.failedLoadTailoredCVs': {
+    en: 'Failed to load tailored CVs',
+    'pt-BR': 'Falha ao carregar os CVs personalizados',
+  },
+  'errors.failedTailorCV': {
+    en: 'Failed to start CV tailoring',
+    'pt-BR': 'Falha ao iniciar a personalização do CV',
+  },
+  'errors.failedLoadApplication': {
+    en: 'Failed to load application',
+    'pt-BR': 'Falha ao carregar a candidatura',
+  },
   'errors.failedParseCV': {
     en: 'Failed to parse the CV file',
     'pt-BR': 'Falha ao analisar o arquivo do CV',

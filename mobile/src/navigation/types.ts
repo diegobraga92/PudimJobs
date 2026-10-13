@@ -9,11 +9,16 @@ export type JobsStackParamList = {
   JobDetail: { id: string };
 };
 
+export type ApplicationsStackParamList = {
+  ApplicationList: undefined;
+  ApplicationDetail: { id: string };
+};
+
 export type AppDrawerParamList = {
   Jobs: NavigatorScreenParams<JobsStackParamList>;
   Sources: undefined;
   MasterCv: undefined;
-  Applications: undefined;
+  Applications: NavigatorScreenParams<ApplicationsStackParamList>;
   Alerts: undefined;
   Notifications: undefined;
   Admin: undefined;

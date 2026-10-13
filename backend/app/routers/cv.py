@@ -162,17 +162,24 @@ async def create_version(
 
 @router.get("/generated", response_model=list[GeneratedCVResponse])
 async def list_generated(
+    job_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """List generated (tailored) CVs with their target job info."""
-    result = await db.execute(
+    """List generated (tailored) CVs with their target job info.
+
+    Pass ``job_id`` to scope the list to a single job — this powers the CV panel
+    on the per-application workspace.
+    """
+    stmt = (
         select(GeneratedCV, Job, MasterCV)
         .outerjoin(Job, GeneratedCV.job_id == Job.id)
         .outerjoin(MasterCV, GeneratedCV.master_cv_id == MasterCV.id)
         .where(GeneratedCV.user_id == user.id)
-        .order_by(GeneratedCV.created_at.desc())
     )
+    if job_id is not None:
+        stmt = stmt.where(GeneratedCV.job_id == job_id)
+    result = await db.execute(stmt.order_by(GeneratedCV.created_at.desc()))
     rows = result.all()
     return [
         GeneratedCVResponse(

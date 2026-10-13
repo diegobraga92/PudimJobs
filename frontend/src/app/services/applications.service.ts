@@ -19,6 +19,10 @@ export interface Application {
   job_url: string | null;
 }
 
+export interface ApplicationDetail extends Application {
+  job_description: string | null;
+}
+
 export interface ApplicationInput {
   job_id: string;
   status?: ApplicationStatus;
@@ -54,6 +58,11 @@ export class ApplicationsService {
   /** Retrospectives across every application that recorded one (newest first). */
   lessons(): Observable<LessonEntry[]> {
     return this.http.get<LessonEntry[]>('/api/applications/lessons');
+  }
+
+  /** One application plus its job description (application workspace). */
+  get(id: string): Observable<ApplicationDetail> {
+    return this.http.get<ApplicationDetail>(`/api/applications/${id}`);
   }
 
   create(payload: ApplicationInput): Observable<Application> {
