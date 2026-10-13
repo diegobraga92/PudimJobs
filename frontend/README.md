@@ -41,13 +41,17 @@ is persisted to `localStorage` (`pudimjobs_theme`) and falls back to the OS
 
 The application kanban uses Angular CDK drag & drop (`@angular/cdk`). Cards can
 be dragged between the five columns; the new status is persisted through
-`PUT /api/applications/:id` and reverted with a toast on failure.
+`PUT /api/applications/:id` and reverted with a toast on failure. Clicking a card
+opens the per-application workspace (`/applications/:id`) with the job
+description, the notes/retrospective edits and the tailored-CV + ATS panel
+(`app-cv-panel` + `app-ats-report`) — see ADR 015.
 
 ### CV preview
 
 The Master CV editor has an Edit / Preview toggle. Preview renders the live
 form state as an A4-style document (`app-cv-preview`), so edits appear
-instantly as they are typed.
+instantly as they are typed. `/cv` only manages the master document: tailored
+CVs and their ATS scores live with the application they were sent for.
 
 ### Admin tabs
 

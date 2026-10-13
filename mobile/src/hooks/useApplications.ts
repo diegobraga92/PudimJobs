@@ -8,13 +8,26 @@ import {
   listApplications,
   updateApplication,
 } from '@/api/applications';
-import { ApplicationInput, ApplicationStatus } from '@/types';
+import { ApplicationInput, ApplicationStatus, Application } from '@/types';
 
 export function useApplications() {
   return useQuery({
     queryKey: ['applications'],
     queryFn: () => listApplications(),
   });
+}
+
+/**
+ * The application tracking `jobId`, if the job is already in the pipeline.
+ * Reads the cached list, so creating an application (which invalidates
+ * `['applications']`) makes the job detail swap its "add" action for a link.
+ */
+export function useApplicationForJob(jobId: string): Application | null {
+  const { data } = useApplications();
+  return useMemo(
+    () => (data ?? []).find((application) => application.job_id === jobId) ?? null,
+    [data, jobId],
+  );
 }
 
 export function useApplication(id: string) {

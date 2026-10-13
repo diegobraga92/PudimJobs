@@ -61,20 +61,22 @@
     }
 
     <div class="actions">
-      <button type="button" class="btn btn-primary" (click)="addApplication()" [disabled]="saving">
-        @if (saving) {
-          <app-icon class="spinner" name="loader" [size]="16" />
-        }
-        {{ saving ? i18n.t('jobDetail.adding') : i18n.t('jobDetail.addToApplications') }}
-      </button>
-
-      <button type="button" class="btn btn-accent" (click)="tailor()" [disabled]="tailoring">
-        @if (tailoring) {
-          <app-icon class="spinner" name="loader" [size]="16" />
-        }
-        <app-icon name="wand" [size]="16" />
-        {{ tailoring ? i18n.t('jobDetail.tailoring') : i18n.t('jobDetail.tailorCv') }}
-      </button>
+      @if (application) {
+        <span class="badge pipeline-badge" [class]="pipelineBadge(application.status)">
+          {{ pipelineLabel(application.status) }}
+        </span>
+        <a class="btn btn-primary" [routerLink]="['/applications', application.id]">
+          <app-icon name="wand" [size]="16" />
+          {{ i18n.t('jobDetail.openWorkspace') }}
+        </a>
+      } @else {
+        <button type="button" class="btn btn-primary" (click)="addApplication()" [disabled]="saving">
+          @if (saving) {
+            <app-icon class="spinner" name="loader" [size]="16" />
+          }
+          {{ saving ? i18n.t('jobDetail.adding') : i18n.t('jobDetail.addToApplications') }}
+        </button>
+      }
 
       <button type="button" class="btn btn-ghost" (click)="toggleHidden()" [disabled]="saving">
         <app-icon [name]="job.hidden ? 'eye' : 'eye-off'" [size]="16" />
@@ -86,6 +88,13 @@
         {{ i18n.t('jobDetail.delete') }}
       </button>
     </div>
+
+    @if (application) {
+      <p class="muted">
+        <app-icon name="wand" [size]="13" />
+        {{ i18n.t('jobDetail.workspaceHint') }}
+      </p>
+    }
 
     @if (message) {
       <div class="alert alert-success" role="status">

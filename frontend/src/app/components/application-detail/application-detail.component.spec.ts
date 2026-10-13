@@ -1,5 +1,5 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
@@ -52,10 +52,19 @@ describe('ApplicationDetailComponent', () => {
 
   afterEach(() => http.verify());
 
-  it('loads the application and shows the job description', () => {
+  /**
+   * Flushes the application fetch plus the embedded CV panel's first request.
+   * The panel lives inside the `@if (application)` block, so the component has to
+   * re-render in between for its request to be issued.
+   */
+  function load(): void {
     http.expectOne('/api/applications/app-1').flush(APPLICATION);
-    // The embedded CV panel loads this job's tailored CVs.
+    fixture.detectChanges();
     http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+  }
+
+  it('loads the application and shows the job description', () => {
+    load();
     fixture.detectChanges();
 
     expect(component.application?.job_title).toBe('Backend Engineer');
@@ -67,8 +76,7 @@ describe('ApplicationDetailComponent', () => {
   });
 
   it('saves notes, retrospective and applied date', () => {
-    http.expectOne('/api/applications/app-1').flush(APPLICATION);
-    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+    load();
 
     component.notesDraft = 'Updated notes';
     component.lessonsDraft = 'Ask about on-call earlier.';
@@ -89,8 +97,7 @@ describe('ApplicationDetailComponent', () => {
   });
 
   it('moves the application to another pipeline column', () => {
-    http.expectOne('/api/applications/app-1').flush(APPLICATION);
-    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+    load();
 
     component.changeStatus('interview');
 
@@ -102,16 +109,33 @@ describe('ApplicationDetailComponent', () => {
     expect(component.application?.status).toBe('interview');
   });
 
-  it('deletes the application once confirmed', async () => {
-    http.expectOne('/api/applications/app-1').flush(APPLICATION);
-    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
-    spyOn(TestBed.inject(ConfirmService), 'confirm').and.resolveTo(true);
+  it('deletes the application once confirmed and returns to the pipeline', async () => {
+    load();
+    const confirm = TestBed.inject(ConfirmService);
+    // The router only has the bare test setup, so navigation is asserted, not run.
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    await component.remove();
+    const pending = component.remove();
+    confirm.close(true);
+    await pending;
 
-    http
-      .expectOne('/api/applications/app-1')
-      .flush(null, { status: 204, statusText: 'No Content' });
+    const request = http.expectOne('/api/applications/app-1');
+    expect(request.request.method).toBe('DELETE');
+    request.flush(null);
+
+    expect(navigate).toHaveBeenCalledWith(['/applications']);
+  });
+
+  it('keeps the application when the confirmation is dismissed', async () => {
+    load();
+    const confirm = TestBed.inject(ConfirmService);
+
+    const pending = component.remove();
+    confirm.close(false);
+    await pending;
+
+    http.expectNone((c) => c.method === 'DELETE');
+    expect(component.application).not.toBeNull();
   });
 
   it('reports a failed load', () => {

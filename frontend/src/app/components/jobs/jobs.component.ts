@@ -7,18 +7,11 @@ import { JobFilters, JobInput, JobSummary, JobsService } from '../../services/jo
 import { ApplicationsService } from '../../services/applications.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { OnboardingComponent } from '../../shared/onboarding/onboarding.component';
+import { pipelineBadgeClass, pipelineLabelFor } from '../../shared/pipeline';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
 
 const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
-
-const PIPELINE_BADGES: Record<string, string> = {
-  saved: 'badge-info',
-  applied: 'badge-warning',
-  interview: 'badge-warning',
-  offer: 'badge-success',
-  rejected: 'badge-danger',
-};
 
 @Component({
   selector: 'app-jobs',
@@ -96,13 +89,11 @@ export class JobsComponent implements OnInit {
   }
 
   pipelineLabel(status: string): string {
-    const key = `pipeline.${status}`;
-    const label = this.i18n.t(key);
-    return label === key ? this.i18n.t('pipeline.inPipeline') : label;
+    return pipelineLabelFor(this.i18n, status);
   }
 
   pipelineBadge(status: string): string {
-    return PIPELINE_BADGES[status] ?? 'badge-info';
+    return pipelineBadgeClass(status);
   }
 
   search(): void {

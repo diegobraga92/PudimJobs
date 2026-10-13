@@ -146,7 +146,8 @@ How this plan is organised:
 - [x] CV import/parsing (ADR 011), ATS scoring + ATS-safe template (ADR 013)
 - [x] Application retrospectives and interview prep tasks (ADR 014)
 - [x] Per-application workspace: tailored CV + ATS move to `/applications/:id`,
-      `/cv` is master-only (ADR 015)
+      `/cv` is master-only and the job page links to the workspace instead of
+      offering a second, unlinked tailor action (ADR 015)
 - [x] This development plan, kept in sync with the README status table
 
 ### Demo walkthrough (recorded script)
@@ -159,13 +160,14 @@ The demo follows one job through the whole system, in this order:
 2. **Data quality** — admin → Quality: normalization fixes, completeness
    scores, cross-source duplicates for the freshly scraped jobs.
 3. **Search** — Jobs page: keyword search, filters, tag chips (PostgreSQL FTS).
-4. **Tailor + ATS** — open a job → *Parse now* → *Add to applications* → open
-   the application workspace → *Tailor CV for this job*, refresh the panel once
-   the worker lands it, inspect the PDF preview and run the **ATS check** for
-   that job (score, missing skills, recommendations). The master CV page is
-   master-only: import an existing `PDF`/`DOCX`/`ODT` CV there to show the
-   parser pre-filling the editor, and use *Edit in CV editor* from the panel to
-   hand-edit a tailored version (saved as a new master version).
+4. **Tailor + ATS** — open a job → *Parse now* → *Add to applications* → the job
+   page now shows *Open workspace* (it has no tailor button of its own) → in the
+   workspace press *Tailor CV for this job*, refresh the panel once the worker
+   lands it, inspect the PDF preview and run the **ATS check** for that job
+   (score, missing skills, recommendations). The master CV page is master-only:
+   import an existing `PDF`/`DOCX`/`ODT` CV there to show the parser pre-filling
+   the editor, and use *Edit in CV editor* from the panel to hand-edit a tailored
+   version (saved as a new master version).
 5. **Alert + notification** — create an alert rule matching the job, add a
    matching job, show the in-app notification (and the Mailpit email).
 6. **Pipeline + prep** — *Add to applications*, drag the card
@@ -183,7 +185,7 @@ The demo follows one job through the whole system, in this order:
 | Backend format | `cd backend && ruff format --check .` | clean (107 files) |
 | Backend tests | `cd backend && pytest` | 311 passed |
 | Migration graph | `alembic heads` | single head `0018` |
-| Frontend tests | `cd frontend && ng test --watch=false --browsers=ChromeHeadless` | 39 passed |
+| Frontend tests | `cd frontend && ng test --watch=false --browsers=ChromeHeadless` | 43 passed |
 | Frontend build | `cd frontend && ng build` | clean (no budget warnings) |
 | Mobile | `cd mobile && npm run typecheck && npm run lint && npm test` | see `mobile-ci.yml` |
 

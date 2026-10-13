@@ -10,9 +10,9 @@
 
 **Job seekers** — PudimJobs watches your target companies and feeds for you:
 new postings are scraped, deduplicated, and matched against your saved
-searches (alerts in-app and by email). The "Tailor CV" button produces a
-job-specific CV PDF from your master CV, and the kanban pipeline tracks each
-application from *saved* through *offer*.
+searches (alerts in-app and by email). Tailoring produces a job-specific CV PDF
+from your master CV (from the application workspace), and the kanban pipeline
+tracks each application from *saved* through *offer*.
 
 **Hiring managers / HR** — this is a portfolio project that demonstrates how a
 small engineering team would build a production job board: an event-driven
@@ -318,12 +318,13 @@ retrospectives) are listed at the end of the development plan.
   `GET /api/jobs/{id}/parsed`, `POST /api/cv/parse`, `POST /api/cv/ats-score`,
   `POST /api/cv/pdf`, `GET /api/cv/generated` (optional `?job_id=`),
   `GET /api/cv/generated/{id}`, `GET /api/cv/generated/{id}/pdf`
-- Frontend: "Tailor CV for this job" button + parsed-JD panel on the job
-  detail page; CV editor with contact/links/certifications/languages fields,
+- Frontend: parsed-JD panel on the job detail page, which links to the
+  **application workspace** rather than tailoring from the job page itself;
+  CV editor with contact/links/certifications/languages fields,
   `PDF`/`DOCX`/`ODT` import and a Classic ⇄ ATS-safe export selector. The
   tailored CV, its PDF download, its cached ATS badge and the "Check score"
-  action live in the **application workspace** (`/applications/:id`) — the
-  master CV page is master-only (ADR 015)
+  action live in the application workspace (`/applications/:id`) — the master CV
+  page is master-only and the job page only triages (ADR 015)
 
 **Matching alerts & notifications**
 - Alert rules (saved searches): keywords, companies, tags, remote-only,
@@ -403,7 +404,8 @@ retrospectives) are listed at the end of the development plan.
 - Login page + auth guard + JWT interceptor
 - Source management (add / edit / delete)
 - Job listing with keyword/company/tag/date search + manual add + detail view
-  with "add to applications"
+  (parsed requirements, *add to applications*, and — once the job is tracked — a
+  pipeline badge plus a link straight to its application workspace)
 - Master CV editor (contact block, summary, experience, education, skills,
   projects, certifications, languages) with version history, PDF/DOCX/ODT
   import, live preview and Classic/ATS-safe PDF export

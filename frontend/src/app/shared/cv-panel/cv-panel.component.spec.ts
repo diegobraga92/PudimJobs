@@ -74,8 +74,6 @@ describe('CvPanelComponent', () => {
 
     TestBed.inject(I18nService).setLanguage('en');
     http = TestBed.inject(HttpTestingController);
-    // The confirm dialog is not rendered here; auto-accept instead.
-    spyOn(TestBed.inject(ConfirmService), 'confirm').and.resolveTo(true);
   });
 
   afterEach(() => http.verify());
@@ -149,10 +147,14 @@ describe('CvPanelComponent', () => {
     build();
     http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
 
-    await component.remove(component.tailored[0]);
+    const pending = component.remove(component.tailored[0]);
+    TestBed.inject(ConfirmService).close(true);
+    await pending;
 
-    await Promise.resolve();
     http.expectOne('/api/cv/generated/gen-1').flush(null, { status: 204, statusText: 'No Content' });
     http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+
+    expect(component.tailored).toEqual([]);
+    expect(component.selectedId).toBeNull();
   });
 });

@@ -1,4 +1,11 @@
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import {
+  CompositeNavigationProp,
+  RouteProp,
+  useNavigation,
+  useRoute,
+} from '@react-navigation/native';
+import { DrawerNavigationProp } from '@react-navigation/drawer';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useState } from 'react';
 import {
   Linking,
@@ -20,24 +27,35 @@ import { Tag } from '@/components/ui/Tag';
 import { Icon } from '@/components/icons/Icon';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { useToast } from '@/components/toast/ToastProvider';
-import { useCreateApplication } from '@/hooks/useApplications';
-import {
-  useJob,
-  useParsedJd,
-  useParseJob,
-  useTailorCv,
-  useUpdateJob,
-  useDeleteJob,
-} from '@/hooks/useJobs';
+import { useApplicationForJob, useCreateApplication } from '@/hooks/useApplications';
+import { useJob, useParsedJd, useParseJob, useUpdateJob, useDeleteJob } from '@/hooks/useJobs';
 import { useI18n } from '@/i18n/I18nProvider';
-import { JobsStackParamList } from '@/navigation/types';
+import { AppDrawerParamList, JobsStackParamList } from '@/navigation/types';
 import { useTheme } from '@/theme/ThemeProvider';
 import { dateLocale, mediumDate } from '@/utils/dates';
+import { pipelineBadgeVariant, pipelineLabel } from '@/utils/pipeline';
 
+/**
+ * The screen sits in the jobs stack but links across to the application
+ * workspace, so its navigation prop is composed with the parent drawer.
+ */
+type JobDetailNavigation = CompositeNavigationProp<
+  NativeStackNavigationProp<JobsStackParamList, 'JobDetail'>,
+  DrawerNavigationProp<AppDrawerParamList>
+>;
+
+/**
+ * Job detail. A reading + triage surface: it shows what the posting asks for and
+ * tracks the job in the pipeline.
+ *
+ * Tailoring deliberately does *not* live here (ADR 015): the tailored CV and its
+ * ATS check belong to one application, so they are reached through the
+ * application workspace — this screen only links there.
+ */
 export function JobDetailScreen() {
   const { theme } = useTheme();
   const i18n = useI18n();
-  const navigation = useNavigation();
+  const navigation = useNavigation<JobDetailNavigation>();
   const route = useRoute<RouteProp<JobsStackParamList, 'JobDetail'>>();
   const toast = useToast();
   const confirm = useConfirm();
@@ -48,10 +66,10 @@ export function JobDetailScreen() {
   const parsed = useParsedJd(id, !!job);
 
   const createApplication = useCreateApplication();
+  const application = useApplicationForJob(id);
   const updateJob = useUpdateJob(id);
   const deleteJob = useDeleteJob();
   const parseJob = useParseJob();
-  const tailor = useTailorCv();
 
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -80,24 +98,15 @@ export function JobDetailScreen() {
     );
   };
 
-  const runTailor = () => {
-    if (!job) {
+  /** Jump to the application workspace, where the CV panel lives. */
+  const openWorkspace = () => {
+    if (!application) {
       return;
     }
-    setMessage(null);
-    tailor.mutate(
-      { id: job.id },
-      {
-        onSuccess: () => {
-          setMessage(i18n.t('jobDetail.tailoringStarted'));
-          toast.success(i18n.t('jobDetail.tailoringStartedToast'));
-        },
-        onError: () => {
-          setMessage(i18n.t('jobDetail.failedTailoring'));
-          toast.error(i18n.t('jobDetail.failedTailoringToast'));
-        },
-      },
-    );
+    navigation.navigate('Applications', {
+      screen: 'ApplicationDetail',
+      params: { id: application.id },
+    });
   };
 
   const toggleHidden = () => {
@@ -198,6 +207,11 @@ export function JobDetailScreen() {
             >
               <View style={styles.titleRow}>
                 <Text style={[styles.title, { color: theme.colors.text }]}>{job.title}</Text>
+                {application ? (
+                  <Badge variant={pipelineBadgeVariant(application.status)}>
+                    {pipelineLabel(application.status, i18n.t)}
+                  </Badge>
+                ) : null}
                 {job.hidden ? <Badge variant="neutral">{i18n.t('jobs.hiddenBadge')}</Badge> : null}
               </View>
 
@@ -240,14 +254,15 @@ export function JobDetailScreen() {
               ) : null}
 
               <View style={styles.actions}>
-                <Button onPress={addApplication} loading={createApplication.isPending}>
-                  {createApplication.isPending
-                    ? i18n.t('jobDetail.adding')
-                    : i18n.t('jobDetail.addToApplications')}
-                </Button>
-                <Button variant="accent" onPress={runTailor} loading={tailor.isPending}>
-                  {tailor.isPending ? i18n.t('jobDetail.tailoring') : i18n.t('jobDetail.tailorCv')}
-                </Button>
+                {application ? (
+                  <Button onPress={openWorkspace}>{i18n.t('jobDetail.openWorkspace')}</Button>
+                ) : (
+                  <Button onPress={addApplication} loading={createApplication.isPending}>
+                    {createApplication.isPending
+                      ? i18n.t('jobDetail.adding')
+                      : i18n.t('jobDetail.addToApplications')}
+                  </Button>
+                )}
                 <Button variant="ghost" onPress={toggleHidden} loading={updateJob.isPending}>
                   {job.hidden ? i18n.t('jobDetail.unhide') : i18n.t('jobDetail.hide')}
                 </Button>
@@ -255,6 +270,12 @@ export function JobDetailScreen() {
                   {i18n.t('jobDetail.delete')}
                 </Button>
               </View>
+
+              {application ? (
+                <Text style={[styles.metaMuted, { color: theme.colors.textMuted }]}>
+                  {i18n.t('jobDetail.workspaceHint')}
+                </Text>
+              ) : null}
 
               {message ? <Alert tone="success">{message}</Alert> : null}
             </View>

@@ -1,28 +1,38 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
-import { ApplicationsService } from '../../services/applications.service';
+import { Application, ApplicationsService } from '../../services/applications.service';
 import { JobDetail, JobsService, ParsedJD } from '../../services/jobs.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
+import { pipelineBadgeClass, pipelineLabelFor } from '../../shared/pipeline';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
 
+/**
+ * Job detail. A reading + triage surface: it shows what the posting asks for and
+ * tracks the job in the pipeline.
+ *
+ * Tailoring deliberately does *not* live here (ADR 015): the tailored CV and its
+ * ATS check belong to one application, so they are reached through the
+ * application workspace (`/applications/:id`) — this page only links there.
+ */
 @Component({
   selector: 'app-job-detail',
   standalone: true,
-  imports: [CommonModule, AppIconComponent],
+  imports: [CommonModule, AppIconComponent, RouterLink],
   templateUrl: './job-detail.component.html',
   styleUrl: './job-detail.component.scss',
 })
 export class JobDetailComponent implements OnInit {
   job: JobDetail | null = null;
   parsed: ParsedJD | null = null;
+  /** Set once this job is in the pipeline — the page then links to its workspace. */
+  application: Application | null = null;
   error: string | null = null;
   message: string | null = null;
   saving = false;
-  tailoring = false;
   /** Starts true so the loading skeleton shows before the first fetch completes. */
   loading = true;
 
@@ -47,11 +57,28 @@ export class JobDetailComponent implements OnInit {
         this.job = job;
         this.loading = false;
         this.loadParsed();
+        this.loadPipeline();
       },
       error: () => {
         this.loading = false;
         this.error = this.i18n.t('errors.failedLoadJob');
       },
+    });
+  }
+
+  /**
+   * Resolves whether this job is already tracked, so the page can offer the
+   * application workspace instead of a duplicate "add" action.
+   */
+  private loadPipeline(): void {
+    if (!this.job) {
+      return;
+    }
+    const jobId = this.job.id;
+    this.applications.list().subscribe({
+      next: (applications) =>
+        (this.application = applications.find((item) => item.job_id === jobId) ?? null),
+      error: () => (this.application = null),
     });
   }
 
@@ -89,8 +116,9 @@ export class JobDetailComponent implements OnInit {
     this.saving = true;
     this.message = null;
     this.applications.create({ job_id: this.job.id, status: 'saved' }).subscribe({
-      next: () => {
+      next: (application) => {
         this.saving = false;
+        this.application = application;
         this.message = this.i18n.t('jobDetail.addedToPipeline');
         this.toast.success(this.i18n.t('jobDetail.addedToPipeline'));
       },
@@ -102,24 +130,14 @@ export class JobDetailComponent implements OnInit {
     });
   }
 
-  tailor(): void {
-    if (!this.job || this.tailoring) {
-      return;
-    }
-    this.tailoring = true;
-    this.message = null;
-    this.jobs.tailor(this.job.id).subscribe({
-      next: () => {
-        this.tailoring = false;
-        this.message = this.i18n.t('jobDetail.tailoringStarted');
-        this.toast.success(this.i18n.t('jobDetail.tailoringStartedToast'));
-      },
-      error: () => {
-        this.tailoring = false;
-        this.error = this.i18n.t('jobDetail.failedTailoring');
-        this.toast.error(this.i18n.t('jobDetail.failedTailoringToast'));
-      },
-    });
+  /** Badge tone for this job's pipeline status (same mapping as the jobs list). */
+  pipelineBadge(status: string): string {
+    return pipelineBadgeClass(status);
+  }
+
+  /** Localised pipeline status label. */
+  pipelineLabel(status: string): string {
+    return pipelineLabelFor(this.i18n, status);
   }
 
   back(): void {

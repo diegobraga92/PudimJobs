@@ -1,19 +1,12 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Badge, BadgeVariant } from '@/components/ui/Badge';
+import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/icons/Icon';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ApplicationStatus, JobSummary } from '@/types';
 import { dateLocale, mediumDate } from '@/utils/dates';
+import { pipelineBadgeVariant, pipelineLabel } from '@/utils/pipeline';
 import { useTheme } from '@/theme/ThemeProvider';
-
-const PIPELINE_BADGES: Record<ApplicationStatus, BadgeVariant> = {
-  saved: 'info',
-  applied: 'warning',
-  interview: 'warning',
-  offer: 'success',
-  rejected: 'danger',
-};
 
 /** Job card — mirrors the web `.job-card` (title, badges, company, date, tags). */
 export function JobCard({
@@ -29,12 +22,6 @@ export function JobCard({
 }) {
   const { theme } = useTheme();
   const i18n = useI18n();
-
-  const pipelineLabel = (status: ApplicationStatus): string => {
-    const key = `pipeline.${status}`;
-    const label = i18n.t(key);
-    return label === key ? i18n.t('pipeline.inPipeline') : label;
-  };
 
   return (
     <Pressable
@@ -61,7 +48,9 @@ export function JobCard({
         </View>
         <View style={styles.badges}>
           {pipelineStatus ? (
-            <Badge variant={PIPELINE_BADGES[pipelineStatus]}>{pipelineLabel(pipelineStatus)}</Badge>
+            <Badge variant={pipelineBadgeVariant(pipelineStatus)}>
+              {pipelineLabel(pipelineStatus, i18n.t)}
+            </Badge>
           ) : null}
           {job.hidden ? <Badge variant="neutral">{i18n.t('jobs.hiddenBadge')}</Badge> : null}
         </View>

@@ -79,12 +79,11 @@ async function setup(generatedId?: string): Promise<{
 }
 
 describe('CvEditorComponent', () => {
-  let fixture: ComponentFixture<CvEditorComponent>;
   let component: CvEditorComponent;
   let http: HttpTestingController;
 
   beforeEach(async () => {
-    ({ fixture, component, http } = await setup());
+    ({ component, http } = await setup());
   });
 
   afterEach(() => http.verify());
@@ -107,6 +106,9 @@ describe('CvEditorComponent', () => {
     http.expectOne('/api/cv').flush([MASTER_CV]);
 
     http.expectNone('/api/cv/generated');
+    // The editor holds the master document, not a per-job tailored version.
+    expect(component.cvForm.value.summary).toBe(STRUCTURED.summary);
+    expect(component.mode).toBe('edit');
   });
 
   it('parses ODT uploads and rejects other extensions', () => {
@@ -140,12 +142,11 @@ describe('CvEditorComponent', () => {
 });
 
 describe('CvEditorComponent (tailored deep link)', () => {
-  let fixture: ComponentFixture<CvEditorComponent>;
   let component: CvEditorComponent;
   let http: HttpTestingController;
 
   beforeEach(async () => {
-    ({ fixture, component, http } = await setup('gen-1'));
+    ({ component, http } = await setup('gen-1'));
   });
 
   afterEach(() => http.verify());

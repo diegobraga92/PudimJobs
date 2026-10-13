@@ -79,6 +79,18 @@ silent master-version save) without duplicating a 500-line form.
 Applications stack with a workspace screen, the same `cv_version` badge, the
 tailored-CV list scoped by job, and the ATS report — mirroring the web.
 
+**7. Tailoring is reachable only from the workspace.** The job page's
+"Tailor CV for this job" button is removed. It was a leftover of the pre-workspace
+flow: it enqueued `POST /api/jobs/{id}/tailor` **without** an `application_id`,
+so the produced version could never be linked (`cv_version` stayed null) and the
+"download it from the CV page" message pointed at a page that no longer lists
+tailored CVs. Both clients now resolve the job's application and offer *Open
+workspace* instead — web in
+`frontend/src/app/components/job-detail/job-detail.component.ts`, mobile in
+`mobile/src/screens/JobDetailScreen.tsx` — and expose a single, correctly-wired
+tailor action (the panel's). *Add to applications* is therefore the documented
+first step towards a tailored CV.
+
 ## Consequences
 
 ### Positive
@@ -115,6 +127,12 @@ tailored-CV list scoped by job, and the ATS report — mirroring the web.
 - **Two clients to keep aligned.** As with every UI-facing decision since
   ADR 012, the workspace has to be mirrored in the Angular and React Native
   clients.
+- **Tailoring needs an application first.** With the job-page button gone, a
+  user who wants a tailored CV must *Add to applications* and open the workspace
+  before pressing *Tailor*. Accepted: a tailored CV that is not linked to an
+  application cannot be found again (nothing records it on the application, and
+  the UI now browses by application), so the two-step path is the one that
+  produces a useful artifact.
 
 ## Alternatives Not Selected
 
@@ -126,6 +144,7 @@ tailored-CV list scoped by job, and the ATS report — mirroring the web.
 | Tailor synchronously and return the artifact | Turns a slow render plus an optional LLM call into an HTTP request and discards the worker's retry/idempotency behaviour |
 | Poll or stream the panel after enqueueing | Extra load and flaky UX for a task that typically takes seconds; an explicit Refresh matches the existing pattern |
 | Show the linked CV on the kanban card | The card is a triage/navigation surface; the workspace is where the CV and ATS detail live |
+| Keep a "Tailor CV" shortcut on the job page | It enqueued a run with no `application_id`, so `cv_version` was never written and the artifact was unreachable from the workspace — the same action, implemented worse |
 
 ## References
 
@@ -136,9 +155,12 @@ tailored-CV list scoped by job, and the ATS report — mirroring the web.
 - `app/broker.py` (`enqueue_tailor`), `app/models/application.py`
   (`cv_version`, migration `0001`)
 - `frontend/src/app/components/application-detail/`,
-  `frontend/src/app/shared/cv-panel/`, `frontend/src/app/shared/ats-report/`
+  `frontend/src/app/shared/cv-panel/`, `frontend/src/app/shared/ats-report/`,
+  `frontend/src/app/components/job-detail/` (workspace link),
+  `frontend/src/app/shared/pipeline.ts`
 - `mobile/src/navigation/ApplicationsStack.tsx`,
   `mobile/src/screens/ApplicationDetailScreen.tsx`,
+  `mobile/src/screens/JobDetailScreen.tsx` (workspace link),
   `mobile/src/components/cv/CvPanel.tsx`
 - ADR 002 (data model), ADR 006 (rule-based tailoring), ADR 013 (ATS scoring),
   ADR 014 (prep tasks and retrospectives)

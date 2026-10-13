@@ -158,9 +158,7 @@ async def test_get_application_detail_returns_cv_version(auth_client):
     job = await _create_job(client)
     cv = (await client.post("/api/cv", json={"structured_json": {"summary": "x"}})).json()
     application_id = (
-        await client.post(
-            "/api/applications", json={"job_id": job["id"], "cv_version": cv["id"]}
-        )
+        await client.post("/api/applications", json={"job_id": job["id"], "cv_version": cv["id"]})
     ).json()["id"]
 
     body = (await client.get(f"/api/applications/{application_id}")).json()
