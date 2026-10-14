@@ -32,7 +32,15 @@ class AtsFactor(BaseModel):
 
 
 class AtsScoreResponse(BaseModel):
+    # Headline score: the deterministic baseline (ADR 013). Kept as *the*
+    # comparable number so artifacts scored at different times line up.
     score: int  # 0..100
+    # The deterministic baseline on its own — mirrors ``score``. Explicit so the
+    # UI can label both numbers instead of inferring one from the other.
+    deterministic_score: int  # 0..100
+    # The LLM reviewer's own 0..100 estimate when the overlay ran; ``None`` when
+    # it did not (disabled, no key, failed call). Never blended into ``score``.
+    llm_score: int | None = None
     method: str  # "heuristic" or "hybrid"
     factors: list[AtsFactor]
     matched_skills: list[str]

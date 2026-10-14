@@ -1,4 +1,5 @@
-import { factorPercent, scoreVariant } from '@/utils/ats';
+import { AtsReport } from '@/types';
+import { deterministicScore, factorPercent, scoreVariant } from '@/utils/ats';
 
 describe('scoreVariant', () => {
   it('bands the badge tone by score', () => {
@@ -21,5 +22,27 @@ describe('factorPercent', () => {
   it('clamps out-of-range input', () => {
     expect(factorPercent(2)).toBe(100);
     expect(factorPercent(-1)).toBe(0);
+  });
+});
+
+describe('deterministicScore', () => {
+  const report = (overrides: Partial<AtsReport> = {}): AtsReport => ({
+    score: 82,
+    method: 'heuristic',
+    factors: [],
+    matched_skills: [],
+    missing_skills: [],
+    recommendations: [],
+    warnings: [],
+    llm_summary: null,
+    ...overrides,
+  });
+
+  it('prefers the deterministic baseline over the AI estimate', () => {
+    expect(deterministicScore(report({ deterministic_score: 70, llm_score: 30 }))).toBe(70);
+  });
+
+  it('falls back to `score` for a report cached before deterministic_score existed', () => {
+    expect(deterministicScore(report())).toBe(82);
   });
 });

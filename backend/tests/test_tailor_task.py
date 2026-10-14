@@ -91,9 +91,9 @@ async def test_tailor_task_stores_a_self_contained_artifact(test_engine, db_sess
     assert artifact.pdf[:4] == b"%PDF"
     assert artifact.structured_json is not None
     assert artifact.structured_json["experience"][0]["title"] == "Python Developer"
-    # The deterministic variant is auto-scored on creation.
-    assert artifact.ats_score is not None
-    assert artifact.ats_report["score"] == artifact.ats_score
+    # No score is computed at generation time: ATS scoring is on demand (ADR 013).
+    assert artifact.ats_score is None
+    assert artifact.ats_report is None
 
 
 async def test_tailor_task_strengthens_the_summary(test_engine, db_session):
@@ -233,9 +233,11 @@ async def test_tailor_task_adds_the_llm_variant_when_enabled(test_engine, db_ses
     assert set(by_variant) == {CVVariant.rule, CVVariant.llm}
     assert by_variant[CVVariant.rule].structured_json["summary"] != "Rewritten for the job"
     assert by_variant[CVVariant.llm].structured_json["summary"] == "Rewritten for the job"
-    # The LLM's own estimate is stored separately from the comparable score.
-    assert by_variant[CVVariant.llm].ats_report["llm_self_score"] == 88
-    assert "llm_self_score" not in (by_variant[CVVariant.rule].ats_report or {})
+    # The LLM's own estimate is the only score kept at generation time; the
+    # comparable deterministic score is produced on demand (ADR 013).
+    assert by_variant[CVVariant.llm].ats_report == {"llm_self_score": 88}
+    assert by_variant[CVVariant.llm].ats_score is None
+    assert by_variant[CVVariant.rule].ats_report is None
 
 
 async def test_tailor_task_llm_variant_can_be_skipped_after_a_failure(
@@ -399,8 +401,8 @@ async def test_tailor_task_repairs_a_content_less_artifact_in_place(test_engine,
     assert repaired.id == stale.id
     assert repaired.structured_json is not None
     assert repaired.structured_json["experience"][0]["title"] == "Python Developer"
-    assert repaired.ats_score is not None
-    assert repaired.ats_report["score"] == repaired.ats_score
+    assert repaired.ats_score is None
+    assert repaired.ats_report is None
     assert repaired.pdf[:4] == b"%PDF"
 
     await db_session.refresh(application)
@@ -438,7 +440,7 @@ async def test_tailor_task_repairs_empty_rule_and_still_adds_the_llm_variant(
     by_variant = {row.variant: row for row in rows}
     assert by_variant[CVVariant.rule].id == stale.id
     assert by_variant[CVVariant.rule].structured_json is not None
-    assert by_variant[CVVariant.rule].ats_score is not None
+    assert by_variant[CVVariant.rule].ats_score is None
     assert by_variant[CVVariant.llm].structured_json["summary"] == "Rewritten for the job"
 
 
@@ -467,7 +469,9 @@ async def test_tailor_task_repairs_a_content_less_llm_variant(test_engine, db_se
     by_variant = {row.variant: row for row in rows}
     assert by_variant[CVVariant.llm].id == stale.id
     assert by_variant[CVVariant.llm].structured_json["summary"] == "Rewritten for the job"
-    assert by_variant[CVVariant.llm].ats_score is not None
+    assert by_variant[CVVariant.llm].ats_score is None
+    # The model's own estimate survives the repair, nothing else is scored here.
+    assert by_variant[CVVariant.llm].ats_report == {"llm_self_score": 71}
     assert result["llm_generated_cv_id"] == str(stale.id)
 
 

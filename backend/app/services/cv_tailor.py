@@ -50,7 +50,7 @@ _NUMBERED_LINE_RE = re.compile(r"^\d+[.)]\s*(.+)$")
 LLM_TARGET_PAGES = 2
 _LLM_TARGET_WORDS = "550-650"
 _LLM_TARGET_ROLES = "3-4"
-_LLM_TARGET_BULLETS = "3-5"
+_LLM_TARGET_BULLETS = "3-6"
 
 
 def _contains_skill(text: str, skill: str) -> bool:

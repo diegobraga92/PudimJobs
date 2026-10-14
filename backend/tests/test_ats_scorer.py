@@ -205,7 +205,7 @@ def _enabled_config() -> LlmRuntimeConfig:
     )
 
 
-async def test_score_ats_blends_the_llm_review(monkeypatch):
+async def test_score_ats_reports_the_llm_estimate_beside_the_baseline(monkeypatch):
     from app.services import ats_scorer
 
     review = _FakeReview(
@@ -223,7 +223,11 @@ async def test_score_ats_blends_the_llm_review(monkeypatch):
 
     base = build_report(RICH_CV, jd_skills=["python", "rust"], jd_keywords=[])["score"]
     assert report["method"] == "hybrid"
-    assert report["score"] == round(0.7 * base + 0.3 * 10)
+    # The LLM never moves the headline: it is an extra number beside it, so the
+    # score stays reproducible and comparable across artifacts.
+    assert report["score"] == base
+    assert report["deterministic_score"] == base
+    assert report["llm_score"] == 10
     assert report["llm_summary"] == "Weak match"
     assert "Add rust if you know it" in report["recommendations"]
     assert review.calls == ["Python and Rust."]
@@ -236,7 +240,8 @@ async def test_score_ats_clamps_an_out_of_range_llm_score(monkeypatch):
     report = await score_ats(RICH_CV, jd_skills=["python"], llm_config=_enabled_config())
 
     assert report["method"] == "hybrid"
-    assert report["score"] <= 100
+    assert report["llm_score"] == 100
+    assert report["score"] == report["deterministic_score"]
 
 
 async def test_score_ats_skips_the_llm_when_disabled(monkeypatch):
@@ -253,6 +258,8 @@ async def test_score_ats_skips_the_llm_when_disabled(monkeypatch):
     assert report["method"] == "heuristic"
     assert review.calls == []
     assert report["score"] == build_report(RICH_CV, jd_skills=["python"])["score"]
+    assert report["deterministic_score"] == report["score"]
+    assert report["llm_score"] is None
 
 
 async def test_score_ats_degrades_when_the_llm_review_fails(monkeypatch):
@@ -263,4 +270,5 @@ async def test_score_ats_degrades_when_the_llm_review_fails(monkeypatch):
 
     assert report["method"] == "heuristic"
     assert report["llm_summary"] is None
+    assert report["llm_score"] is None
     assert report["score"] == build_report(RICH_CV, jd_skills=["python"])["score"]

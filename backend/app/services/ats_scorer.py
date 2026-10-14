@@ -1,11 +1,18 @@
 """ATS (Applicant Tracking System) scoring for tailored CVs (ADR 013).
 
-Two layers:
+Two layers, reported *separately*:
 
 * a **deterministic** baseline that always runs — skill coverage, keyword
-  coverage, content completeness and ATS-readability heuristics — and
-* an optional **LLM overlay** adding qualitative feedback (and nudging the
-  score) when an OpenAI-compatible endpoint is configured.
+  coverage, content completeness and ATS-readability heuristics — returned as
+  ``score``/``deterministic_score``, and
+* an optional **LLM overlay** adding a qualitative summary, extra suggestions
+  and its own 0-100 estimate (``llm_score``) when an OpenAI-compatible endpoint
+  is configured.
+
+The two numbers are never blended: ``score`` stays the reproducible baseline so
+artifacts scored at different times line up, and the LLM's opinion sits next to
+it as an extra data point instead of being folded into a number nobody can
+reproduce.
 
 Mirrors the graceful-degradation pattern used by the CV parser/tailor
 (ADR 006/011): a missing or erroring LLM only drops the result back to the
@@ -44,7 +51,6 @@ _MAX_SKILLS = 40
 _MAX_KEYWORDS = 20
 # How many significant terms a job title contributes to the keyword pool.
 _MAX_TITLE_KEYWORDS = 6
-_LLM_WEIGHT = 0.30  # blend: (1 - _LLM_WEIGHT) * heuristic + _LLM_WEIGHT * llm
 
 _STOPWORD_TEXT = """
 about above after again against all also am an and any are as at be because been
@@ -307,8 +313,14 @@ def build_report(
     readability, warnings = _readability_factor(cv)
     factors.append(readability)
 
+    total = _weighted_score(factors)
     return {
-        "score": _weighted_score(factors),
+        # The headline is the deterministic baseline: it is reproducible and
+        # comparable across artifacts (ADR 013), unlike a blended LLM number.
+        "score": total,
+        "deterministic_score": total,
+        # Filled in by `score_ats` when the optional LLM overlay runs.
+        "llm_score": None,
         "method": "heuristic",
         "factors": factors,
         "matched_skills": matched_skills,
@@ -358,6 +370,14 @@ async def _llm_review(
     return payload
 
 
+def _coerce_score(value) -> int | None:
+    """Clamp an LLM-provided score to 0..100, or ``None`` when unusable."""
+    try:
+        return max(0, min(100, int(value)))
+    except (TypeError, ValueError):
+        return None
+
+
 async def score_ats(
     cv: dict,
     *,
@@ -367,11 +387,14 @@ async def score_ats(
     job_title: str | None = None,
     llm_config: LlmRuntimeConfig | None = None,
 ) -> dict:
-    """Return a full ATS report, optionally blended with an LLM review.
+    """Return a full ATS report, optionally with an LLM review beside it.
 
-    The deterministic report is always produced; when ``llm_config`` is enabled
-    and the API call succeeds, the LLM contributes a qualitative summary, extra
-    suggestions and a 30% influence on the final score.
+    The deterministic report is always produced and is what ``score`` reports.
+    When ``llm_config`` is enabled and the API call succeeds, the LLM adds a
+    qualitative summary, extra suggestions and its own 0-100 estimate in
+    ``llm_score``. The two are never blended: ``score``/``deterministic_score``
+    stay reproducible across artifacts, so the LLM's opinion is an extra data
+    point rather than a score nobody can verify (``method`` becomes ``"hybrid"``).
     """
     report = build_report(cv, jd_skills=jd_skills, jd_keywords=jd_keywords, job_title=job_title)
 
@@ -382,13 +405,11 @@ async def score_ats(
     if not review:
         return report
 
-    try:
-        llm_score = int(review.get("score"))
-    except (TypeError, ValueError):
+    llm_score = _coerce_score(review.get("score"))
+    if llm_score is None:
         return report
 
-    base = report["score"]
-    report["score"] = max(0, min(100, round((1 - _LLM_WEIGHT) * base + _LLM_WEIGHT * llm_score)))
+    report["llm_score"] = llm_score
     report["method"] = "hybrid"
     if isinstance(review.get("summary"), str):
         report["llm_summary"] = review["summary"]

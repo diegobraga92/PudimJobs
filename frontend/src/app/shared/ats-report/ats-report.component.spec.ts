@@ -58,4 +58,25 @@ describe('AtsReportComponent', () => {
     expect(component.factorPercent(0)).toBe(0);
     expect(component.factorPercent(2)).toBe(100);
   });
+
+  it('labels the deterministic headline and shows the AI estimate beside it', () => {
+    fixture.componentRef.setInput('report', {
+      ...REPORT,
+      deterministic_score: 70,
+      llm_score: 30,
+      method: 'hybrid',
+    });
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('70');
+    expect(text).toContain(component.i18n.t('cv.ats.deterministic'));
+    expect(text).toContain(component.i18n.t('cv.ats.llm', { score: 30 }));
+    // The AI's own number never replaces the deterministic headline.
+    expect(component.deterministicScore).toBe(70);
+  });
+
+  it('falls back to `score` for a report cached before deterministic_score existed', () => {
+    expect(component.deterministicScore).toBe(REPORT.score);
+  });
 });

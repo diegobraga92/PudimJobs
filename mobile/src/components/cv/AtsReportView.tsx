@@ -5,16 +5,18 @@ import { Tag } from '@/components/ui/Tag';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { AtsReport } from '@/types';
-import { factorPercent, scoreVariant } from '@/utils/ats';
+import { factorPercent, deterministicScore, scoreVariant } from '@/utils/ats';
 
 /**
  * Read-only ATS report (see ADR 013) — the mobile analog of the web
- * `app-ats-report` component: score, weighted factors, matched/missing skills,
+ * `app-ats-report` component: the deterministic score, the LLM reviewer's own
+ * estimate beside it, weighted factors, matched/missing skills,
  * recommendations and parser warnings.
  */
 export function AtsReportView({ report }: { report: AtsReport }) {
   const { theme } = useTheme();
   const i18n = useI18n();
+  const headline = deterministicScore(report);
   const method =
     report.method === 'hybrid' ? i18n.t('cv.ats.methodHybrid') : i18n.t('cv.ats.methodHeuristic');
 
@@ -26,23 +28,31 @@ export function AtsReportView({ report }: { report: AtsReport }) {
             styles.score,
             {
               color:
-                report.score >= 75
+                headline >= 75
                   ? theme.colors.success
-                  : report.score >= 50
+                  : headline >= 50
                     ? theme.colors.warning
                     : theme.colors.danger,
               borderColor:
-                report.score >= 75
+                headline >= 75
                   ? theme.colors.success
-                  : report.score >= 50
+                  : headline >= 50
                     ? theme.colors.warning
                     : theme.colors.danger,
             },
           ]}
         >
-          {report.score}
+          {headline}
         </Text>
-        <Badge variant={scoreVariant(report.score)}>{method}</Badge>
+        <View style={styles.scoreTags}>
+          <Badge variant={scoreVariant(headline)}>{i18n.t('cv.ats.deterministic')}</Badge>
+          {report.llm_score != null ? (
+            <Badge variant={scoreVariant(report.llm_score)}>
+              {i18n.t('cv.ats.llm', { score: report.llm_score })}
+            </Badge>
+          ) : null}
+          <Text style={[styles.muted, { color: theme.colors.textMuted }]}>{method}</Text>
+        </View>
       </View>
 
       {report.factors.map((factor) => (
@@ -142,6 +152,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     marginBottom: 4,
+  },
+  /** The deterministic headline plus its labels (and the AI's own estimate). */
+  scoreTags: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   score: {
     width: 48,

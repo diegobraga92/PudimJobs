@@ -1,4 +1,4 @@
-import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { TestBed, ComponentFixture, fakeAsync, tick } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -6,7 +6,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { AtsReport, CVStructure, GeneratedCV } from '../../services/cv.service';
 import { I18nService } from '../../services/i18n.service';
 import { ConfirmService } from '../confirm/confirm.service';
-import { CvPanelComponent } from './cv-panel.component';
+import { CvPanelComponent, POLL_INTERVAL_MS, POLL_MAX_TICKS } from './cv-panel.component';
 
 const STRUCTURED: CVStructure = {
   full_name: 'Ada Lovelace',
@@ -240,6 +240,62 @@ describe('CvPanelComponent', () => {
     expect(component.pending).toBeFalse();
     expect(component.selectedId).toBe('gen-1');
   });
+
+  it('polls on its own until the queued artifact lands', fakeAsync(() => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+
+    component.tailor();
+    http.expectOne('/api/jobs/job-1/tailor').flush({ enqueued: true, job_id: 'job-1' });
+    expect(component.pending).toBeTrue();
+
+    // Nothing yet: the pending state survives and the panel asks again.
+    tick(POLL_INTERVAL_MS);
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+    expect(component.pending).toBeTrue();
+
+    // The worker's artifact appears — the panel resolves itself and stops.
+    tick(POLL_INTERVAL_MS);
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+    expect(component.pending).toBeFalse();
+    expect(component.selectedId).toBe('gen-1');
+
+    tick(POLL_INTERVAL_MS * 5);
+    http.expectNone((c) => c.url === '/api/cv/generated');
+  }));
+
+  it('stops polling after the give-up window, leaving Refresh as the fallback', fakeAsync(() => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+
+    component.tailor();
+    http.expectOne('/api/jobs/job-1/tailor').flush({ enqueued: true, job_id: 'job-1' });
+
+    for (let i = 0; i < POLL_MAX_TICKS; i += 1) {
+      tick(POLL_INTERVAL_MS);
+      http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+    }
+    expect(component.pending).toBeTrue();
+
+    // Budget spent: no endless request loop, the manual Refresh stays available.
+    tick(POLL_INTERVAL_MS * 2);
+    http.expectNone((c) => c.url === '/api/cv/generated');
+    expect(component.pending).toBeTrue();
+  }));
+
+  it('stops polling when the panel is destroyed', fakeAsync(() => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+
+    component.tailor();
+    http.expectOne('/api/jobs/job-1/tailor').flush({ enqueued: true, job_id: 'job-1' });
+
+    component.ngOnDestroy();
+    tick(POLL_INTERVAL_MS * 3);
+    http.expectNone((c) => c.url === '/api/cv/generated');
+    // Nothing was resolved and, crucially, no timer kept running.
+    expect(component.pending).toBeTrue();
+  }));
 
   it('deletes a tailored CV and reloads the list', async () => {
     build();

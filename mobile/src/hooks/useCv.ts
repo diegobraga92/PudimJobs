@@ -20,10 +20,26 @@ export function useCvVersions() {
   });
 }
 
-export function useGeneratedCvs(jobId?: string) {
+/**
+ * How often to re-check for a tailored artifact while a run is in flight.
+ * Tailoring is a Celery job, so there is nothing to await: the artifact simply
+ * appears as a new row.
+ */
+export const CV_POLL_INTERVAL_MS = 3000;
+
+/**
+ * Tailored CVs for a job, newest first.
+ *
+ * `pollUntilData` keeps re-querying while the list is still empty, so a queued
+ * tailor run resolves the screen on its own instead of asking the user to press
+ * *Refresh*; polling stops on the first non-empty answer.
+ */
+export function useGeneratedCvs(jobId?: string, options?: { pollUntilData?: boolean }) {
   return useQuery({
     queryKey: ['cv', 'generated', jobId ?? 'all'],
     queryFn: () => listGeneratedCvs(jobId),
+    refetchInterval: (query) =>
+      options?.pollUntilData && (query.state.data?.length ?? 0) === 0 ? CV_POLL_INTERVAL_MS : false,
   });
 }
 

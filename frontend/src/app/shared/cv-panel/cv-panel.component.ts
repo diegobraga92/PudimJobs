@@ -1,5 +1,6 @@
-import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
+import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Subscription, interval } from 'rxjs';
 
 import { AtsReport, CVStructure, CvService, GeneratedCV } from '../../services/cv.service';
 import { ApplicationsService } from '../../services/applications.service';
@@ -12,6 +13,18 @@ import { ConfirmService } from '../confirm/confirm.service';
 import { ToastService } from '../toast/toast.service';
 
 /**
+ * How often the panel re-checks for a freshly queued artifact while a tailor run
+ * is in flight. Tailoring is a Celery job, so there is nothing to await: the
+ * artifact simply shows up (or does not).
+ */
+export const POLL_INTERVAL_MS = 3000;
+/**
+ * Give up after ~90s of polling. A long or stuck job must not leave the panel
+ * hammering the API forever; the manual *Refresh* button stays as the fallback.
+ */
+export const POLL_MAX_TICKS = 30;
+
+/**
  * Per-job tailored-CV workspace.
  *
  * Merges the two things that used to live apart on `/cv`: the tailored CV for
@@ -21,13 +34,14 @@ import { ToastService } from '../toast/toast.service';
  *
  * A job has up to two artifacts (ADR 016): the deterministic `rule` variant
  * (always produced, auto-linked to the application) and an optional `llm`
- * rewrite. Both are scored with the same deterministic scorer so they can be
- * compared; the user records which one was actually sent with *Use this one*.
- * Edits here target the artifact itself and never touch the master CV.
+ * rewrite. Both are scored on demand with the same deterministic scorer so they
+ * can be compared; the user records which one was actually sent with *Use this
+ * one*. Edits here target the artifact itself and never touch the master CV.
  *
  * Tailoring is asynchronous: `POST /api/jobs/{id}/tailor` returns 202 and a
  * Celery worker produces the artifacts, so enqueueing flips the panel into a
- * pending state the user resolves with "Refresh".
+ * pending state that resolves itself — the panel polls until the artifact
+ * arrives, and *Refresh* remains available while it waits.
  */
 @Component({
   selector: 'app-cv-panel',
@@ -36,7 +50,7 @@ import { ToastService } from '../toast/toast.service';
   templateUrl: './cv-panel.component.html',
   styleUrl: './cv-panel.component.scss',
 })
-export class CvPanelComponent implements OnChanges {
+export class CvPanelComponent implements OnChanges, OnDestroy {
   readonly i18n = inject(I18nService);
 
   /** Job whose tailored CVs this panel manages. */
@@ -63,6 +77,11 @@ export class CvPanelComponent implements OnChanges {
   draft: CVStructure | null = null;
   draftSkills = '';
 
+  /** Auto-refresh handle used while a tailor run is in flight. */
+  private poll?: Subscription;
+  /** Ticks spent waiting for the worker; see {@link POLL_MAX_TICKS}. */
+  private pollTicks = 0;
+
   constructor(
     private service: CvService,
     private jobs: JobsService,
@@ -75,6 +94,10 @@ export class CvPanelComponent implements OnChanges {
     if (changes['jobId'] && this.jobId) {
       this.load();
     }
+  }
+
+  ngOnDestroy(): void {
+    this.stopPolling();
   }
 
   get selected(): GeneratedCV | null {
@@ -107,18 +130,57 @@ export class CvPanelComponent implements OnChanges {
     this.service.generated(this.jobId).subscribe({
       next: (items) => {
         this.loading = false;
-        this.tailored = items;
-        if (items.length > 0) {
-          this.pending = false;
-        }
-        const stillThere = items.some((item) => item.id === this.selectedId);
-        this.select(stillThere ? this.selectedId : (items[0]?.id ?? null));
+        this.applyLoaded(items);
       },
       error: () => {
         this.loading = false;
         this.error = this.i18n.t('errors.failedLoadTailoredCVs');
       },
     });
+  }
+
+  /**
+   * Apply a freshly fetched list: resolve the pending state once an artifact
+   * exists, and keep the current selection when it is still there.
+   */
+  private applyLoaded(items: GeneratedCV[]): void {
+    this.tailored = items;
+    if (items.length > 0) {
+      this.pending = false;
+      this.stopPolling();
+    }
+    const stillThere = items.some((item) => item.id === this.selectedId);
+    this.select(stillThere ? this.selectedId : (items[0]?.id ?? null));
+  }
+
+  /**
+   * Watch for the artifact a queued tailor run will produce.
+   *
+   * The worker is a Celery job, so there is nothing to await — the panel polls
+   * quietly (no spinner, no error state on a blip) until the artifact lands,
+   * then stops. After {@link POLL_MAX_TICKS} the poll gives up and leaves the
+   * user with the manual *Refresh* button rather than an endless request loop.
+   */
+  private startWatching(): void {
+    this.stopPolling();
+    this.pollTicks = 0;
+    this.poll = interval(POLL_INTERVAL_MS).subscribe(() => {
+      this.pollTicks += 1;
+      if (this.pollTicks > POLL_MAX_TICKS) {
+        this.stopPolling();
+        return;
+      }
+      this.service.generated(this.jobId).subscribe({
+        next: (items) => this.applyLoaded(items),
+        // A failed poll must not replace the pending notice with an error.
+        error: () => undefined,
+      });
+    });
+  }
+
+  private stopPolling(): void {
+    this.poll?.unsubscribe();
+    this.poll = undefined;
   }
 
   /** Switch the previewed/ATS-scored tailored version. */
@@ -242,6 +304,9 @@ export class CvPanelComponent implements OnChanges {
       next: () => {
         this.tailoring = false;
         this.pending = true;
+        // Resolve the pending state on its own instead of asking the user to
+        // keep clicking *Refresh* while the Celery worker runs.
+        this.startWatching();
         this.toast.success(this.i18n.t('cv.panel.enqueued'));
       },
       error: () => {

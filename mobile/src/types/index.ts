@@ -383,6 +383,16 @@ export interface AtsFactor {
 
 export interface AtsReport {
   score: number;
+  /**
+   * The deterministic baseline on its own (mirrors `score`). Optional because a
+   * report cached on an artifact before this field existed carries only `score`.
+   */
+  deterministic_score?: number | null;
+  /**
+   * The ATS reviewer LLM's own 0..100 estimate, reported *beside* the baseline
+   * (never blended into it). `null` when no reviewer ran.
+   */
+  llm_score?: number | null;
   method: 'heuristic' | 'hybrid' | string;
   factors: AtsFactor[];
   matched_skills: string[];

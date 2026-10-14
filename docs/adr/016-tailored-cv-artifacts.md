@@ -120,13 +120,16 @@ Idempotency is per `(user_id, job_id, source_master_cv_id, variant)`, enforced b
 a unique index. Requesting "tailor again" therefore reuses artifacts rather than
 accumulating them.
 
-**3. Both variants are scored by the deterministic ATS scorer.** ADR 013's
-scorer is run over each artifact in the worker, so the two scores are directly
-comparable (and cached on the row, so the UI needs no recomputation). The
-LLM-blended hybrid mode is deliberately *not* used here — a hybrid score would
-not be comparable across variants. Instead the `llm` artifact's `ats_report` also
-carries `llm_self_score`: the model's own 0–100 estimate of its rewrite, surfaced
-in the UI as "The AI's own estimate", never mixed into the score.
+**3. Both variants are scored by the same deterministic ATS scorer, on demand.**
+ADR 013's scorer is deliberately *not* run by the worker: each artifact is stored
+with `ats_score`/`ats_report` NULL and is scored when the user asks
+(`POST /api/cv/ats-score`), so the two numbers are directly comparable **and** a
+tailor run never pays for a score nobody requested. The LLM-blended hybrid score
+is not used: the report carries the deterministic score and the LLM's own
+estimate as separate fields. The one value captured at generation time is the
+`llm` artifact's `llm_self_score` — the model's own 0–100 estimate of its
+rewrite, surfaced in the UI as "The AI's own estimate", never mixed into the
+score.
 
 **4. The user records what was sent.** The worker auto-links the application to
 the **`rule`** variant only. The optional `llm` variant is linked when the user
@@ -158,8 +161,9 @@ can therefore produce a *bad second artifact*, never a missing one.
   of the master document; tailored output is invisible to it on both clients.
 - **Tailoring actually tailors.** The summary is rewritten deterministically and
   an LLM rewrite is available for the prose the rule engine cannot produce.
-- **Comparable choices.** Both variants are scored by the same engine, so "is the
-  AI rewrite better for this job?" is an evidence-based question.
+- **Comparable choices.** Both variants are scored by the same engine, whenever
+  the user asks, so "is the AI rewrite better for this job?" is an evidence-based
+  question — and a tailor run costs nothing in scoring time.
 - **Edits are contained.** Changing a tailored CV can no longer accidentally
   create a master version (the failure mode that motivated ADR 015).
 - **Idempotent and cheap by default.** With no LLM configured, behaviour and cost

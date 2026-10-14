@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AtsReportView } from '@/components/cv/AtsReportView';
@@ -29,6 +29,12 @@ import { displayNameFromEmail } from '@/utils/names';
 import { sharePdfFromUrl } from '@/utils/pdf';
 
 /**
+ * Give up after ~90s. A long or stuck job must not leave the screen hammering
+ * the API forever; the manual *Refresh* button stays as the fallback.
+ */
+const POLL_TIMEOUT_MS = 90_000;
+
+/**
  * Per-job tailored-CV workspace.
  *
  * Merges the two things that used to live apart on the Master CV screen: the CV
@@ -36,7 +42,8 @@ import { sharePdfFromUrl } from '@/utils/pdf';
  * so "the CV I sent, and how it scores" sits next to the application.
  *
  * Tailoring is asynchronous (`POST /api/jobs/{id}/tailor` → 202 + Celery), so
- * enqueueing flips the panel into a pending state resolved with "Refresh".
+ * enqueueing flips the panel into a pending state that resolves itself — the
+ * list polls until the artifact lands, and *Refresh* remains available.
  */
 export function CvPanel({
   jobId,
@@ -55,16 +62,33 @@ export function CvPanel({
   const confirm = useConfirm();
   const user = useAuthStore((state) => state.user);
 
-  const { data: tailored = [], isPending, refetch } = useGeneratedCvs(jobId);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  // Set once the give-up window elapses so a stuck job cannot poll forever.
+  const [pollExpired, setPollExpired] = useState(false);
+  const [report, setReport] = useState<AtsReport | null>(null);
+  const [reportFor, setReportFor] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pending) {
+      return;
+    }
+    const timer = setTimeout(() => setPollExpired(true), POLL_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [pending]);
+
+  const {
+    data: tailored = [],
+    isPending,
+    refetch,
+  } = useGeneratedCvs(jobId, { pollUntilData: pending && !pollExpired });
   const tailor = useTailorCv();
   const score = useAtsScore();
   const deleteGenerated = useDeleteGeneratedCv();
   const linkVariant = useUpdateApplication(applicationId ?? '');
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [report, setReport] = useState<AtsReport | null>(null);
-  const [reportFor, setReportFor] = useState<string | null>(null);
+  // The notice resolves itself as soon as the worker's artifact shows up.
+  const showPending = pending && !pollExpired && tailored.length === 0;
 
   const selected = tailored.find((item) => item.id === selectedId) ?? tailored[0] ?? null;
   // A freshly computed report wins over the one cached on the artifact.
@@ -98,7 +122,10 @@ export function CvPanel({
       { id: jobId, applicationId },
       {
         onSuccess: () => {
+          // The panel now polls on its own until the artifact shows up — no
+          // "press Refresh" step for the user.
           setPending(true);
+          setPollExpired(false);
           toast.success(i18n.t('cv.panel.enqueued'));
         },
         onError: () => toast.error(i18n.t('errors.failedTailorCV')),
@@ -106,12 +133,11 @@ export function CvPanel({
     );
   };
 
-  /** Re-fetch this job's tailored CVs and clear the pending state if it landed. */
+  /** Manual fallback: re-fetch now and stop waiting for the worker. */
   const refresh = async () => {
-    const result = await refetch();
-    if ((result.data ?? []).length > 0) {
-      setPending(false);
-    }
+    setPending(false);
+    setPollExpired(false);
+    await refetch();
   };
 
   const runScore = () => {
@@ -182,7 +208,7 @@ export function CvPanel({
         </View>
       </View>
 
-      {pending ? <Alert tone="info">{i18n.t('cv.panel.pending')}</Alert> : null}
+      {showPending ? <Alert tone="info">{i18n.t('cv.panel.pending')}</Alert> : null}
 
       {isPending ? <Skeleton width="60%" height={16} /> : null}
 
@@ -206,7 +232,10 @@ export function CvPanel({
                   onPress={() => setSelectedId(item.id)}
                   style={[
                     styles.variantCard,
-                    { borderColor: item.id === selected.id ? theme.colors.accent : theme.colors.border },
+                    {
+                      borderColor:
+                        item.id === selected.id ? theme.colors.accent : theme.colors.border,
+                    },
                   ]}
                 >
                   <Text style={[styles.variantName, { color: theme.colors.text }]}>

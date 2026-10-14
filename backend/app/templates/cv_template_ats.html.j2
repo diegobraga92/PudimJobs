@@ -59,9 +59,11 @@
     {% endfor %}
   {% endif %}
 
-  {% if skills %}
+  {% if skill_groups %}
     <h2>Skills</h2>
-    <p>{{ skills | join(', ') }}</p>
+    {% for label, items in skill_groups %}
+      <p><strong>{{ label }}:</strong> {{ items | join(', ') }}</p>
+    {% endfor %}
   {% endif %}
 
   {% if certifications %}

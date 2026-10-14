@@ -11,6 +11,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
 from app.services.cv_tailor import TailoredCV
+from app.services.skill_matcher import group_skills
 
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 _env = Environment(
@@ -54,6 +55,9 @@ def render_cv_html(
         summary=tailored.summary,
         experience=tailored.experience,
         skills=tailored.skills,
+        # The flat list stays available; the templates render this grouped view
+        # so the Skills section reads as categories instead of a keyword dump.
+        skill_groups=group_skills(tailored.skills),
         projects=tailored.projects,
         education=tailored.education,
         certifications=tailored.certifications,

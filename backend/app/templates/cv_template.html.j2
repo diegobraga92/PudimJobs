@@ -16,6 +16,7 @@
   ul { margin: 2px 0 6px; padding-left: 18px; }
   li { margin-bottom: 2px; }
   .skills { line-height: 1.7; }
+  .skill-group { margin-bottom: 2px; }
   .summary { line-height: 1.5; }
   .education-item { margin-bottom: 4px; }
   .project-desc { margin: 2px 0 4px; line-height: 1.5; }
@@ -56,9 +57,13 @@
     {% endfor %}
   {% endif %}
 
-  {% if skills %}
+  {% if skill_groups %}
     <h2>Skills</h2>
-    <div class="skills">{{ skills | join(', ') }}</div>
+    <div class="skills">
+      {% for label, items in skill_groups %}
+        <div class="skill-group"><strong>{{ label }}:</strong> {{ items | join(', ') }}</div>
+      {% endfor %}
+    </div>
   {% endif %}
 
   {% if projects %}

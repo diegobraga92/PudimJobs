@@ -22,6 +22,14 @@ export class AtsReportComponent {
 
   @Input({ required: true }) report!: AtsReport;
 
+  /**
+   * The headline number: the deterministic baseline. Falls back to `score` for a
+   * report cached before `deterministic_score` existed (ADR 013 amendment).
+   */
+  get deterministicScore(): number {
+    return this.report.deterministic_score ?? this.report.score;
+  }
+
   /** 0..100 score rendered as a bar width. */
   factorPercent(score: number): number {
     return Math.max(0, Math.min(100, Math.round(score * 100)));

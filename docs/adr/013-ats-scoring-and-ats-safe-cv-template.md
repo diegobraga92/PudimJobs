@@ -11,6 +11,12 @@ mode and the `llm_empty_content` diagnostic. That mattered here: a thinking-mode
 model answered `200 OK` with empty content and the review silently vanished —
 the report showed the heuristic blend as if no LLM were configured.
 
+Amended (2026-10-14): the overlay no longer moves the score, and scoring is no
+longer a side effect of tailoring. The response reports the deterministic number
+as `deterministic_score` (and `score`) plus the LLM's own estimate as
+`llm_score`, and `workers/tasks/tailor.py` stores artifacts **unscored** so a
+tailor run never spends a scoring budget the user did not ask for.
+
 ## Context
 
 Tailoring a CV (ADR 006) and exporting it as a PDF (ADR 011) produce a document
@@ -50,17 +56,25 @@ title" recommendation, so a title-only request still produces a keyword factor.
 When `job_id` is given and the body has no `job_title`, the stored job's title is
 used as the fallback.
 When an OpenAI-compatible endpoint *is* configured, a qualitative review is
-requested and blended as `0.7 * heuristic + 0.3 * llm` (`method: "hybrid"`); any
-LLM failure, timeout or out-of-range value silently degrades to the pure
-heuristic score (`method: "heuristic"`).
+requested and reported **beside** the baseline instead of on top of it: the
+response carries `llm_score` (the reviewer's own 0-100 estimate, clamped),
+`llm_summary` and its extra suggestions, and `method` becomes `"hybrid"`. The
+two numbers are never blended — `score`/`deterministic_score` stay reproducible,
+so artifacts scored at different moments remain comparable. Any LLM failure,
+timeout or out-of-range value simply drops `llm_score` back to `None` and the
+report degrades to the pure heuristic score (`method: "heuristic"`).
 
 **2. An opt-in `ats` template** (`app/templates/cv_template_ats.html.j2`)
 alongside `classic`: single column, plain sans-serif, no icons/headers/footers,
 standard section headings (`Summary`, `Experience`, `Education`, `Skills`,
 `Projects`, `Certifications`, `Languages`), and literal text for dates and
-bullet markers. Selected per request via `template=ats` on
-`POST /api/cv/pdf` and `GET /api/cv/generated/{id}/pdf`; `classic` remains the
-default so existing exports are unchanged.
+bullet markers. The `Skills` section is rendered one labelled line per taxonomy
+category (`Languages`, `Frameworks`, `Databases`, `Cloud & DevOps`, `Concepts`,
+`Tools`, then `Other`) rather than as one comma-separated keyword dump, on both
+templates — the grouping comes from `skill_matcher.group_skills`, so aliases
+(`k8s`/`kubernetes`) collapse into a single bucket. Selected per request via
+`template=ats` on `POST /api/cv/pdf` and `GET /api/cv/generated/{id}/pdf`;
+`classic` remains the default so existing exports are unchanged.
 
 **3. Scores are cached, not recomputed** on `generated_cvs.ats_score`
 (int) and `.ats_report` (JSONB, the full factor/recommendation payload) —
@@ -69,6 +83,15 @@ migration `0018`. `POST /api/cv/ats-score` writes them only when a
 `scored`), and `GET /api/cv/generated/{id}` returns them so the UI can render
 the last result without spending an LLM call.
 
+**Scoring is on demand, never a side effect of tailoring.** The Celery tailor
+task (ADR 016) stores every artifact with `ats_score`/`ats_report` NULL, so a
+generation run spends no scoring time and no artifact shows a number the user
+never asked for. The one thing written at generation time is the `llm` variant's
+`llm_self_score`, kept inside `ats_report` because a model's opinion of its own
+rewrite cannot be recomputed later. Consequently a legacy cached report may
+predate `deterministic_score`/`llm_score`; clients must fall back to `score`
+when reading an old `ats_report`.
+
 ## Consequences
 
 ### Positive
@@ -76,8 +99,9 @@ the last result without spending an LLM call.
 - **Actionable feedback** — the response carries per-factor scores, matched and
   missing skills, deterministic recommendations and layout warnings, all
   derivable with zero configuration.
-- **Cost-bounded** — the LLM layer is opt-in, capped at a 30% score influence,
-  and never blocks the deterministic result.
+- **Cost-bounded** — the LLM layer is opt-in, runs only when the user asks for a
+  score, contributes a number *beside* the deterministic one (never replacing
+  it), and never blocks the deterministic result.
 - **Deterministic and testable** — the baseline is pure functions
   (`build_report`, `derive_keywords`, `WEIGHTS`), covered by
   `tests/test_ats_scorer.py`, with the endpoint covered end-to-end by
@@ -108,14 +132,19 @@ the last result without spending an LLM call.
 
 ## Where the score is surfaced
 
-The scorer and the two templates are unchanged by ADR 015 (only the UI moved) and
-by ADR 016 (which runs this *deterministic* scorer over **both** tailoring
-variants so their scores stay comparable, and records the LLM's own estimate
-separately as `llm_self_score`). The report is rendered by
+The scorer and the two templates are unchanged by ADR 015 (only the UI moved). For
+ADR 016, the scorer is now *not* run by the worker at all: tailoring stores both
+variants unscored and the same deterministic scorer is applied when the user
+clicks *Check score*, so the two variants' scores stay directly comparable and
+the master CV is never scored by accident. The AI variant's `llm_self_score` is
+still the one number captured at generation time and is preserved across
+re-scoring. The report is rendered by
 `frontend/src/app/shared/ats-report/` (web) and
 `mobile/src/components/cv/AtsReportView.tsx`, inside the per-application
 workspace (`/applications/:id`) where the job being scored against is implicit —
-previously the user had to pick a job on the `/cv` page.
+previously the user had to pick a job on the `/cv` page. Both render the
+deterministic score as the headline and the LLM's own estimate next to it, and
+both fall back to `score` when reading a report cached before this amendment.
 
 Since the ADR 016 amendment, `_llm_review` is a thin caller of
 `app/services/llm_client.chat_json` (label `LLM ATS review`, 700 tokens), so the

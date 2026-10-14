@@ -50,10 +50,71 @@ for _canonical, _aliases in _ALIASES.items():
         _ALIAS_LOOKUP[_alias.lower()] = _canonical
 
 
+# Human-readable labels for the taxonomy groups, used when a CV renders its
+# skills grouped by category (the JSON keys are snake_case).
+GROUP_LABELS: dict[str, str] = {
+    "languages": "Languages",
+    "frameworks": "Frameworks",
+    "databases": "Databases",
+    "cloud_devops": "Cloud & DevOps",
+    "concepts": "Concepts",
+    "tools": "Tools",
+}
+# Bucket for skills the taxonomy does not know (e.g. "communication").
+OTHER_GROUP = "Other"
+
+# Reverse index: canonical skill (lower-cased) -> its taxonomy group.
+_SKILL_TO_GROUP: dict[str, str] = {
+    skill.lower(): group for group, skills in _SKILL_GROUPS.items() for skill in skills
+}
+
+
 def canonical_skill(skill: str) -> str:
     """Map a skill (or one of its aliases) to its canonical taxonomy name."""
     stripped = skill.strip()
     return _ALIAS_LOOKUP.get(stripped.lower(), stripped)
+
+
+def group_skills(skills: list[str]) -> list[tuple[str, list[str]]]:
+    """Group a flat skill list into labelled categories for a CV section.
+
+    Résumés that read as a single comma-separated keyword dump are hard for both
+    a recruiter and a parser to skim, so the PDF templates render one line per
+    category instead. Skills keep the order they were given in (the tailoring
+    engine already leads with the JD-matched ones), are canonicalized through the
+    taxonomy so aliases land in the right bucket and cannot show up twice, and
+    anything the taxonomy does not know falls into a final ``Other`` group.
+    Empty groups are omitted; the result is ``[(label, [skill, ...]), ...]``.
+    """
+    buckets: dict[str, list[str]] = {}
+    other: list[str] = []
+    seen: set[str] = set()
+
+    for raw in skills:
+        if not isinstance(raw, str):
+            continue
+        display = raw.strip()
+        if not display:
+            continue
+        key = canonical_skill(display).lower()
+        if key in seen:
+            # "k8s" and "kubernetes" are the same skill; keep the first spelling.
+            continue
+        seen.add(key)
+        group = _SKILL_TO_GROUP.get(key)
+        if group:
+            buckets.setdefault(group, []).append(display)
+        else:
+            other.append(display)
+
+    grouped = [
+        (GROUP_LABELS.get(group, group.replace("_", " ").title()), buckets[group])
+        for group in _SKILL_GROUPS
+        if buckets.get(group)
+    ]
+    if other:
+        grouped.append((OTHER_GROUP, other))
+    return grouped
 
 
 def extract_skills(text: str) -> list[str]:

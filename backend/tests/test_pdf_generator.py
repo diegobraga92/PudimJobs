@@ -34,6 +34,32 @@ def test_render_cv_html_contains_sections():
     assert "Skills" in html
 
 
+def test_render_cv_html_groups_skills_by_category():
+    """The skills section reads as labelled lines, not a flat keyword dump."""
+    tailored = tailor_cv(CV, ["python"])
+    html = render_cv_html(tailored)
+
+    languages = html.index("<strong>Languages:</strong> python")
+    frameworks = html.index("<strong>Frameworks:</strong> fastapi")
+    assert languages < frameworks
+
+
+def test_render_cv_html_ats_template_groups_skills_too():
+    """The ATS layout stays plain text but keeps the categories."""
+    tailored = tailor_cv(CV, ["python"])
+    html = render_cv_html(tailored, template="ats")
+
+    assert "<strong>Languages:</strong> python" in html
+    assert "<strong>Frameworks:</strong> fastapi" in html
+
+
+def test_render_cv_html_omits_the_skills_section_when_there_are_none():
+    tailored = tailor_cv({"summary": "x", "skills": []}, [])
+    html = render_cv_html(tailored)
+
+    assert "<h2>Skills</h2>" not in html
+
+
 def test_render_cv_html_includes_contact_certifications_and_languages():
     tailored = tailor_cv(CV, ["python"])
     html = render_cv_html(tailored)

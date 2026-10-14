@@ -12,9 +12,13 @@ Produces one or two *self-contained* tailored-CV artifacts for a job:
   template's call, not the model's.
 
 Each artifact is a ``generated_cvs`` row owning its own ``structured_json`` and
-rendered PDF, and is scored with the deterministic ATS scorer (comparable across
-variants). The master CV is never modified, so tailored output no longer leaks
-into the master version history.
+rendered PDF. ATS scoring is **not** run here (ADR 013, amended): it is an
+explicit user action (`POST /api/cv/ats-score`), so a tailor run spends no
+scoring time and every artifact starts with no cached report. The single score
+kept at generation time is the AI variant's own estimate (``llm_self_score``),
+stored so the UI can show it next to the on-demand deterministic score. The
+master CV is never modified, so tailored output no longer leaks into the master
+version history.
 
 Re-running is idempotent per ``(user, job, source CV version, variant)`` — with
 one exception: a stored artifact that has no content (``structured_json`` NULL,
@@ -32,7 +36,6 @@ from sqlalchemy import select
 
 from app.database import async_session_factory
 from app.models import Application, CVVariant, GeneratedCV, Job, MasterCV, User
-from app.services.ats_scorer import derive_keywords, score_ats
 from app.services.cv_tailor import (
     LLM_TARGET_PAGES,
     TailoredCV,
@@ -123,18 +126,20 @@ async def _store_variant(
     user: User | None,
     variant: CVVariant,
     structure: dict,
-    jd_skills: list[str],
-    jd_keywords: list[str],
-    jd_text: str,
     llm_self_score: int | None = None,
     existing: GeneratedCV | None = None,
 ) -> GeneratedCV:
-    """Render, deterministically score and persist one tailored artifact.
+    """Render and persist one tailored artifact.
 
     ``existing`` is a *content-less* row for the same key: it is repaired in
     place instead of being duplicated. Reusing its id keeps ``created_at``, the
     ``applications.generated_cv_id`` link and variant uniqueness intact, so a
     legacy empty artifact cannot linger in the panel forever (ADR 016).
+
+    No ATS score is computed here (ADR 013, amended): scoring is an explicit
+    request, so the artifact is stored unscored and the panel's "Check score"
+    fills ``ats_score``/``ats_report`` later. Only the AI variant's own
+    ``llm_self_score`` is persisted when the model provided one.
 
     The rendered page count is logged (`cv_artifact_pages`) and, for the AI
     variant, compared against ``LLM_TARGET_PAGES`` (`llm_rewrite_over_page_budget`)
@@ -143,17 +148,6 @@ async def _store_variant(
     tailored = TailoredCV.from_structure(structure)
     pdf_bytes = generate_pdf(tailored, name=_pdf_name(user), email=user.email if user else "")
     pages = _pdf_pages(pdf_bytes)
-    # Both variants use the *deterministic* scorer so their scores are comparable;
-    # the LLM's own estimate is recorded separately when it provided one.
-    report = await score_ats(
-        structure,
-        jd_skills=jd_skills,
-        jd_keywords=jd_keywords,
-        jd_text=jd_text,
-        job_title=job.title,
-    )
-    if llm_self_score is not None:
-        report["llm_self_score"] = llm_self_score
     generated = existing if existing is not None else GeneratedCV(
         user_id=cv.user_id,
         source_master_cv_id=cv.id,
@@ -162,8 +156,14 @@ async def _store_variant(
     )
     generated.structured_json = structure
     generated.pdf = pdf_bytes
-    generated.ats_score = report["score"]
-    generated.ats_report = report
+    # Unscored on purpose: scoring is an explicit user action (ADR 013), so a
+    # tailor run does not spend an LLM/CPU budget the user never asked for.
+    generated.ats_score = None
+    # The AI's own estimate is the one number worth keeping from generation time;
+    # the rest of the report is produced on demand.
+    generated.ats_report = (
+        {"llm_self_score": llm_self_score} if llm_self_score is not None else None
+    )
     if existing is None:
         session.add(generated)
     else:
@@ -244,7 +244,6 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
             await session.commit()
         jd_skills = job.parsed_jd.get("skills", []) or []
         jd_text = job.description or ""
-        jd_keywords = derive_keywords(jd_text) if jd_text else []
 
         llm_config = await get_llm_config(session)
 
@@ -315,9 +314,6 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
                 user=user,
                 variant=CVVariant.rule,
                 structure=tailored.as_structure(),
-                jd_skills=jd_skills,
-                jd_keywords=jd_keywords,
-                jd_text=jd_text,
                 existing=empty.get(CVVariant.rule),
             )
 
@@ -340,9 +336,6 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
                     user=user,
                     variant=CVVariant.llm,
                     structure=structure,
-                    jd_skills=jd_skills,
-                    jd_keywords=jd_keywords,
-                    jd_text=jd_text,
                     llm_self_score=self_score,
                     existing=empty.get(CVVariant.llm),
                 )

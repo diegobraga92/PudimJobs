@@ -40,7 +40,10 @@ class GeneratedCV(Base):
     structured_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     pdf: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     # ATS score (0-100) and the full breakdown report, cached so the UI can
-    # display it without recomputing (see ADR 013).
+    # display it without recomputing. Both start NULL: scoring is an explicit
+    # user action (`POST /api/cv/ats-score`), never a side effect of tailoring
+    # (see ADR 013). `ats_report` may carry only the AI variant's own estimate
+    # (`llm_self_score`) before any real score is requested.
     ats_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ats_report: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

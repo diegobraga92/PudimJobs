@@ -443,11 +443,17 @@ async def score_cv_ats(
 ):
     """Score an (optionally edited) CV structure against a job description.
 
-    Always returns a deterministic baseline (skill coverage, keyword coverage,
-    content completeness and ATS-readability heuristics). When an LLM is
-    configured, a qualitative review is blended in (see ADR 013). Job skills and
+    Always returns the deterministic baseline (skill coverage, keyword coverage,
+    content completeness and ATS-readability heuristics) as both ``score`` and
+    ``deterministic_score``. When an LLM is configured, its own qualitative
+    review adds ``llm_score``, a summary and extra suggestions *beside* that
+    baseline — the two numbers are never blended (see ADR 013). Job skills and
     keywords come from the stored ``parsed_jd`` when available; otherwise the
     raw description is parsed on the fly.
+
+    This is the only place a tailored CV is scored: the tailoring worker stores
+    artifacts unscored, so the score always reflects something the user asked
+    for.
     """
     jd_text = payload.job_description or ""
     jd_title = payload.job_title

@@ -1,14 +1,22 @@
 <div class="ats-score">
   <span
     class="ats-score-value"
-    [class.good]="report.score >= 75"
-    [class.mid]="report.score >= 50 && report.score < 75"
-    [class.low]="report.score < 50"
-    >{{ report.score }}</span
+    [class.good]="deterministicScore >= 75"
+    [class.mid]="deterministicScore >= 50 && deterministicScore < 75"
+    [class.low]="deterministicScore < 50"
+    >{{ deterministicScore }}</span
   >
-  <span class="badge" [class]="atsScoreClass(report.score)">
-    {{ atsMethodLabel(report.method) }}
-  </span>
+  <div class="ats-score-tags">
+    <span class="badge" [class]="atsScoreClass(deterministicScore)">
+      {{ i18n.t('cv.ats.deterministic') }}
+    </span>
+    @if (report.llm_score != null) {
+      <span class="badge" [class]="atsScoreClass(report.llm_score)">
+        {{ i18n.t('cv.ats.llm', { score: report.llm_score }) }}
+      </span>
+    }
+    <span class="muted xs">{{ atsMethodLabel(report.method) }}</span>
+  </div>
 </div>
 
 <ul class="ats-factors">

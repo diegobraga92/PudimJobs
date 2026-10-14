@@ -2,6 +2,7 @@
 
 from sqlalchemy import select
 
+from app.models import CVVariant
 from app.models.audit_log import AuditLog
 from app.models.generated_cv import GeneratedCV
 from tests.helpers import create_user
@@ -38,6 +39,10 @@ async def test_ats_score_returns_factors_and_gaps(auth_client):
     assert response.status_code == 200
     body = response.json()
     assert 0 <= body["score"] <= 100
+    # The headline mirrors the deterministic baseline; the LLM's own estimate is
+    # a separate field and is absent when no reviewer ran (ADR 013).
+    assert body["deterministic_score"] == body["score"]
+    assert body["llm_score"] is None
     assert body["method"] == "heuristic"
     assert body["llm_summary"] is None
     assert [f["key"] for f in body["factors"]] == [
@@ -141,6 +146,7 @@ async def test_ats_score_caches_the_report_on_an_owned_generated_cv(auth_client,
     await db_session.refresh(generated)
     assert generated.ats_score == response.json()["score"]
     assert generated.ats_report["score"] == response.json()["score"]
+    assert generated.ats_report["deterministic_score"] == response.json()["score"]
     assert generated.ats_report["method"] == "heuristic"
 
     entries = (
@@ -173,6 +179,37 @@ async def test_get_generated_cv_exposes_the_cached_ats_report(auth_client, db_se
     assert fetched.status_code == 200
     assert fetched.json()["ats_score"] == scored.json()["score"]
     assert fetched.json()["ats_report"]["factors"] == scored.json()["factors"]
+
+
+async def test_rescoring_keeps_the_ai_variants_own_estimate(auth_client, db_session):
+    """Re-scoring must not lose the LLM variant's own estimate (ADR 016)."""
+    client, user, _ = auth_client
+    generated = GeneratedCV(
+        user_id=user.id,
+        pdf=b"%PDF-1.4 stub",
+        variant=CVVariant.llm,
+        ats_report={"llm_self_score": 88},
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.post(
+        "/api/cv/ats-score",
+        json={
+            "cv": CV_PAYLOAD,
+            "job_description": JD_TEXT,
+            "generated_cv_id": str(generated.id),
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["llm_self_score"] == 88
+    assert body["deterministic_score"] == body["score"]
+    await db_session.refresh(generated)
+    assert generated.ats_report["llm_self_score"] == 88
+    assert generated.ats_score == body["score"]
 
 
 async def test_get_generated_cv_hides_another_users_cv(auth_client, db_session):
