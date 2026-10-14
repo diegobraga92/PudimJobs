@@ -3,6 +3,7 @@
 import uuid
 
 from sqlalchemy import select
+from structlog.testing import capture_logs
 
 from app.models.audit_log import AuditLog
 from app.models.generated_cv import GeneratedCV
@@ -129,6 +130,7 @@ async def test_delete_generated_cv(auth_client, db_session):
         user_id=user.id,
         job_id=uuid.UUID(job["id"]),
         pdf=b"%PDF-1.4 fake",
+        structured_json=CV_PAYLOAD,
     )
     db_session.add(generated)
     await db_session.commit()
@@ -157,8 +159,18 @@ async def test_list_generated_filters_by_job(auth_client, db_session):
 
     db_session.add_all(
         [
-            GeneratedCV(user_id=user.id, job_id=uuid.UUID(job_a["id"]), pdf=b"%PDF-1.4 a"),
-            GeneratedCV(user_id=user.id, job_id=uuid.UUID(job_b["id"]), pdf=b"%PDF-1.4 b"),
+            GeneratedCV(
+                user_id=user.id,
+                job_id=uuid.UUID(job_a["id"]),
+                pdf=b"%PDF-1.4 a",
+                structured_json=CV_PAYLOAD,
+            ),
+            GeneratedCV(
+                user_id=user.id,
+                job_id=uuid.UUID(job_b["id"]),
+                pdf=b"%PDF-1.4 b",
+                structured_json=CV_PAYLOAD,
+            ),
         ]
     )
     await db_session.commit()
@@ -169,6 +181,50 @@ async def test_list_generated_filters_by_job(auth_client, db_session):
 
     scoped = await client.get("/api/cv/generated", params={"job_id": job_a["id"]})
     assert [row["job_id"] for row in scoped.json()] == [job_a["id"]]
+
+
+async def test_list_generated_hides_content_less_artifacts(auth_client, db_session):
+    """A row with no content is not a CV, so the panel must not list it (ADR 016).
+
+    Pre-ADR-016 rows have ``structured_json`` NULL: nothing to preview, edit or
+    score. Listing one let the application CV panel claim the job had a CV while
+    blaming the missing ``llm`` variant for the empty body.
+    """
+    client, user, _ = auth_client
+    job = (await client.post("/api/jobs", json={"title": "A", "company": "Acme"})).json()
+    empty = GeneratedCV(
+        user_id=user.id,
+        job_id=uuid.UUID(job["id"]),
+        pdf=b"%PDF-1.4 legacy",
+    )
+    usable = GeneratedCV(
+        user_id=user.id,
+        job_id=uuid.UUID(job["id"]),
+        pdf=b"%PDF-1.4 tailored",
+        structured_json=CV_PAYLOAD,
+    )
+    db_session.add_all([empty, usable])
+    await db_session.commit()
+    await db_session.refresh(empty)
+    await db_session.refresh(usable)
+
+    with capture_logs() as logs:
+        response = await client.get("/api/cv/generated", params={"job_id": job["id"]})
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [str(usable.id)]
+    assert any(
+        entry["event"] == "cv_artifact_without_content_hidden"
+        and entry["generated_cv_ids"] == [str(empty.id)]
+        and entry["variants"] == ["rule"]
+        for entry in logs
+    )
+
+    # The row is kept (the next tailor run repairs it in place, keeping the
+    # application link), so a direct fetch — the editor, the PDF — still works.
+    detail = await client.get(f"/api/cv/generated/{empty.id}")
+    assert detail.status_code == 200
+    assert detail.json()["structured_json"] is None
 
 
 async def test_update_generated_cv_edits_in_place(auth_client, db_session):

@@ -114,13 +114,26 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
   }
 
   /**
+   * True when an artifact actually carries CV content.
+   *
+   * `generated_cvs.structured_json` is nullable and rows written before ADR 016
+   * exist with it NULL — an artifact with nothing to preview, edit or score.
+   * Such a row is not a CV, so the panel never presents one as if it were.
+   */
+  hasContent(item: GeneratedCV): boolean {
+    return !!item.structured_json;
+  }
+
+  /**
    * Only the deterministic variant exists, so the AI rewrite was skipped
    * server-side (the LLM is disabled in Admin → LLM, or no API key is stored).
    * Explaining the requirement here beats leaving the user with a single
-   * unexplained CV.
+   * unexplained CV — but only once that CV is actually there: an empty legacy
+   * artifact is not a CV, and blaming the missing AI rewrite for it is a lie.
    */
   get llmVariantMissing(): boolean {
-    return this.tailored.length === 1 && this.tailored[0].variant === 'rule';
+    const only = this.tailored.length === 1 ? this.tailored[0] : null;
+    return !!only && only.variant === 'rule' && this.hasContent(only);
   }
 
   /** Reload this job's tailored CVs, keeping the current selection if possible. */
@@ -140,17 +153,30 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
   }
 
   /**
+   * Store this job's artifacts, dropping content-less ones.
+   *
+   * They hold no CV (ADR 016), so every downstream decision has to ignore them:
+   * the empty state, the variant list, the missing-AI-rewrite hint, and whether
+   * a queued tailor run has landed. The API already withholds them; filtering
+   * here keeps the panel honest for a response cached before that.
+   */
+  private setTailored(items: GeneratedCV[]): void {
+    this.tailored = items.filter((item) => this.hasContent(item));
+  }
+
+  /**
    * Apply a freshly fetched list: resolve the pending state once an artifact
    * exists, and keep the current selection when it is still there.
    */
   private applyLoaded(items: GeneratedCV[]): void {
-    this.tailored = items;
-    if (items.length > 0) {
+    this.setTailored(items);
+    const usable = this.tailored;
+    if (usable.length > 0) {
       this.pending = false;
       this.stopPolling();
     }
-    const stillThere = items.some((item) => item.id === this.selectedId);
-    this.select(stillThere ? this.selectedId : (items[0]?.id ?? null));
+    const stillThere = usable.some((item) => item.id === this.selectedId);
+    this.select(stillThere ? this.selectedId : (usable[0]?.id ?? null));
   }
 
   /**
@@ -335,7 +361,7 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
           );
           // The report is cached server-side — reload so the list badge updates.
           this.service.generated(this.jobId).subscribe({
-            next: (items) => (this.tailored = items),
+            next: (items) => this.setTailored(items),
             error: () => undefined,
           });
         },

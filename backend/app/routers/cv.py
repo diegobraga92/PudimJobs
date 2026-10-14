@@ -1,6 +1,7 @@
 import uuid
 from pathlib import Path
 
+import structlog
 from fastapi import (
     APIRouter,
     Depends,
@@ -37,6 +38,8 @@ from app.services.cv_tailor import TailoredCV
 from app.services.jd_parser import parse_jd
 from app.services.llm_config import get_llm_config
 from app.services.pdf_generator import TEMPLATES, generate_pdf
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
 
@@ -200,6 +203,13 @@ async def list_generated(
 
     Pass ``job_id`` to scope the list to a single job — this powers the CV panel
     on the per-application workspace.
+
+    Content-less artifacts are withheld: ``generated_cvs.structured_json`` is
+    nullable and rows written before ADR 016 exist with it NULL, so such a row
+    has nothing to preview, edit or score. Listing one made the panel claim the
+    job had a CV while blaming the missing ``llm`` variant for the empty body.
+    The row itself is kept — the next tailor run repairs it in place, which
+    preserves ``applications.generated_cv_id``.
     """
     stmt = (
         select(GeneratedCV, Job)
@@ -210,7 +220,21 @@ async def list_generated(
         stmt = stmt.where(GeneratedCV.job_id == job_id)
     stmt = stmt.order_by(GeneratedCV.created_at.desc())
     rows = (await db.execute(stmt)).all()
-    return [_generated_response(generated, job) for generated, job in rows]
+
+    empty = [generated for generated, _ in rows if not generated.structured_json]
+    if empty:
+        logger.info(
+            "cv_artifact_without_content_hidden",
+            job_id=str(job_id) if job_id else None,
+            generated_cv_ids=[str(generated.id) for generated in empty],
+            variants=[generated.variant.value for generated in empty],
+        )
+
+    return [
+        _generated_response(generated, job)
+        for generated, job in rows
+        if generated.structured_json
+    ]
 
 
 @router.get("/generated/{generated_id}", response_model=GeneratedCVResponse)
@@ -219,7 +243,12 @@ async def get_generated_cv(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Fetch one generated CV, including the structured content it was built from."""
+    """Fetch one generated CV, including the structured content it was built from.
+
+    Unlike the list endpoint this does not filter: a direct fetch (download, edit
+    screen) still resolves a legacy content-less row, reported with
+    ``structured_json`` NULL.
+    """
     result = await db.execute(
         select(GeneratedCV, Job)
         .outerjoin(Job, GeneratedCV.job_id == Job.id)

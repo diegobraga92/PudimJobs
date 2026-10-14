@@ -23,7 +23,7 @@ import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/theme/ThemeProvider';
 import { AtsReport, GeneratedCV } from '@/types';
 import { scoreVariant } from '@/utils/ats';
-import { variantLabelKey } from '@/utils/cv';
+import { hasContent, variantLabelKey } from '@/utils/cv';
 import { dateLocale, shortDate } from '@/utils/dates';
 import { displayNameFromEmail } from '@/utils/names';
 import { sharePdfFromUrl } from '@/utils/pdf';
@@ -87,10 +87,16 @@ export function CvPanel({
   const deleteGenerated = useDeleteGeneratedCv();
   const linkVariant = useUpdateApplication(applicationId ?? '');
 
-  // The notice resolves itself as soon as the worker's artifact shows up.
-  const showPending = pending && !pollExpired && tailored.length === 0;
+  // Content-less artifacts (legacy rows, ADR 016) hold no CV: ignore them so the
+  // panel shows the empty state — and the *Tailor* button that repairs the row in
+  // place — instead of a card with no document behind it. The API withholds them
+  // too; filtering here keeps the panel honest for a response fetched before that.
+  const artifacts = tailored.filter(hasContent);
 
-  const selected = tailored.find((item) => item.id === selectedId) ?? tailored[0] ?? null;
+  // The notice resolves itself as soon as the worker's artifact shows up.
+  const showPending = pending && !pollExpired && artifacts.length === 0;
+
+  const selected = artifacts.find((item) => item.id === selectedId) ?? artifacts[0] ?? null;
   // A freshly computed report wins over the one cached on the artifact.
   const activeReport =
     reportFor && reportFor === selected?.id ? report : (selected?.ats_report ?? null);
@@ -203,7 +209,7 @@ export function CvPanel({
             {i18n.t('cv.panel.refresh')}
           </Button>
           <Button variant="accent" size="sm" onPress={runTailor} loading={tailor.isPending}>
-            {tailored.length > 0 ? i18n.t('cv.panel.retailor') : i18n.t('cv.panel.tailor')}
+            {artifacts.length > 0 ? i18n.t('cv.panel.retailor') : i18n.t('cv.panel.tailor')}
           </Button>
         </View>
       </View>
@@ -212,7 +218,7 @@ export function CvPanel({
 
       {isPending ? <Skeleton width="60%" height={16} /> : null}
 
-      {!isPending && tailored.length === 0 ? (
+      {!isPending && artifacts.length === 0 ? (
         <EmptyState
           icon="file-text"
           title={i18n.t('cv.panel.emptyTitle')}
@@ -222,9 +228,9 @@ export function CvPanel({
 
       {selected ? (
         <View style={styles.body}>
-          {tailored.length > 1 ? (
+          {artifacts.length > 1 ? (
             <View style={styles.variantList}>
-              {tailored.map((item) => (
+              {artifacts.map((item) => (
                 <Pressable
                   key={item.id}
                   accessibilityRole="button"
@@ -254,7 +260,7 @@ export function CvPanel({
             </View>
           ) : null}
 
-          {tailored.length === 1 && tailored[0].variant === 'rule' ? (
+          {artifacts.length === 1 && artifacts[0].variant === 'rule' ? (
             <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
               {i18n.t('cv.panel.llmVariantOff')}
             </Text>

@@ -125,6 +125,29 @@ describe('CvPanelComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Only the deterministic variant exists.');
   });
 
+  it('does not present a content-less legacy artifact as a tailored CV', () => {
+    // A pre-ADR-016 row has no stored content: nothing to preview, edit or
+    // score. Counting it as a CV made the panel claim one existed and blame the
+    // missing AI rewrite for the empty body.
+    build('gen-1');
+    http
+      .expectOne((c) => c.url === '/api/cv/generated')
+      .flush([tailored({ structured_json: null })]);
+    fixture.detectChanges();
+
+    expect(component.tailored).toEqual([]);
+    expect(component.selectedId).toBeNull();
+    expect(component.llmVariantMissing).toBeFalse();
+    expect(fixture.nativeElement.textContent).toContain('No tailored CV yet');
+    expect(fixture.nativeElement.textContent).toContain('Tailor CV for this job');
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Only the deterministic variant exists.'
+    );
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'This version has no stored content to preview.'
+    );
+  });
+
   it('hides the missing-variant hint once the AI rewrite exists', () => {
     build('gen-1');
     http
@@ -255,6 +278,31 @@ describe('CvPanelComponent', () => {
     expect(component.pending).toBeTrue();
 
     // The worker's artifact appears — the panel resolves itself and stops.
+    tick(POLL_INTERVAL_MS);
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+    expect(component.pending).toBeFalse();
+    expect(component.selectedId).toBe('gen-1');
+
+    tick(POLL_INTERVAL_MS * 5);
+    http.expectNone((c) => c.url === '/api/cv/generated');
+  }));
+
+  it('keeps polling when only a content-less legacy row arrives', fakeAsync(() => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+
+    component.tailor();
+    http.expectOne('/api/jobs/job-1/tailor').flush({ enqueued: true, job_id: 'job-1' });
+
+    // The row is not the artifact the run was queued for, so it neither counts
+    // as the CV landing nor stops the panel watching for the real one.
+    tick(POLL_INTERVAL_MS);
+    http
+      .expectOne((c) => c.url === '/api/cv/generated')
+      .flush([tailored({ structured_json: null })]);
+    expect(component.tailored).toEqual([]);
+    expect(component.pending).toBeTrue();
+
     tick(POLL_INTERVAL_MS);
     http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
     expect(component.pending).toBeFalse();

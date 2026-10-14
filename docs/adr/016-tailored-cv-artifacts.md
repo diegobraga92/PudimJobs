@@ -50,6 +50,19 @@ when the AI variant ignores the budget. Over budget is *reported, never
 corrected*: nothing is trimmed afterwards, so an over-long artifact stays visible
 and the rule variant stays available for comparison.
 
+Amended (2026-10-14): **a content-less artifact is not listed as a CV.** Repair
+in place only fires when a run happens, and until then the application CV panel
+advertised the empty row as the job's CV: a lone `rule` variant with no body,
+labelled *only the deterministic variant exists*, pointing at a missing LLM
+rewrite that had nothing to do with it. The row has nothing to preview, edit or
+score, so `GET /api/cv/generated` now withholds artifacts whose `structured_json`
+is NULL (logged as `cv_artifact_without_content_hidden`; the web and mobile
+panels filter again on their own side). The job reads as *No tailored CV yet* and
+the *Tailor* button — the thing that performs the repair — becomes the way out.
+The row itself is kept, and `GET /api/cv/generated/{id}` still serves it for a
+direct fetch, so repairing in place keeps preserving `created_at` and the
+`applications.generated_cv_id` link.
+
 Supersedes ADR 015 §5 ("Editing a tailored CV still happens on `/cv`") and
 revisits the "Full CV rewrite by LLM" rejection in ADR 006.
 
@@ -171,7 +184,9 @@ can therefore produce a *bad second artifact*, never a missing one.
 - **A broken artifact heals itself.** Re-running the tailor task repairs a
   content-less row instead of reusing it, so a card that shows nothing (or a
   legacy row with no `structured_json`) disappears on the next run — no manual
-  SQL, no migration that deletes user data.
+  SQL, no migration that deletes user data. Until that run it is not listed as a
+  CV at all: `GET /api/cv/generated` withholds it and the panel shows the empty
+  state, so the job cannot claim a CV that has nothing behind it.
 
 ### Negative / Risks
 
@@ -233,10 +248,13 @@ can therefore produce a *bad second artifact*, never a missing one.
   content treated as failure), used by `cv_tailor`, `cv_parser`, `ats_scorer`
   and the admin probe in `app/routers/app_settings.py`
 - `app/routers/cv.py` (`PUT /api/cv/generated/{id}`,
-  `GET /api/cv/generated?job_id=`), `app/routers/applications.py`
+  `GET /api/cv/generated?job_id=` — the list withholds content-less artifacts,
+  logging `cv_artifact_without_content_hidden`), `app/routers/applications.py`
   (ownership check on `generated_cv_id`), `app/services/ats_scorer.py`
-- `frontend/src/app/shared/cv-panel/`, `frontend/src/app/components/cv-editor/`
+- `frontend/src/app/shared/cv-panel/` (`hasContent`, `setTailored`),
+  `frontend/src/app/components/cv-editor/`
   (deep link removed), `mobile/src/components/cv/CvPanel.tsx`,
+  `mobile/src/utils/cv.ts` (`hasContent`),
   `mobile/src/screens/TailoredCvEditorScreen.tsx`
 - ADR 002 (data model), ADR 006 (rule-based vs LLM tailoring), ADR 011 (CV
   import/parsing — the LLM structuring pattern reused here), ADR 013 (ATS
