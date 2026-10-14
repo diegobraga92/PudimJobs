@@ -12,7 +12,7 @@ from app.schemas.master_cv import CVStructure
 from app.services.cv_schema import CV_JSON_SCHEMA
 from app.services.llm_client import chat_json, chat_text
 from app.services.llm_config import LlmRuntimeConfig
-from app.services.skill_matcher import match_skills
+from app.services.skill_matcher import group_skills, match_skills
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,9 @@ class TailoredCV:
     experience: list[dict] = field(default_factory=list)
     education: list[dict] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
+    # LLM-authored skills categories. Empty for the deterministic variant, whose
+    # renderer groups the flat `skills` list by taxonomy instead.
+    skill_groups: list[tuple[str, list[str]]] = field(default_factory=list)
     projects: list[dict] = field(default_factory=list)
     # Contact header (back-filled from the CV file; used by the PDF renderer).
     full_name: str = ""
@@ -86,6 +89,9 @@ class TailoredCV:
             "experience": self.experience,
             "education": self.education,
             "skills": self.skills,
+            "skill_groups": [
+                {"label": label, "items": items} for label, items in self.skill_groups
+            ],
             "projects": self.projects,
             "certifications": self.certifications,
             "languages": self.languages,
@@ -98,11 +104,23 @@ class TailoredCV:
         def _strings(key: str) -> list[str]:
             return [str(value) for value in structure.get(key, []) or []]
 
+        def _skill_groups() -> list[tuple[str, list[str]]]:
+            groups: list[tuple[str, list[str]]] = []
+            for raw in structure.get("skill_groups") or []:
+                if not isinstance(raw, dict):
+                    continue
+                label = str(raw.get("label", "") or "").strip()
+                items = [str(item) for item in raw.get("items") or []]
+                if label and items:
+                    groups.append((label, items))
+            return groups
+
         return cls(
             summary=str(structure.get("summary", "") or ""),
             experience=list(structure.get("experience") or []),
             education=list(structure.get("education") or []),
             skills=_strings("skills"),
+            skill_groups=_skill_groups(),
             projects=list(structure.get("projects") or []),
             full_name=str(structure.get("full_name", "") or ""),
             email=str(structure.get("email", "") or ""),
@@ -112,6 +130,17 @@ class TailoredCV:
             certifications=_strings("certifications"),
             languages=_strings("languages"),
         )
+
+    def resolved_skill_groups(self) -> list[tuple[str, list[str]]]:
+        """The labelled skills categories every renderer should draw.
+
+        The LLM variant authors its own job-relevant labels; the deterministic
+        variant leaves ``skill_groups`` empty and gets the taxonomy grouping
+        instead (which buckets skills the taxonomy does not know under
+        "Additional", never "Other"). PDF and DOCX both call this, so the two
+        exports can never disagree about that rule.
+        """
+        return self.skill_groups or group_skills(self.skills)
 
 
 def _block_text(block: dict) -> str:
@@ -395,7 +424,11 @@ async def generate_tailored_cv_with_llm(
         "you include — employers, titles, dates, degrees, skills, numbers and "
         "languages — must be exactly as given in the master CV: NEVER invent "
         "experience, employers, dates, numbers or skills, and never split or "
-        "merge roles. Return ONLY a JSON object of the shape "
+        "merge roles. Group the skills section yourself: in `skill_groups`, "
+        "return 2-5 labelled categories that fit this job (e.g. Languages, "
+        "Frameworks, Cloud & DevOps, Soft Skills), putting every skill from "
+        "`skills` into exactly one group — never use an 'Other' group — and "
+        "keep the flat `skills` list too. Return ONLY a JSON object of the shape "
         '{"cv": ' + CV_JSON_SCHEMA + ', "ats_self_score": 0} where '
         "ats_self_score is your own integer 0-100 estimate of how well the "
         "tailored CV matches the job."

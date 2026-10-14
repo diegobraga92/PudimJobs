@@ -1,1 +1,1 @@
-"""Domain services (JD parsing, skill matching, CV tailoring, PDF generation)."""
+"""Domain services (JD parsing, skill matching, CV tailoring, PDF/DOCX generation)."""

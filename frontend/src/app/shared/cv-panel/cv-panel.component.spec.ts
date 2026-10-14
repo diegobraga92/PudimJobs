@@ -111,6 +111,23 @@ describe('CvPanelComponent', () => {
     expect(component.isLinked(component.tailored[0])).toBeTrue();
   });
 
+  it('downloads a tailored CV as PDF by default and as DOCX on demand', () => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+
+    component.downloadCv(tailored());
+    const pdf = http.expectOne((c) => c.url === '/api/cv/generated/gen-1/pdf');
+    expect(pdf.request.params.get('format')).toBe('pdf');
+    pdf.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+
+    component.downloadCv(tailored(), 'docx');
+    const docx = http.expectOne((c) => c.url === '/api/cv/generated/gen-1/pdf');
+    expect(docx.request.params.get('format')).toBe('docx');
+    docx.flush(new Blob(['PK'], { type: 'application/zip' }));
+
+    expect(component.error).toBeNull();
+  });
+
   it('labels each variant and leaves the other one unlinked', () => {
     build('gen-1');
     const rule = tailored();
@@ -203,6 +220,7 @@ describe('CvPanelComponent', () => {
     expect(request.request.method).toBe('PUT');
     expect(request.request.body.structured_json.summary).toBe('Rewritten for Acme.');
     expect(request.request.body.structured_json.skills).toEqual(['python', 'fastapi']);
+    expect(request.request.body.structured_json.skill_groups).toEqual([]);
     request.flush(
       tailored({
         structured_json: { ...STRUCTURED, summary: 'Rewritten for Acme.' },
@@ -213,6 +231,30 @@ describe('CvPanelComponent', () => {
     expect(component.editing).toBeFalse();
     expect(component.saving).toBeFalse();
     expect(component.selectedStructure?.summary).toBe('Rewritten for Acme.');
+  });
+
+  it('drops stale LLM skill groups when the flat skills are edited', () => {
+    // The inline editor only exposes the flat list, so the categories the model
+    // wrote no longer describe the edited skills: clearing them lets the renderer
+    // re-group the list instead of persisting a mismatch.
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([
+      tailored({
+        variant: 'llm',
+        structured_json: {
+          ...STRUCTURED,
+          skill_groups: [{ label: 'Backend', items: ['python'] }],
+        },
+      }),
+    ]);
+
+    component.startEdit();
+    component.draftSkills = 'python, fastapi';
+    component.saveEdit();
+
+    const request = http.expectOne('/api/cv/generated/gen-1');
+    expect(request.request.body.structured_json.skill_groups).toEqual([]);
+    request.flush(tailored());
   });
 
   it('drops an in-progress edit when switching version or cancelling', () => {

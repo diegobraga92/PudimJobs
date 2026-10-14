@@ -127,15 +127,66 @@ def test_tailored_cv_round_trips_through_a_structure():
         "experience",
         "education",
         "skills",
+        "skill_groups",
         "projects",
         "certifications",
         "languages",
     }
+    # The deterministic variant authors no groups: the renderer groups the flat
+    # list by taxonomy instead.
+    assert structure["skill_groups"] == []
     restored = TailoredCV.from_structure(structure)
     assert restored.summary == tailored.summary
     assert restored.experience == tailored.experience
     assert restored.skills == tailored.skills
+    assert restored.skill_groups == []
     assert restored.projects == tailored.projects
+
+
+def test_tailored_cv_round_trips_llm_skill_groups():
+    """The LLM variant's labelled categories survive serialisation (PDF rendering)."""
+    tailored = tailor_cv(CV, ["python"])
+    tailored.skill_groups = [("Backend", ["python", "fastapi"])]
+
+    structure = tailored.as_structure()
+    assert structure["skill_groups"] == [
+        {"label": "Backend", "items": ["python", "fastapi"]}
+    ]
+
+    restored = TailoredCV.from_structure(structure)
+    assert restored.skill_groups == [("Backend", ["python", "fastapi"])]
+
+
+def test_from_structure_ignores_malformed_skill_groups():
+    """A hand-edited or older artifact must never crash the PDF render."""
+    structure = {
+        "summary": "x",
+        "skills": ["python"],
+        "skill_groups": [
+            "not-a-group",
+            {"label": "", "items": ["python"]},
+            {"label": "Backend"},  # no items
+            {"label": "Languages", "items": []},
+        ],
+    }
+    assert TailoredCV.from_structure(structure).skill_groups == []
+
+
+def test_resolved_skill_groups_prefers_the_authored_categories():
+    """One rule, shared by the PDF and the DOCX renderers."""
+    tailored = tailor_cv(CV, ["python"])
+    tailored.skill_groups = [("Backend", ["python", "fastapi"])]
+    assert tailored.resolved_skill_groups() == [("Backend", ["python", "fastapi"])]
+
+
+def test_resolved_skill_groups_falls_back_to_the_taxonomy():
+    """No authored groups -> grouped by taxonomy, unknowns under "Additional"."""
+    tailored = tailor_cv({**CV, "skills": ["python", "stakeholder management"]}, ["python"])
+    assert tailored.skill_groups == []
+    assert tailored.resolved_skill_groups() == [
+        ("Languages", ["python"]),
+        ("Additional", ["stakeholder management"]),
+    ]
 
 
 def test_coerce_self_score_clamps_and_tolerates_junk():
@@ -182,6 +233,26 @@ async def test_generate_tailored_cv_with_llm_validates_the_reply(monkeypatch):
     assert structure["summary"] == "Rewritten"
     assert structure["skills"] == CV["skills"]
     assert self_score == 77
+
+
+async def test_generate_tailored_cv_with_llm_keeps_the_authored_skill_groups(monkeypatch):
+    """The model owns the skills section, so its groups must survive validation."""
+    from app.services import llm_client
+
+    groups = [{"label": "Backend", "items": ["python"]}]
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps(
+        {"cv": {**CV, "skill_groups": groups}, "ats_self_score": 70}
+    )
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    result = await generate_tailored_cv_with_llm(
+        CV, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+    )
+
+    assert result is not None
+    structure, _ = result
+    assert structure["skill_groups"] == groups
 
 
 async def test_generate_tailored_cv_with_llm_rejects_an_invalid_structure(monkeypatch):
@@ -255,6 +326,8 @@ async def test_generate_tailored_cv_with_llm_prompt_asks_for_a_two_page_tailored
     assert f"at most {LLM_TARGET_PAGES} pages" in system
     assert "MAY omit" in system  # omitting is what makes the budget reachable
     assert "NEVER invent" in system  # truthfulness is unchanged
+    assert "skill_groups" in system  # the model owns the skills section...
+    assert "never use an 'Other' group" in system  # ...and never names a bucket "Other"
     assert "Rewrite the candidate's CV" not in system
     assert "Master CV — the only source of truth" in user
 

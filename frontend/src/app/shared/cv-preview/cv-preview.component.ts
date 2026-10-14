@@ -1,6 +1,6 @@
 import { Component, Input, inject } from '@angular/core';
 
-import { CVStructure } from '../../services/cv.service';
+import { CVStructure, SkillGroup } from '../../services/cv.service';
 import { I18nService } from '../../services/i18n.service';
 
 /** Renders a CVStructure as a clean, A4-style single-page document. Used by the CV editor's "Preview" tab for a live, WYSIWYG look at the resume. */
@@ -26,14 +26,27 @@ import { I18nService } from '../../services/i18n.service';
         </p>
       </header>
 
-      @if (cv.skills.length > 0) {
+      @if (skillGroups.length > 0 || cv.skills.length > 0) {
         <section class="cv-section">
           <h3>{{ i18n.t('cvPreview.skills') }}</h3>
-          <div class="cv-skills">
-            @for (skill of cv.skills; track skill) {
-              <span class="skill-chip">{{ skill }}</span>
+          @if (skillGroups.length > 0) {
+            @for (group of skillGroups; track group.label) {
+              <div class="cv-skill-group">
+                <span class="cv-skill-label">{{ group.label }}</span>
+                <div class="cv-skills">
+                  @for (item of group.items; track item) {
+                    <span class="skill-chip">{{ item }}</span>
+                  }
+                </div>
+              </div>
             }
-          </div>
+          } @else {
+            <div class="cv-skills">
+              @for (skill of cv.skills; track skill) {
+                <span class="skill-chip">{{ skill }}</span>
+              }
+            </div>
+          }
         </section>
       }
 
@@ -184,6 +197,22 @@ import { I18nService } from '../../services/i18n.service';
         gap: var(--space-2);
       }
 
+      .cv-skill-group {
+        margin-bottom: var(--space-3);
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+
+      .cv-skill-label {
+        display: block;
+        margin-bottom: var(--space-2);
+        font-size: var(--text-xs);
+        font-weight: 600;
+        color: var(--color-text-secondary);
+      }
+
       .skill-chip {
         padding: 0.15rem 0.6rem;
         border: 1px solid var(--color-border-strong);
@@ -261,6 +290,11 @@ export class CvPreviewComponent {
 
   get links(): string[] {
     return this.cv?.links ?? [];
+  }
+
+  /** Labelled skills categories from the LLM variant; empty for deterministic CVs, which render the flat chips instead. */
+  get skillGroups(): SkillGroup[] {
+    return this.cv?.skill_groups ?? [];
   }
 
   get certifications(): string[] {

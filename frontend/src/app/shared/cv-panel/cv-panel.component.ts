@@ -2,7 +2,14 @@ import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@
 import { CommonModule } from '@angular/common';
 import { Subscription, interval } from 'rxjs';
 
-import { AtsReport, CVStructure, CvService, CvVariant, GeneratedCV } from '../../services/cv.service';
+import {
+  AtsReport,
+  CVStructure,
+  CvExportFormat,
+  CvService,
+  CvVariant,
+  GeneratedCV,
+} from '../../services/cv.service';
 import { ApplicationsService } from '../../services/applications.service';
 import { JobsService } from '../../services/jobs.service';
 import { I18nService } from '../../services/i18n.service';
@@ -285,6 +292,9 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
       .split(',')
       .map((skill) => skill.trim())
       .filter(Boolean);
+    // The inline editor only exposes the flat list, so the LLM-authored groups no
+    // longer describe the edited skills: drop them and let the renderer re-group.
+    draft.skill_groups = [];
     this.saving = true;
     this.service.updateGenerated(item.id, draft).subscribe({
       next: (updated) => {
@@ -368,17 +378,24 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
       });
   }
 
-  downloadPdf(item: GeneratedCV): void {
-    this.service.downloadPdf(item.id).subscribe({
+  /**
+   * Download a tailored CV. The default is the stored PDF; `docx` asks the API
+   * for an editable Word copy rendered from the same content (ADR 017).
+   */
+  downloadCv(item: GeneratedCV, format: CvExportFormat = 'pdf'): void {
+    this.service.downloadCv(item.id, format).subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `tailored-cv-${item.id}.pdf`;
+        anchor.download = `tailored-cv-${item.id}.${format}`;
         anchor.click();
         URL.revokeObjectURL(url);
       },
-      error: () => (this.error = this.i18n.t('errors.failedDownloadPdf')),
+      error: () =>
+        (this.error = this.i18n.t(
+          format === 'docx' ? 'errors.failedDownloadDocx' : 'errors.failedDownloadPdf'
+        )),
     });
   }
 

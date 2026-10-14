@@ -102,9 +102,17 @@
       }
 
       <div class="tailored-actions">
-        <button type="button" class="btn btn-ghost btn-sm" (click)="downloadPdf(selected)">
+        <button type="button" class="btn btn-ghost btn-sm" (click)="downloadCv(selected)">
           <app-icon name="download" [size]="14" />
           {{ i18n.t('cv.pdf') }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          (click)="downloadCv(selected, 'docx')"
+        >
+          <app-icon name="download" [size]="14" />
+          {{ i18n.t('cv.docx') }}
         </button>
         @if (applicationId) {
           <button

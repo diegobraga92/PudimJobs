@@ -24,6 +24,13 @@ class ProjectItem(BaseModel):
     link: str | None = None
 
 
+class SkillGroup(BaseModel):
+    """A labelled skills category (e.g. ``Languages``) authored by the LLM variant."""
+
+    label: str = Field(min_length=1, max_length=60)
+    items: list[str] = Field(default_factory=list)
+
+
 class CVStructure(BaseModel):
     """Structured CV content (persisted in ``master_cv.structured_json``)."""
 
@@ -36,6 +43,10 @@ class CVStructure(BaseModel):
     experience: list[ExperienceItem] = Field(default_factory=list)
     education: list[EducationItem] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
+    # Optional labels for the skills section. The deterministic variant leaves
+    # this empty and the renderer groups the flat ``skills`` list by taxonomy;
+    # the LLM variant fills it so the model, not the taxonomy, owns the section.
+    skill_groups: list[SkillGroup] = Field(default_factory=list)
     projects: list[ProjectItem] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)

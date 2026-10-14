@@ -48,9 +48,19 @@
       (change)="onFileSelected($event)"
     />
     <select
+      class="select export-format"
+      [value]="exportFormat"
+      (change)="exportFormat = $any($event.target).value"
+      [attr.aria-label]="i18n.t('cv.formatLabel')"
+    >
+      <option value="pdf">{{ i18n.t('cv.format.pdf') }}</option>
+      <option value="docx">{{ i18n.t('cv.format.docx') }}</option>
+    </select>
+    <select
       class="select export-template"
       [value]="exportTemplate"
       (change)="exportTemplate = $any($event.target).value"
+      [disabled]="exportFormat === 'docx'"
       [attr.aria-label]="i18n.t('cv.templateLabel')"
     >
       <option value="classic">{{ i18n.t('cv.template.classic') }}</option>
@@ -59,7 +69,7 @@
     <button
       type="button"
       class="btn btn-ghost"
-      (click)="exportPdf(exportTemplate)"
+      (click)="exportCv(exportFormat, exportTemplate)"
       [disabled]="exporting"
     >
       @if (exporting) {

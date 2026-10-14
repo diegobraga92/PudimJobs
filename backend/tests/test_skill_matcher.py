@@ -1,6 +1,6 @@
 """Unit tests for the skill taxonomy helpers (matching + PDF grouping)."""
 
-from app.services.skill_matcher import OTHER_GROUP, canonical_skill, group_skills
+from app.services.skill_matcher import ADDITIONAL_GROUP, canonical_skill, group_skills
 
 
 def test_canonical_skill_maps_an_alias_to_its_taxonomy_name():
@@ -34,12 +34,14 @@ def test_group_skills_uses_the_taxonomy_for_aliases_and_drops_duplicates():
     assert grouped == [("Cloud & DevOps", ["k8s"])]
 
 
-def test_group_skills_sends_unknown_skills_to_a_final_other_bucket():
+def test_group_skills_sends_unknown_skills_to_a_final_additional_bucket():
+    """The leftover bucket is labelled "Additional", never the off-putting "Other"."""
     grouped = group_skills(["python", "stakeholder management", "python"])
 
+    assert ADDITIONAL_GROUP == "Additional"
     assert grouped == [
         ("Languages", ["python"]),
-        (OTHER_GROUP, ["stakeholder management"]),
+        (ADDITIONAL_GROUP, ["stakeholder management"]),
     ]
 
 

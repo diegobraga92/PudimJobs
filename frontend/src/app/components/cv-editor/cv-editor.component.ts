@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { AuthService } from '../../services/auth.service';
-import { CVStructure, CvService, CvTemplate, MasterCV } from '../../services/cv.service';
+import { CVStructure, CvExportFormat, CvService, CvTemplate, MasterCV } from '../../services/cv.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
@@ -46,6 +46,7 @@ export class CvEditorComponent implements OnInit {
   importing = false;
   exporting = false;
   exportTemplate: CvTemplate = 'classic';
+  exportFormat: CvExportFormat = 'pdf';
   mode: 'edit' | 'preview' = 'edit';
   cvName = 'Your Name';
 
@@ -162,28 +163,37 @@ export class CvEditorComponent implements OnInit {
     });
   }
 
-  /** Export the current editor content as a PDF (classic or ATS-safe layout). */
-  exportPdf(template: CvTemplate = this.exportTemplate): void {
+  /**
+   * Export the current editor content as a PDF (classic or ATS-safe layout) or as
+   * an editable DOCX. The layout only applies to the PDF: Word gets one plain
+   * document, so the template select is disabled for DOCX.
+   */
+  exportCv(
+    format: CvExportFormat = this.exportFormat,
+    template: CvTemplate = this.exportTemplate,
+  ): void {
     if (this.exporting) {
       return;
     }
     this.exporting = true;
     this.message = null;
-    this.service.exportPdf(this.buildStructure(), template).subscribe({
+    this.service.exportCv(this.buildStructure(), template, format).subscribe({
       next: (blob) => {
         this.exporting = false;
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = template === 'ats' ? 'cv-ats.pdf' : 'cv.pdf';
+        anchor.download =
+          format === 'docx' ? 'cv.docx' : template === 'ats' ? 'cv-ats.pdf' : 'cv.pdf';
         anchor.click();
         URL.revokeObjectURL(url);
-        this.toast.success(this.i18n.t('cv.pdfExported'));
+        this.toast.success(this.i18n.t(format === 'docx' ? 'cv.docxExported' : 'cv.pdfExported'));
       },
       error: () => {
         this.exporting = false;
-        this.error = this.i18n.t('errors.failedExportPdf');
-        this.toast.error(this.i18n.t('errors.failedExportPdf'));
+        const key = format === 'docx' ? 'errors.failedExportDocx' : 'errors.failedExportPdf';
+        this.error = this.i18n.t(key);
+        this.toast.error(this.i18n.t(key));
       },
     });
   }

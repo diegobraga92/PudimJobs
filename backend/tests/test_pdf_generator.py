@@ -79,6 +79,55 @@ def test_render_cv_html_falls_back_to_account_name():
     assert "jane@example.com" in html
 
 
+def test_render_cv_html_contact_is_two_nowrap_lines():
+    """Contact info splits into a details line and a links line, never mid-value."""
+    tailored = tailor_cv(CV, ["python"])
+    html = render_cv_html(tailored)
+
+    assert (
+        '<div class="contact-line"><span class="ci">jane@example.com</span>'
+        '<span class="ci">+55 11 91234-5678</span>'
+        '<span class="ci">Sao Paulo, Brazil</span></div>'
+    ) in html
+    assert (
+        '<div class="contact-line"><span class="ci">https://github.com/janedoe</span></div>'
+    ) in html
+    # Values stay whole (the separator rides on the following field's ::before).
+    assert ".contact .ci { white-space: nowrap; }" in html
+    # The old single-line join is gone: a bullet could be orphaned onto its own line.
+    assert "jane@example.com • +55" not in html
+
+
+def test_render_cv_html_shares_one_type_scale():
+    """Summary and Experience used to disagree on leading and margins."""
+    tailored = tailor_cv(CV, ["python"])
+    html = render_cv_html(tailored)
+
+    assert "line-height: 1.4; }" in html  # body sets the shared leading
+    assert "p { margin: 0 0 6px; }" in html  # and the shared margin
+    assert ".summary" not in html  # the mismatched override is gone
+    assert "line-height: 1.5" not in html
+
+
+def test_render_cv_html_prefers_llm_skill_groups():
+    """A variant that authored its own categories renders those, not the taxonomy."""
+    tailored = tailor_cv(CV, ["python"])
+    tailored.skill_groups = [("Backend", ["python", "fastapi"])]
+    html = render_cv_html(tailored)
+
+    assert "<strong>Backend:</strong> python, fastapi" in html
+    assert "<strong>Languages:</strong>" not in html
+
+
+def test_render_cv_html_never_labels_a_skill_group_other():
+    """Unknown skills land in "Additional"; "Other" reads like a junk drawer."""
+    tailored = tailor_cv({**CV, "skills": ["python", "stakeholder management"]}, ["python"])
+    html = render_cv_html(tailored)
+
+    assert "<strong>Additional:</strong> stakeholder management" in html
+    assert "<strong>Other:</strong>" not in html
+
+
 def test_render_cv_html_ats_template_is_plain_single_column():
     tailored = tailor_cv(CV, ["python"])
     html = render_cv_html(tailored, template="ats")
@@ -88,6 +137,8 @@ def test_render_cv_html_ats_template_is_plain_single_column():
     assert "<table" not in html.lower()
     assert "<img" not in html.lower()
     assert "float:" not in html.lower()
+    # Values stay whole even though the contact line is allowed to wrap.
+    assert ".contact .ci { white-space: nowrap; }" in html
 
 
 def test_render_cv_html_rejects_unknown_template():

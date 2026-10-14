@@ -35,9 +35,10 @@ from app.schemas.master_cv import (
 from app.services.ats_scorer import derive_keywords, score_ats
 from app.services.cv_parser import CVParsingError, parse_cv_file
 from app.services.cv_tailor import TailoredCV
+from app.services.docx_generator import generate_docx
 from app.services.jd_parser import parse_jd
 from app.services.llm_config import get_llm_config
-from app.services.pdf_generator import TEMPLATES, generate_pdf
+from app.services.pdf_generator import DEFAULT_TEMPLATE, TEMPLATES, generate_pdf
 
 logger = structlog.get_logger(__name__)
 
@@ -46,11 +47,49 @@ router = APIRouter(prefix="/api/cv", tags=["cv"])
 _MAX_CV_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 _SUPPORTED_CV_EXTENSIONS = {".pdf", ".docx", ".odt"}
 
+# Download formats offered by both export endpoints (ADR 017). Only the canonical
+# PDF is persisted on the artifact; DOCX is rendered on demand from the same
+# `structured_json`, so an editable copy can never go stale.
+PDF_MEDIA_TYPE = "application/pdf"
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+EXPORT_FORMATS: dict[str, str] = {"pdf": PDF_MEDIA_TYPE, "docx": DOCX_MEDIA_TYPE}
 
-def _pdf_name(email: str) -> str:
+
+def _account_name(email: str) -> str:
     """Best-effort display name: title-cased email local part (no name field)."""
     local = email.split("@")[0] or ""
     return " ".join(part.capitalize() for part in local.split(".") if part)
+
+
+def _validate_export_format(fmt: str) -> str:
+    """Reject an unknown download format the same way an unknown template is."""
+    if fmt not in EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown format {fmt!r}; use one of {sorted(EXPORT_FORMATS)}",
+        )
+    return fmt
+
+
+def _render_export(
+    tailored: TailoredCV,
+    *,
+    fmt: str,
+    template: str,
+    name: str,
+    email: str,
+) -> bytes:
+    """Render one CV structure in the requested download format."""
+    if fmt == "docx":
+        # A single plain layout: the classic/ATS split is a PDF-styling concern.
+        return generate_docx(tailored, name=name, email=email)
+    return generate_pdf(tailored, name=name, email=email, template=template)
+
+
+def _export_filename(fmt: str, template: str) -> str:
+    if fmt == "docx":
+        return "cv.docx"
+    return "cv-ats.pdf" if template == "ats" else "cv.pdf"
 
 
 async def get_owned_cv(cv_id: uuid.UUID, user: User, db: AsyncSession) -> MasterCV:
@@ -253,7 +292,7 @@ async def update_generated_cv(
 
     generated.structured_json = structure
     generated.pdf = generate_pdf(
-        TailoredCV.from_structure(structure), name=_pdf_name(user.email), email=user.email
+        TailoredCV.from_structure(structure), name=_account_name(user.email), email=user.email
     )
     # The cached score tested the *old* content — never serve it for the new one.
     generated.ats_score = None
@@ -278,20 +317,47 @@ async def update_generated_cv(
 @router.get("/generated/{generated_id}/pdf")
 async def get_generated_pdf(
     generated_id: uuid.UUID,
+    format: str = "pdf",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Download a generated tailored CV as PDF."""
+    """Download a generated tailored CV as PDF (default) or DOCX.
+
+    The stored PDF is served as bytes; DOCX is rendered on demand from the
+    artifact's own ``structured_json``, so the editable copy always reflects the
+    latest edit without a second stored binary (ADR 017). The path keeps its
+    ``/pdf`` name for the clients that already call it — ``format`` is additive.
+    """
+    _validate_export_format(format)
     result = await db.execute(
         select(GeneratedCV).where(GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id)
     )
     generated = result.scalar_one_or_none()
     if generated is None:
         raise HTTPException(status_code=404, detail="Generated CV not found")
+
+    if format == "pdf":
+        content = generated.pdf
+    else:
+        if not generated.structured_json:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="This tailored CV has no stored structure to export as DOCX",
+            )
+        content = generate_docx(
+            TailoredCV.from_structure(generated.structured_json),
+            name=_account_name(user.email),
+            email=user.email,
+        )
+
     return Response(
-        content=generated.pdf,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="tailored-cv-{generated.id}.pdf"'},
+        content=content,
+        media_type=EXPORT_FORMATS[format],
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="tailored-cv-{generated.id}.{format}"'
+            )
+        },
     )
 
 
@@ -314,43 +380,40 @@ async def delete_generated_cv(
 
 @router.post("/pdf")
 @limiter.limit(settings.rate_limit_api, key_func=auth_key)
-async def export_cv_pdf(
+async def export_cv(
     request: Request,
     payload: CVStructure,
-    template: str = "classic",
+    template: str = DEFAULT_TEMPLATE,
+    format: str = "pdf",
     user: User = Depends(get_current_user),
 ):
-    """Render an (optionally edited) CV structure to a downloadable PDF."""
+    """Render an (optionally edited) CV structure to a downloadable PDF or DOCX.
+
+    The path keeps its ``/pdf`` name for the clients that already call it; the
+    ``format`` query parameter (``pdf``, the default, or ``docx``) is additive.
+    """
     if template not in TEMPLATES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown template {template!r}; use one of {sorted(TEMPLATES)}",
         )
-    tailored = TailoredCV(
-        summary=payload.summary,
-        experience=[item.model_dump() for item in payload.experience],
-        education=[item.model_dump() for item in payload.education],
-        skills=payload.skills,
-        projects=[item.model_dump() for item in payload.projects],
-        full_name=payload.full_name,
-        email=payload.email,
-        phone=payload.phone,
-        location=payload.location,
-        links=payload.links,
-        certifications=payload.certifications,
-        languages=payload.languages,
-    )
-    pdf = generate_pdf(
-        tailored,
-        name=_pdf_name(user.email),
-        email=user.email,
+    _validate_export_format(format)
+    # `from_structure` rather than copying fields one by one: the hand-rolled
+    # version dropped the LLM variant's labelled `skill_groups`, so an export
+    # disagreed with the stored artifact it was made from.
+    content = _render_export(
+        TailoredCV.from_structure(payload.model_dump()),
+        fmt=format,
         template=template,
+        name=_account_name(user.email),
+        email=user.email,
     )
-    filename = "cv-ats.pdf" if template == "ats" else "cv.pdf"
     return Response(
-        content=pdf,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        content=content,
+        media_type=EXPORT_FORMATS[format],
+        headers={
+            "Content-Disposition": f'attachment; filename="{_export_filename(format, template)}"'
+        },
     )
 
 

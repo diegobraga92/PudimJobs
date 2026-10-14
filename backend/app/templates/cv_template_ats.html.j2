@@ -11,6 +11,9 @@
          color: #000; line-height: 1.4; }
   h1 { font-size: 16pt; margin: 0 0 4px; font-weight: bold; }
   .contact { margin: 0 0 14px; font-size: 11pt; }
+  /* Fields stay on one line each; breaks happen only at the " | " separators,
+     so an email or URL is never split mid-token. */
+  .contact .ci { white-space: nowrap; }
   h2 { font-size: 12pt; margin: 16px 0 6px; font-weight: bold; }
   p { margin: 0 0 6px; }
   ul { margin: 0 0 8px; padding-left: 20px; }
@@ -27,7 +30,7 @@
   {% if phone %}{% set _ = contact_bits.append(phone) %}{% endif %}
   {% if location %}{% set _ = contact_bits.append(location) %}{% endif %}
   {% if links %}{% set _ = contact_bits.extend(links) %}{% endif %}
-  {% if contact_bits %}<div class="contact">{{ contact_bits | join(' | ') }}</div>{% endif %}
+  {% if contact_bits %}<div class="contact">{% for bit in contact_bits %}<span class="ci">{{ bit }}</span>{% if not loop.last %} | {% endif %}{% endfor %}</div>{% endif %}
 
   {% if summary %}
     <h2>Summary</h2>

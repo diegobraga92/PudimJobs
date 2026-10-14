@@ -1,12 +1,15 @@
 """Tests for the master CV API (versioning + audit)."""
 
 import uuid
+from io import BytesIO
 
+from docx import Document
 from sqlalchemy import select
 from structlog.testing import capture_logs
 
 from app.models.audit_log import AuditLog
 from app.models.generated_cv import GeneratedCV
+from app.routers.cv import DOCX_MEDIA_TYPE
 from tests.helpers import create_user
 
 CV_PAYLOAD = {
@@ -66,6 +69,46 @@ async def test_export_cv_pdf(auth_client):
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.content.startswith(b"%PDF")
+
+
+async def test_export_cv_docx(auth_client):
+    """`format=docx` returns a real Word document from the same endpoint."""
+    client, _, _ = auth_client
+    response = await client.post("/api/cv/pdf", json=CV_PAYLOAD, params={"format": "docx"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == DOCX_MEDIA_TYPE
+    assert response.headers["content-disposition"] == 'attachment; filename="cv.docx"'
+    assert response.content.startswith(b"PK")
+    Document(BytesIO(response.content))  # parses as a Word document
+
+
+async def test_export_cv_docx_keeps_llm_skill_groups(auth_client):
+    """The editor export used to drop `skill_groups`; the DOCX must show them."""
+    client, _, _ = auth_client
+    payload = {
+        **CV_PAYLOAD,
+        "skill_groups": [{"label": "Backend", "items": ["python", "fastapi"]}],
+    }
+    response = await client.post("/api/cv/pdf", json=payload, params={"format": "docx"})
+
+    texts = [paragraph.text for paragraph in Document(BytesIO(response.content)).paragraphs]
+    assert "Backend: python, fastapi" in texts
+    assert not any(text.startswith("Languages:") for text in texts)
+
+
+async def test_export_cv_rejects_unknown_format(auth_client):
+    client, _, _ = auth_client
+    response = await client.post("/api/cv/pdf", json=CV_PAYLOAD, params={"format": "odt"})
+
+    assert response.status_code == 400
+    assert "odt" in response.json()["detail"]
+
+
+async def test_export_cv_rejects_unknown_template(auth_client):
+    client, _, _ = auth_client
+    response = await client.post("/api/cv/pdf", json=CV_PAYLOAD, params={"template": "fancy"})
+    assert response.status_code == 400
 
 
 async def test_cv_requires_auth(client):
@@ -289,3 +332,95 @@ async def test_update_generated_cv_unknown_404(auth_client):
         json={"structured_json": CV_PAYLOAD},
     )
     assert response.status_code == 404
+
+
+async def test_download_generated_cv_as_docx(auth_client, db_session):
+    """DOCX is rendered on demand from the artifact's own structure (ADR 017)."""
+    client, user, _ = auth_client
+    generated = GeneratedCV(
+        user_id=user.id,
+        pdf=b"%PDF-1.4 stub",
+        structured_json={**CV_PAYLOAD, "full_name": "Jane Doe"},
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"format": "docx"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == DOCX_MEDIA_TYPE
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="tailored-cv-{generated.id}.docx"'
+    )
+    texts = [paragraph.text for paragraph in Document(BytesIO(response.content)).paragraphs]
+    assert "Jane Doe" in texts
+    assert "Experience" in texts
+
+
+async def test_download_generated_cv_serves_the_stored_pdf(auth_client, db_session):
+    """The default (and `format=pdf`) stays the stored bytes, untouched."""
+    client, user, _ = auth_client
+    generated = GeneratedCV(
+        user_id=user.id, pdf=b"%PDF-1.4 stored", structured_json=CV_PAYLOAD
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(f"/api/cv/generated/{generated.id}/pdf")
+
+    assert response.content == b"%PDF-1.4 stored"
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="tailored-cv-{generated.id}.pdf"'
+    )
+
+    explicit = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"format": "pdf"}
+    )
+    assert explicit.content == b"%PDF-1.4 stored"
+
+
+async def test_download_generated_cv_rejects_unknown_format(auth_client, db_session):
+    client, user, _ = auth_client
+    generated = GeneratedCV(user_id=user.id, pdf=b"%PDF-1.4 stub", structured_json=CV_PAYLOAD)
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"format": "odt"}
+    )
+    assert response.status_code == 400
+
+
+async def test_download_generated_cv_docx_without_structure_404(auth_client, db_session):
+    """A content-less artifact (imported, never rendered) has nothing to re-render."""
+    client, user, _ = auth_client
+    generated = GeneratedCV(user_id=user.id, pdf=b"%PDF-1.4 stub", structured_json=None)
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"format": "docx"}
+    )
+    assert response.status_code == 404
+
+
+async def test_download_generated_cv_docx_rejects_another_users_artifact(auth_client, db_session):
+    client, _, _ = auth_client
+    other = await create_user(db_session, email="docx-owner@example.com")
+    generated = GeneratedCV(user_id=other.id, pdf=b"%PDF-1.4 stub", structured_json=CV_PAYLOAD)
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"format": "docx"}
+    )
+    assert response.status_code == 404
+

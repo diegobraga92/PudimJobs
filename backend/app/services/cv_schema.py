@@ -10,6 +10,7 @@ CV_JSON_SCHEMA = (
     '"start_date": "YYYY-MM or null", "end_date": "YYYY-MM or null", '
     '"bullets": ["string"]}], "education": [{"institution": "string", "degree": "string", '
     '"year": "string or null"}], "skills": ["string"], '
+    '"skill_groups": [{"label": "string", "items": ["string"]}], '
     '"projects": [{"name": "string", "description": "string or null", '
     '"link": "string or null"}], "certifications": ["string"], "languages": ["string"]}'
 )

@@ -55,8 +55,10 @@ GROUP_LABELS: dict[str, str] = {
     "concepts": "Concepts",
     "tools": "Tools",
 }
-# Bucket for skills the taxonomy does not know (e.g. "communication").
-OTHER_GROUP = "Other"
+# Bucket for skills the taxonomy does not know (e.g. "communication"). It is
+# labelled "Additional" rather than "Other": a literal "Other:" heading on a CV
+# reads like a junk drawer to a hiring manager.
+ADDITIONAL_GROUP = "Additional"
 
 # Reverse index: canonical skill (lower-cased) -> its taxonomy group.
 _SKILL_TO_GROUP: dict[str, str] = {
@@ -99,7 +101,7 @@ def group_skills(skills: list[str]) -> list[tuple[str, list[str]]]:
         if buckets.get(group)
     ]
     if other:
-        grouped.append((OTHER_GROUP, other))
+        grouped.append((ADDITIONAL_GROUP, other))
     return grouped
 
 

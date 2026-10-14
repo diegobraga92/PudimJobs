@@ -4,9 +4,24 @@
 <meta charset="utf-8">
 <style>
   @page { size: A4; margin: 1.6cm 1.8cm; }
-  body { font-family: 'DejaVu Sans', sans-serif; font-size: 10pt; color: #222; }
-  h1 { font-size: 20pt; margin: 0 0 2px; color: #16324f; }
-  .contact { color: #555; margin-bottom: 14px; font-size: 9.5pt; }
+  /* One shared leading/margin scale so Summary, Experience and every other
+     section read with the same rhythm. Previously the summary <p> kept the
+     UA's 1em margins and a 1.5 line-height while bullets ran tighter, so the
+     two sections looked like different documents. */
+  body { font-family: 'DejaVu Sans', sans-serif; font-size: 10pt; color: #222;
+         line-height: 1.4; }
+  p { margin: 0 0 6px; }
+  h1 { font-size: 20pt; margin: 0 0 4px; color: #16324f; }
+  .contact { color: #555; font-size: 9.5pt; margin-bottom: 14px; }
+  .contact-line + .contact-line { margin-top: 2px; }
+  /* Each field is one unbreakable token and adjacent fields offer no break
+     opportunity, so a contact line never wraps: the " • " separator (drawn by
+     ::before on every field but the first) can never be orphaned onto a line of
+     its own. The trade-off is that an over-long contact block overlaps the page
+     edge instead of wrapping — acceptable for a header, and the reason the
+     details and the links get a line each. */
+  .contact .ci { white-space: nowrap; }
+  .contact .ci + .ci::before { content: " • "; color: #b9c4cf; }
   h2 { font-size: 11pt; text-transform: uppercase; letter-spacing: 1px;
        border-bottom: 1px solid #b9c4cf; padding-bottom: 2px; margin: 14px 0 6px;
        color: #16324f; }
@@ -15,11 +30,10 @@
   .experience-header .date { font-weight: normal; color: #555; float: right; font-size: 9pt; }
   ul { margin: 2px 0 6px; padding-left: 18px; }
   li { margin-bottom: 2px; }
-  .skills { line-height: 1.7; }
+  .skills { line-height: 1.4; }
   .skill-group { margin-bottom: 2px; }
-  .summary { line-height: 1.5; }
   .education-item { margin-bottom: 4px; }
-  .project-desc { margin: 2px 0 4px; line-height: 1.5; }
+  .project-desc { margin: 2px 0 4px; }
   .project-link { font-size: 9pt; color: #555; margin-bottom: 4px; }
   .cert-item, .lang-item { margin-bottom: 2px; }
 </style>
@@ -30,12 +44,20 @@
   {% if email %}{% set _ = contact_bits.append(email) %}{% endif %}
   {% if phone %}{% set _ = contact_bits.append(phone) %}{% endif %}
   {% if location %}{% set _ = contact_bits.append(location) %}{% endif %}
-  {% if links %}{% set _ = contact_bits.extend(links) %}{% endif %}
-  {% if contact_bits %}<div class="contact">{{ contact_bits | join(' • ') }}</div>{% endif %}
+  {% if contact_bits or links %}
+    <div class="contact">
+      {% if contact_bits %}
+        <div class="contact-line">{% for bit in contact_bits %}<span class="ci">{{ bit }}</span>{% endfor %}</div>
+      {% endif %}
+      {% if links %}
+        <div class="contact-line">{% for link in links %}<span class="ci">{{ link }}</span>{% endfor %}</div>
+      {% endif %}
+    </div>
+  {% endif %}
 
   {% if summary %}
     <h2>Summary</h2>
-    <p class="summary">{{ summary }}</p>
+    <p>{{ summary }}</p>
   {% endif %}
 
   {% if experience %}

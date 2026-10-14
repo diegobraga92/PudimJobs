@@ -110,15 +110,28 @@ describe('CvEditorComponent', () => {
     http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
     http.expectOne('/api/cv').flush([MASTER_CV]);
 
-    component.exportPdf('ats');
+    component.exportCv('pdf', 'ats');
 
     const request = http.expectOne(
       (candidate) => candidate.url === '/api/cv/pdf' && candidate.params.get('template') === 'ats'
     );
+    expect(request.request.params.get('format')).toBe('pdf');
     expect(request.request.responseType).toBe('blob');
     request.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
 
     expect(component.exporting).toBeFalse();
+  });
+
+  it('exports the current CV as DOCX for the Word download', () => {
+    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
+    http.expectOne('/api/cv').flush([MASTER_CV]);
+
+    component.exportCv('docx');
+    http.expectOne(
+      (candidate) => candidate.url === '/api/cv/pdf' && candidate.params.get('format') === 'docx'
+    );
+
+    expect(component.exporting).toBeTrue();
   });
 });
 

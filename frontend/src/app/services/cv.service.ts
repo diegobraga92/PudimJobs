@@ -22,6 +22,12 @@ export interface ProjectItem {
   link: string | null;
 }
 
+/** A labelled skills category, authored by the LLM variant. */
+export interface SkillGroup {
+  label: string;
+  items: string[];
+}
+
 export interface CVStructure {
   full_name: string;
   email: string;
@@ -32,6 +38,8 @@ export interface CVStructure {
   experience: ExperienceItem[];
   education: EducationItem[];
   skills: string[];
+  /** Labelled skills categories from the LLM variant. Absent/empty on deterministic CVs, whose renderer groups the flat `skills` list by taxonomy instead. */
+  skill_groups?: SkillGroup[];
   projects: ProjectItem[];
   certifications: string[];
   languages: string[];
@@ -107,6 +115,12 @@ export interface AtsScoreInput {
 /** Layout used when exporting a CV to PDF (see ADR 013). */
 export type CvTemplate = 'classic' | 'ats';
 
+/**
+ * Download format for a tailored CV (see ADR 017). `pdf` is the canonical,
+ * stored artifact; `docx` is rendered on demand from the same structure.
+ */
+export type CvExportFormat = 'pdf' | 'docx';
+
 @Injectable({ providedIn: 'root' })
 export class CvService {
   constructor(private http: HttpClient) {}
@@ -151,17 +165,31 @@ export class CvService {
     });
   }
 
-  downloadPdf(id: string): Observable<Blob> {
-    return this.http.get(`/api/cv/generated/${id}/pdf`, { responseType: 'blob' });
+  /**
+   * Download a tailored CV artifact. `format` picks the stored PDF (default) or
+   * an editable DOCX rendered on demand from the artifact's own content.
+   */
+  downloadCv(id: string, format: CvExportFormat = 'pdf'): Observable<Blob> {
+    const params = new HttpParams().set('format', format);
+    return this.http.get(`/api/cv/generated/${id}/pdf`, { params, responseType: 'blob' });
   }
 
   deleteGenerated(id: string): Observable<void> {
     return this.http.delete<void>(`/api/cv/generated/${id}`);
   }
 
-  /** Render an (optionally edited) CV structure to a PDF for download. `template` selects `classic` (styled, default) or `ats` (plain, ATS-safe). */
-  exportPdf(structure: CVStructure, template: CvTemplate = 'classic'): Observable<Blob> {
-    const params = new HttpParams().set('template', template);
+  /**
+   * Render an (optionally edited) CV structure for download. `template` selects
+   * `classic` (styled, default) or `ats` (plain, ATS-safe); `format` selects PDF
+   * (default) or DOCX. The template is a PDF-only concern — DOCX always uses one
+   * plain layout.
+   */
+  exportCv(
+    structure: CVStructure,
+    template: CvTemplate = 'classic',
+    format: CvExportFormat = 'pdf',
+  ): Observable<Blob> {
+    const params = new HttpParams().set('template', template).set('format', format);
     return this.http.post('/api/cv/pdf', structure, { params, responseType: 'blob' });
   }
 

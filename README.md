@@ -301,8 +301,17 @@ optional **second** variant is a full LLM rewrite kept *alongside* the
 deterministic one (enabled in Admin → LLM with a stored API key; no env flag),
 schema-validated and degrading gracefully; its prompt asks for a CV tailored for
 the job (master CV as single source of truth, roles that do not support the
-application may be omitted) that fits two pages. Both variants render PDF/DOCX
-via Jinja2 templates (Classic and ATS-safe) behind `GET /api/cv/generated/{id}/pdf`.
+application may be omitted) that fits two pages. Both variants render a PDF via
+Jinja2 templates (Classic and ATS-safe) behind `GET /api/cv/generated/{id}/pdf`;
+the same endpoint accepts `?format=docx`, and `POST /api/cv/pdf` (`?format=`,
+plus `?template=` for the PDF) renders straight from the editor, so both also
+hand back an editable Word copy built on demand from the stored structure. The
+PDF stays the canonical artifact — it is the only one stored and page-measured
+(ADR 017).
+The Skills section is grouped into labelled lines either way: the deterministic
+variant groups the flat list by taxonomy (skills the taxonomy does not know land
+in an `Additional` bucket, never `Other`), while the LLM variant authors its own
+2–5 job-relevant groups and the renderer prefers those.
 The two variants are committed one after the other — the deterministic one first —
 so the 202 from `POST /api/jobs/{id}/tailor` reports which variants the run will
 produce and the web/mobile panels keep polling until *all* of them have landed
