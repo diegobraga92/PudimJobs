@@ -1,9 +1,4 @@
-"""The ``sweep_sources`` periodic task.
-
-Runs on a schedule (Celery Beat) and enqueues a ``scrape_source`` task for
-every source that is due for a scrape (never scraped, or stale by more than
-``scrape_freshness_minutes``), skipping sources whose circuit breaker is open.
-"""
+"""The ``sweep_sources`` periodic task."""
 
 import asyncio
 from datetime import datetime, timedelta, timezone

@@ -9,11 +9,7 @@ from app.models.enums import PrepCategory, PrepStatus, enum_values
 
 
 class PrepTask(Base):
-    """An interview-preparation checklist item.
-
-    Optionally scoped to a job and/or an application; a task with neither is a
-    general preparation to-do.
-    """
+    """An interview-preparation checklist item."""
 
     __tablename__ = "prep_tasks"
 

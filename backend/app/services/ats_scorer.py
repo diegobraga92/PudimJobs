@@ -1,23 +1,4 @@
-"""ATS (Applicant Tracking System) scoring for tailored CVs (ADR 013).
-
-Two layers, reported *separately*:
-
-* a **deterministic** baseline that always runs — skill coverage, keyword
-  coverage, content completeness and ATS-readability heuristics — returned as
-  ``score``/``deterministic_score``, and
-* an optional **LLM overlay** adding a qualitative summary, extra suggestions
-  and its own 0-100 estimate (``llm_score``) when an OpenAI-compatible endpoint
-  is configured.
-
-The two numbers are never blended: ``score`` stays the reproducible baseline so
-artifacts scored at different times line up, and the LLM's opinion sits next to
-it as an extra data point instead of being folded into a number nobody can
-reproduce.
-
-Mirrors the graceful-degradation pattern used by the CV parser/tailor
-(ADR 006/011): a missing or erroring LLM only drops the result back to the
-deterministic baseline; it never fails the request.
-"""
+"""ATS (Applicant Tracking System) scoring for tailored CVs (ADR 013)."""
 
 import re
 
@@ -282,12 +263,7 @@ def build_report(
     jd_keywords: list[str] | None = None,
     job_title: str | None = None,
 ) -> dict:
-    """Compute the deterministic ATS report for ``cv`` against a job.
-
-    ``job_title`` (when known) contributes its significant terms to the keyword
-    pool and drives a "mirror the job title" recommendation, so a title-only
-    request still yields meaningful keyword coverage (see ADR 013).
-    """
+    """Compute the deterministic ATS report for ``cv`` against a job."""
     text = cv_text(cv)
     factors: list[dict] = []
     matched_skills: list[str] = []
@@ -387,15 +363,7 @@ async def score_ats(
     job_title: str | None = None,
     llm_config: LlmRuntimeConfig | None = None,
 ) -> dict:
-    """Return a full ATS report, optionally with an LLM review beside it.
-
-    The deterministic report is always produced and is what ``score`` reports.
-    When ``llm_config`` is enabled and the API call succeeds, the LLM adds a
-    qualitative summary, extra suggestions and its own 0-100 estimate in
-    ``llm_score``. The two are never blended: ``score``/``deterministic_score``
-    stay reproducible across artifacts, so the LLM's opinion is an extra data
-    point rather than a score nobody can verify (``method`` becomes ``"hybrid"``).
-    """
+    """Return a full ATS report, optionally with an LLM review beside it."""
     report = build_report(cv, jd_skills=jd_skills, jd_keywords=jd_keywords, job_title=job_title)
 
     if llm_config is None or not llm_config.enabled or not llm_config.api_key:

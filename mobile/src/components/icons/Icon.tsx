@@ -54,10 +54,7 @@ import {
 
 import { useTheme } from '@/theme/ThemeProvider';
 
-/**
- * Icon names — mirrors the web `AppIconName` registry plus a few extras used
- * by the mobile shell (chevron-down, menu, arrow-left, …).
- */
+/** Icon names — mirrors the web `AppIconName` registry plus a few extras used by the mobile shell (chevron-down, menu, arrow-left, …). */
 export type IconName =
   | 'activity'
   | 'arrow-left'
@@ -171,11 +168,7 @@ export interface IconProps {
   strokeWidth?: number;
 }
 
-/**
- * Inline icon renderer — the React Native analog of the web `app-icon`
- * component. Defaults to the theme text color so callers only pass `color`
- * when they need to deviate.
- */
+/** Inline icon renderer — the mobile analog of the web `app-icon` component. */
 export function Icon({ name, size = 20, color, strokeWidth = 2 }: IconProps) {
   const { theme } = useTheme();
   const resolvedColor = color ?? theme.colors.text;

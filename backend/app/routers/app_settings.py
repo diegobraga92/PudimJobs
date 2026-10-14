@@ -102,18 +102,7 @@ async def test_llm(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Validate the configured LLM endpoint/model/key with a tiny request.
-
-    The probe runs through the *same* client the features use, so it also
-    exercises the provider-specific thinking toggle. A status code alone is not
-    proof of a working setup: a thinking-mode model answers ``200 OK`` with an
-    empty ``content``, which made this button report success while every feature
-    silently kept its non-LLM fallback. The reply must therefore be usable.
-
-    ``status_code`` is only reported for a successful probe; on failure ``error``
-    carries the endpoint's own message (e.g. ``401 Unauthorized``) and points at
-    the ``llm_request_failed`` / ``llm_empty_content`` log line.
-    """
+    """Validate the configured LLM endpoint/model/key with a tiny request."""
     row = await _get_or_create_row(db)
     key = _current_plain_key(row)
     if not row.enabled or not key:

@@ -20,13 +20,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { CVStructure, GeneratedCV } from '@/types';
 import { variantLabelKey } from '@/utils/cv';
 
-/**
- * Editor for a single tailored CV artifact (ADR 016).
- *
- * Edits land on the artifact itself (`PUT /api/cv/generated/{id}`), which
- * re-renders its PDF and clears the stale ATS cache. The master CV is never
- * touched, so tailored content can no longer leak into the version history.
- */
+/** Editor for a single tailored CV artifact (ADR 016). */
 export function TailoredCvEditorScreen() {
   const { theme } = useTheme();
   const i18n = useI18n();
@@ -56,10 +50,7 @@ export function TailoredCvEditorScreen() {
   );
 }
 
-/**
- * The editable surface: the fields tailoring actually touches (summary, skills
- * and experience bullet text). Everything else round-trips untouched.
- */
+/** The editable surface: the fields tailoring actually touches (summary, skills and experience bullet text). Everything else round-trips untouched. */
 function TailoredCvForm({
   artifact,
   structure,

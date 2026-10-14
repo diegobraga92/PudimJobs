@@ -1,8 +1,4 @@
-"""Audit logging helper.
-
-Audit entries are written in the same transaction as the mutation they
-describe, so the caller commits once and both changes land atomically.
-"""
+"""Audit logging helper."""
 
 import uuid
 from typing import Any

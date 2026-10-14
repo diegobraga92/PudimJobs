@@ -1,10 +1,4 @@
-"""Encryption helpers for secret values (API keys, source credentials).
-
-Uses Fernet (AES-128-CBC + HMAC) from the ``cryptography`` package. The key
-comes from ``settings.fernet_key``; in development a key is derived
-deterministically from ``settings.secret_key`` so no extra setup is needed,
-but production MUST set ``FERNET_KEY`` to a real key.
-"""
+"""Encryption helpers for secret values (API keys, source credentials)."""
 
 import base64
 import hashlib

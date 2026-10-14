@@ -29,10 +29,7 @@ interface ConfirmContextValue {
 
 const ConfirmContext = createContext<ConfirmContextValue | null>(null);
 
-/**
- * Promise-based confirmation dialog — the React Native analog of the web
- * ConfirmService (which replaces `window.confirm`).
- */
+/** Promise-based confirmation dialog — the React Native analog of the web ConfirmService (which replaces `window.confirm`). */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const { theme } = useTheme();
   const i18n = useI18n();

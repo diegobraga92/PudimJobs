@@ -3,7 +3,6 @@
 Revision ID: 0001
 Revises:
 Create Date: 2026-08-08
-
 The Phase 1 schema is frozen here explicitly; later phases add columns/tables
 via new migrations (e.g. 0002 adds ``sources.rate_limit_seconds`` and the
 ``scrape_runs`` table).

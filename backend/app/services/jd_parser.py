@@ -1,9 +1,4 @@
-"""JD parsing with spaCy NER + regex skill extraction.
-
-spaCy is only needed for keyword extraction; when the model is unavailable the
-parser degrades gracefully (skills, years and education are pure regex and
-taxonomy based).
-"""
+"""JD parsing with spaCy NER + regex skill extraction."""
 
 import re
 from dataclasses import dataclass, field
@@ -60,13 +55,7 @@ def _get_nlp():
 
 
 def _extract_years(text: str) -> int | None:
-    """Best-effort years-of-experience extraction.
-
-    Prefers an explicit ``N years (of) experience`` statement, then a bare
-    ``N+ years`` / ``at least N years`` pattern, and finally conservative
-    seniority hints (senior/mid/junior) when no number is stated. Ranges
-    ("3-5 years") resolve to the upper bound.
-    """
+    """Best-effort years-of-experience extraction."""
     for pattern in (_YEARS_EXPERIENCE_RE, _YEARS_ANY_RE):
         match = pattern.search(text)
         if match:

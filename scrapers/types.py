@@ -29,12 +29,7 @@ class RawJob:
 
 @dataclass
 class FetchAuth:
-    """Optional authentication context for an outbound scraper fetch.
-
-    Either ``headers`` (e.g. ``{"Authorization": "Bearer ..."}``) or ``api_key``
-    (an opaque API key whose *placement* — query param or header — is up to the
-    scraper/provider that consumes it) can be set.
-    """
+    """Optional authentication context for an outbound scraper fetch."""
 
     headers: dict[str, str] | None = None
     api_key: str | None = None

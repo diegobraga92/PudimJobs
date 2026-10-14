@@ -3,11 +3,7 @@ import axios, { AxiosError } from 'axios';
 import { useAuthStore } from '@/store/auth';
 import { API_BASE_URL } from './config';
 
-/**
- * Shared axios instance — the React Native analog of the Angular
- * `authInterceptor` + HttpClient. Attaches the JWT to every request and
- * clears the session on 401 (the RootNavigator reacts and returns to Login).
- */
+/** Shared axios instance — the React Native analog of the Angular `authInterceptor` + HttpClient. */
 // eslint-disable-next-line import/no-named-as-default-member
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

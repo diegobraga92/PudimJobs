@@ -12,37 +12,12 @@ import { CvPreviewComponent } from '../cv-preview/cv-preview.component';
 import { ConfirmService } from '../confirm/confirm.service';
 import { ToastService } from '../toast/toast.service';
 
-/**
- * How often the panel re-checks for a freshly queued artifact while a tailor run
- * is in flight. Tailoring is a Celery job, so there is nothing to await: the
- * artifact simply shows up (or does not).
- */
+/** How often the panel re-checks for a freshly queued artifact while a tailor run is in flight. */
 export const POLL_INTERVAL_MS = 3000;
-/**
- * Give up after ~90s of polling. A long or stuck job must not leave the panel
- * hammering the API forever; the manual *Refresh* button stays as the fallback.
- */
+/** Give up after ~90s of polling. A long or stuck job must not leave the panel hammering the API forever; the manual *Refresh* button stays as the fallback. */
 export const POLL_MAX_TICKS = 30;
 
-/**
- * Per-job tailored-CV workspace.
- *
- * Merges the two things that used to live apart on `/cv`: the tailored CV for
- * a job and its ATS check. Dropped into the application workspace
- * (`/applications/:id`), so "the CV I sent, and how it scores" sits next to the
- * application it belongs to.
- *
- * A job has up to two artifacts (ADR 016): the deterministic `rule` variant
- * (always produced, auto-linked to the application) and an optional `llm`
- * rewrite. Both are scored on demand with the same deterministic scorer so they
- * can be compared; the user records which one was actually sent with *Use this
- * one*. Edits here target the artifact itself and never touch the master CV.
- *
- * Tailoring is asynchronous: `POST /api/jobs/{id}/tailor` returns 202 and a
- * Celery worker produces the artifacts, so enqueueing flips the panel into a
- * pending state that resolves itself — the panel polls until the artifact
- * arrives, and *Refresh* remains available while it waits.
- */
+/** Per-job tailored-CV workspace. */
 @Component({
   selector: 'app-cv-panel',
   standalone: true,
@@ -113,24 +88,12 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
     return this.selectedStructure?.full_name || 'Your Name';
   }
 
-  /**
-   * True when an artifact actually carries CV content.
-   *
-   * `generated_cvs.structured_json` is nullable and rows written before ADR 016
-   * exist with it NULL — an artifact with nothing to preview, edit or score.
-   * Such a row is not a CV, so the panel never presents one as if it were.
-   */
+  /** True when an artifact actually carries CV content. */
   hasContent(item: GeneratedCV): boolean {
     return !!item.structured_json;
   }
 
-  /**
-   * Only the deterministic variant exists, so the AI rewrite was skipped
-   * server-side (the LLM is disabled in Admin → LLM, or no API key is stored).
-   * Explaining the requirement here beats leaving the user with a single
-   * unexplained CV — but only once that CV is actually there: an empty legacy
-   * artifact is not a CV, and blaming the missing AI rewrite for it is a lie.
-   */
+  /** Only the deterministic variant exists, so the AI rewrite was skipped server-side (the LLM is disabled in Admin → LLM, or no API key is stored). */
   get llmVariantMissing(): boolean {
     const only = this.tailored.length === 1 ? this.tailored[0] : null;
     return !!only && only.variant === 'rule' && this.hasContent(only);
@@ -152,22 +115,12 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
     });
   }
 
-  /**
-   * Store this job's artifacts, dropping content-less ones.
-   *
-   * They hold no CV (ADR 016), so every downstream decision has to ignore them:
-   * the empty state, the variant list, the missing-AI-rewrite hint, and whether
-   * a queued tailor run has landed. The API already withholds them; filtering
-   * here keeps the panel honest for a response cached before that.
-   */
+  /** Store this job's artifacts, dropping content-less ones. */
   private setTailored(items: GeneratedCV[]): void {
     this.tailored = items.filter((item) => this.hasContent(item));
   }
 
-  /**
-   * Apply a freshly fetched list: resolve the pending state once an artifact
-   * exists, and keep the current selection when it is still there.
-   */
+  /** Apply a freshly fetched list: resolve the pending state once an artifact exists, and keep the current selection when it is still there. */
   private applyLoaded(items: GeneratedCV[]): void {
     this.setTailored(items);
     const usable = this.tailored;
@@ -179,14 +132,7 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
     this.select(stillThere ? this.selectedId : (usable[0]?.id ?? null));
   }
 
-  /**
-   * Watch for the artifact a queued tailor run will produce.
-   *
-   * The worker is a Celery job, so there is nothing to await — the panel polls
-   * quietly (no spinner, no error state on a blip) until the artifact lands,
-   * then stops. After {@link POLL_MAX_TICKS} the poll gives up and leaves the
-   * user with the manual *Refresh* button rather than an endless request loop.
-   */
+  /** Watch for the artifact a queued tailor run will produce. */
   private startWatching(): void {
     this.stopPolling();
     this.pollTicks = 0;
@@ -226,12 +172,7 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
     return this.i18n.t(item.variant === 'llm' ? 'cv.variant.llm' : 'cv.variant.rule');
   }
 
-  /**
-   * Record this artifact as the one actually sent with the application.
-   *
-   * The worker auto-links only the deterministic variant, so this is how the
-   * optional LLM rewrite becomes "the CV I sent" (ADR 016).
-   */
+  /** Record this artifact as the one actually sent with the application. */
   useThisOne(item: GeneratedCV): void {
     const applicationId = this.applicationId;
     if (!applicationId || this.isLinked(item)) {

@@ -53,10 +53,7 @@ export async function parseJob(id: string): Promise<EnqueueResult> {
   return data;
 }
 
-/**
- * Enqueues CV tailoring for a job. `applicationId` links the application to the
- * tailored version once the worker finishes (async — the caller refreshes).
- */
+/** Enqueues CV tailoring for a job. `applicationId` links the application to the tailored version once the worker finishes (async — the caller refreshes). */
 export async function tailorCv(
   id: string,
   cvId?: string,

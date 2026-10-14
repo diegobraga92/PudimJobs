@@ -1,15 +1,4 @@
-"""Rule-based CV tailoring engine + optional full-LLM variant.
-
-Given a job's parsed requirements and the master CV, selects the most relevant
-experience/project blocks, reorders them, surfaces a tailored skills list and
-leads the summary with the JD-matched strengths. Two optional LLM layers exist:
-
-* ``enhance_with_llm`` rephrases individual bullets (ADR 006), and
-* ``generate_tailored_cv_with_llm`` rewrites the whole CV as a *second* artifact
-  kept alongside the deterministic one (ADR 016).
-
-Both degrade gracefully: a disabled or failing LLM never fails the run.
-"""
+"""Rule-based CV tailoring engine + optional full-LLM variant."""
 
 import json
 import logging
@@ -171,12 +160,7 @@ def _tailored_skills(cv_skills: list[str], matched: list[str]) -> list[str]:
 
 
 def _tailored_summary(base: str, matched: list[str]) -> str:
-    """Lead the summary with the JD-matched strengths (ADR 016).
-
-    Only skills already proven elsewhere in the CV are named, so nothing is
-    invented; a summary that already mentions them all is returned untouched.
-    This is what stops the deterministic variant from being a verbatim copy.
-    """
+    """Lead the summary with the JD-matched strengths (ADR 016)."""
     if not matched:
         return base.strip()
     missing = [skill for skill in matched if not _contains_skill(base, skill)]
@@ -265,14 +249,7 @@ async def enhance_with_llm(
     config: LlmRuntimeConfig | None = None,
     max_bullets: int | None = None,
 ) -> list[str]:
-    """Rephrase bullets using JD language via an OpenAI-compatible API.
-
-    Feature-flagged: returns bullets unchanged unless the effective config has
-    ``enabled`` set and an API key configured. At most ``max_bullets`` (default
-    ``settings.tailor_llm_max_bullets``, per ADR 006) bullets are sent per
-    call; a short or malformed reply is padded with the originals. Any API
-    failure degrades gracefully to the original bullets.
-    """
+    """Rephrase bullets using JD language via an OpenAI-compatible API."""
     if config is None:
         config = LlmRuntimeConfig(
             enabled=settings.tailoring_llm_enabled,
@@ -324,11 +301,7 @@ def _coerce_self_score(value: object) -> int | None:
 
 
 def _truncate_text(text: str, limit: int) -> str:
-    """Shorten ``text`` to ``limit`` characters, preferring a line boundary.
-
-    The JD is prose, so a mid-word cut only costs readability; cutting on a
-    newline keeps requirement lists intact.
-    """
+    """Shorten ``text`` to ``limit`` characters, preferring a line boundary."""
     if len(text) <= limit:
         return text
     cut = text[:limit]
@@ -339,19 +312,7 @@ def _truncate_text(text: str, limit: int) -> str:
 def _fit_cv_for_prompt(
     cv_structure: dict, limit: int, jd_skills: list[str]
 ) -> tuple[str, dict[str, int]]:
-    """Serialise the master CV as *valid* JSON within ``limit`` characters.
-
-    Slicing the serialised JSON (the previous behaviour) handed the model a
-    truncated, syntactically broken reference *while asking it to write the CV
-    from that reference* — an invitation to fill the gap from imagination. Here
-    whole entries are dropped instead (least JD-relevant first, the same notion
-    of relevance the rule engine uses), then the longest bullets are shortened,
-    so whatever is sent always parses.
-
-    Returns the JSON and the counts dropped, for the caller to log. When even the
-    bare structure exceeds ``limit`` the JSON is returned as-is: a slightly
-    oversized but *valid* reference beats a broken one.
-    """
+    """Serialise the master CV as *valid* JSON within ``limit`` characters."""
     payload = dict(cv_structure)
     payload["experience"] = list(cv_structure.get("experience", []) or [])
     payload["projects"] = list(cv_structure.get("projects", []) or [])
@@ -402,19 +363,7 @@ async def generate_tailored_cv_with_llm(
     jd_skills: list[str] | None = None,
     config: LlmRuntimeConfig | None = None,
 ) -> tuple[dict, int | None] | None:
-    """Produce a tailored CV for one job via an LLM (ADR 016).
-
-    Returns ``(structure, self_estimated_score)`` where ``structure`` has been
-    validated against ``CVStructure`` — or ``None`` when the LLM is disabled,
-    errors, or returns something unparseable/invalid. Callers therefore keep the
-    deterministic variant and never fail the run.
-
-    This is the one place a model is asked to *produce* CV content rather than
-    rephrase a bullet, so the prompt forbids fabrication, asks for a CV that fits
-    ``LLM_TARGET_PAGES`` pages (the model decides what to drop; the reply may
-    legitimately contain fewer roles than the master CV), and the result is
-    schema-validated before it is trusted.
-    """
+    """Produce a tailored CV for one job via an LLM (ADR 016)."""
     if config is None:
         config = LlmRuntimeConfig(
             enabled=settings.tailoring_llm_enabled,

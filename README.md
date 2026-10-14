@@ -1,35 +1,30 @@
 # PudimJobs — Job Application Tracker
 
-> **A job hunting assistant** — scrapes job listings from multiple sources, enriches and deduplicates them, helps you tailor your CV to each job description, and tracks your applications from *saved* to *offer*.
+> **A job hunting assistant** — scrapes job listings from multiple sources,
+> enriches and deduplicates them, helps you tailor your CV to each job
+> description, and tracks your applications from *saved* to *offer*.
 >
-> Flagship project for async pipelines, data engineering, search, and resilient external integrations.
-
----
+> Flagship project for async pipelines, data engineering, search, and resilient
+> external integrations.
 
 ## Who this is for
 
-**Job seekers** — PudimJobs watches your target companies and feeds for you:
-new postings are scraped, deduplicated, and matched against your saved
-searches (alerts in-app and by email). Tailoring produces a job-specific CV PDF
-from your master CV (from the application workspace), and the kanban pipeline
-tracks each application from *saved* through *offer*.
+**Job seekers** — PudimJobs watches your target companies and feeds for you: new
+postings are scraped, deduplicated, and matched against your saved searches
+(alerts in-app and by email). Tailoring produces a job-specific CV PDF from your
+master CV (from the application workspace), and the kanban pipeline tracks each
+application from *saved* through *offer*.
 
-**Hiring managers / HR** — this is a portfolio project that demonstrates how a
-small engineering team would build a production job board: an event-driven
-scraping pipeline with circuit breakers and a dead-letter queue, a data
-quality pipeline with normalization and dashboards, relevance-ranked search,
-and versioned CV generation. See [docs/tradeoffs.md](docs/tradeoffs.md) for the
-engineering decisions behind each component.
+**Engineers / interviewers** — this is a portfolio project showing how a small
+team would build a production job board: an event-driven scraping pipeline with
+circuit breakers and a dead-letter queue, a data-quality pipeline with
+normalization and dashboards, relevance-ranked search, and versioned CV
+generation. The reasoning lives in three docs:
 
-**Engineers / interviewers** — the interesting depth lives in the docs:
-- [Development plan](docs/DEV_PLAN.md) — 8 phases, every checkbox traceable to code
-- [Architecture decision records](docs/adr/) — 16 ADRs (FastAPI, data model, events, reprocessing, resilience, tailoring, alerting, data quality, search, discovery, CV import, mobile client, ATS scoring, interview prep, per-application CV workspace, tailored CV artifacts)
-- [Resilience](docs/stride-threat-model.md) · [runbooks](docs/runbooks/) · [postmortem](docs/postmortems/)
-- [Database performance](docs/database-performance.md) — real `EXPLAIN ANALYZE` numbers
-- [Cost & capacity](docs/cost-estimate.md) · [docs/capacity-plan.md](docs/capacity-plan.md)
-- [C4 architecture diagram](docs/architecture-c4.puml)
-
----
+- [`docs/decisions.md`](docs/decisions.md) — 16 ADRs + trade-off table + event-schema contract
+- [`docs/operations.md`](docs/operations.md) — SLOs, capacity, cost, DB/search numbers, STRIDE, secrets, runbooks, postmortem
+- [`docs/scraping.md`](docs/scraping.md) — source capability matrix, onboarding, coverage
+- [`docs/architecture-c4.puml`](docs/architecture-c4.puml) — C4 container diagram
 
 ## Architecture
 
@@ -38,10 +33,10 @@ engineering decisions behind each component.
 | **API** | Python 3.12 + FastAPI | REST API, auth, CRUD, orchestration |
 | **Workers** | Celery + RabbitMQ | Async scraping, JD parsing, CV tailoring, matching alerts |
 | **Database** | PostgreSQL 16 (asyncpg / SQLAlchemy) | Sources, jobs, master CV, applications, audit log |
-| **Cache / broker** | Redis | Celery result backend, rate limiting |
+| **Cache / broker** | Redis | Celery result backend, rate limiting, circuit breakers |
 | **Search** | PostgreSQL Full-Text Search | Keyword search over jobs (Elasticsearch tradeoff documented) |
 | **Frontend** | Angular 17 + TypeScript | Source management, job search, CV editor, application pipeline |
-| **Mobile** | React Native (Expo SDK 57, Android-first) | Mobile mirror of the web UI: jobs, CV editor, kanban, sources, alerts, notifications, admin |
+| **Mobile** | React Native (Expo SDK 57, Android-first) | Mobile mirror of the web UI |
 | **Observability** | OpenTelemetry → Jaeger, Prometheus, Grafana, structlog | Traces, metrics, structured logs, RED + data-quality dashboards |
 | **Infrastructure** | Docker Compose (dev), Terraform + AWS (prod) | Local & cloud deployment |
 
@@ -51,20 +46,19 @@ engineering decisions behind each component.
 │   frontend  │      │    backend   │      │ (sources, jobs…)  │
 └─────────────┘      └──────┬───────┘      └───────────────────┘
                             │  /health, /metrics
-                            │
                      ┌──────▼────────┐      ┌───────────────────┐
                      │ RabbitMQ      │ ◀─── │ Celery workers    │
                      │ (event bus)   │      │ (scrapers, NLP)   │
                      └───────────────┘      └───────────────────┘
 ```
 
-## Project Structure
+## Project structure
 
 ```
 PudimJobs/
 ├── backend/          # FastAPI application (Python 3.12)
 │   └── app/          #   config, database, models, routers, services, data, templates
-├── frontend/         # Angular 17 application
+├── frontend/         # Angular 17 application (standalone components, PWA)
 │   └── src/app/      #   components, services, routing, guards, interceptors
 ├── mobile/           # React Native (Android-first) client — mirrors the web UI
 │   └── src/          #   screens, components, api, hooks, theme, i18n, navigation
@@ -73,22 +67,19 @@ PudimJobs/
 ├── api/              # Event schemas/producer + hand-written OpenAPI specs
 ├── infra/            # Terraform (RDS, ECR) + Prometheus/Grafana provisioning
 ├── scripts/          # Load test + chaos experiment scripts
-├── docs/             # DEV_PLAN, 16 ADRs, SLOs, runbooks, postmortems, tradeoffs
+├── docs/             # decisions, operations, scraping, architecture-c4.puml
 └── docker-compose.yml
 ```
 
-## Quick Start (Local Development)
+## Quick start (local development)
 
 Requirements: Docker + Docker Compose.
 
 ```bash
-# Start everything (PostgreSQL, RabbitMQ, Redis, backend, frontend)
-docker compose up
+docker compose up          # everything: PostgreSQL, RabbitMQ, Redis, backend, frontend
+make up                    # same, via the Makefile
 
-# Or via the Makefile
-make up
-
-# Frontend:      http://localhost:9400   (UI; proxies /api → backend internally)
+# Frontend:      http://localhost:9400   (proxies /api → backend internally)
 # RabbitMQ UI:   http://localhost:9672   (pudimjobs / pudimjobs_dev)
 # Mailpit:       http://localhost:9025   (dev email inbox)
 # Grafana:       http://localhost:9300   (admin / admin)
@@ -96,97 +87,47 @@ make up
 # Jaeger UI:     http://localhost:9668
 ```
 
-**Mobile app (Android):** the React Native client in [`mobile/`](mobile/) talks
-to the FastAPI backend directly (see `mobile/README.md`). The backend is bound
-to an optional host port (`PJ_BACKEND_PORT`, default `8000`) so the app can
-reach `/api` from an emulator (`10.0.2.2`) or device. Dev seed credentials:
-`admin@pudimjobs.dev` / `admin123`.
+`docker compose up` runs the backend with hot reload, so Python changes apply
+immediately. Only the frontend and the admin dashboards are bound to host ports
+(all configurable via `.env` — see [`.env.example`](.env.example)); PostgreSQL,
+Redis, RabbitMQ AMQP and the FastAPI backend stay on Docker's internal network,
+where the Angular dev server proxies `/api` → `backend:8000`.
+
+Dev seed credentials (created by `python -m app.seed`, dev only):
+**`admin@pudimjobs.dev` / `admin123`** — an `admin` role, so the Admin panel is
+visible.
+
+**Mobile app (Android)** — the React Native client in [`mobile/`](mobile/)
+talks to the backend directly. The backend is bound to an optional host port
+(`PJ_BACKEND_PORT`, default `8000`) so the app can reach `/api` from an emulator
+(`10.0.2.2`) or a device; override `EXPO_PUBLIC_API_URL` in `mobile/.env`.
+Native apps do not need CORS (browser-only), but the backend's allow-list
+defaults to `localhost:4200/9400` — add your LAN origin to `PJ_CORS_ORIGINS` if
+you open Swagger UI from another host.
 
 ```bash
-cd mobile && npm install && npm run android
+cd mobile && npm install && npm run android   # or: npm start
 ```
 
-`docker compose up` launches the backend with hot reload, so Python changes
-apply immediately. Only the frontend and the admin dashboards are bound to host
-ports (all configurable via `.env` — see [`.env.example`](.env.example));
-PostgreSQL, Redis, RabbitMQ AMQP and the FastAPI backend stay on Docker's
-internal network, where the Angular dev server proxies `/api` → `backend:8000`.
-
-## LAN Server Deployment
+## LAN server deployment
 
 PudimJobs is designed to run on a shared LAN server without colliding with the
-webservers already running there. All host port bindings are configurable via a
-`.env` file and default to a `9xxx` range that avoids the usual suspects
-(`80`, `3000`, `4200`, `5432`, `6379`, `8000`, `9090`, …). Services that only
-consume each other over Docker's internal network (PostgreSQL, Redis, RabbitMQ
-AMQP, FastAPI, Jaeger OTLP, Mailpit SMTP) are **not** exposed to the host at all.
-
-### 1. Configure `.env`
+webservers already running there. Every host port binding is configurable via
+`.env`; the UI and dashboards sit in a `9xxx` range that avoids the usual
+suspects (`80`, `3000`, `4200`, `5432`, `6379`, `9090`, …), and the API keeps its
+conventional `8000`.
 
 ```bash
 cp .env.example .env
-```
-
-Then edit `.env`:
-
-1. **Check for port conflicts** on the server and adjust any value that is
-   already in use:
-
-   ```bash
-   ss -tlnp | grep -E ':(9400|9300|9409|9668|9672|9025)\b' || echo "all free"
-   # or, to see everything Docker has already bound:
-   docker ps --format '{{.Names}}\t{{.Ports}}'
-   ```
-
-2. **Add the server's LAN IP** to `PJ_CORS_ORIGINS` if you plan to open the
-   backend Swagger UI (`/docs`) or call the API directly from a browser on
-   another machine. The normal UI flow proxies `/api` through the frontend, so
-   it works without this:
-
-   ```env
-   PJ_CORS_ORIGINS=http://localhost:9400,http://127.0.0.1:9400,http://192.168.1.50:9400
-   ```
-
-### 2. Start the stack
-
-```bash
+ss -tlnp | grep -E ':(9400|9300|9409|9668|9672|9025|8000)\b' || echo "all free"
+docker ps --format '{{.Names}}\t{{.Ports}}'     # what Docker already bound
 docker compose up -d
-# or, if you keep the config in a non-default location:
-docker compose --env-file .env up -d
 ```
-
-> **Upgrading an existing checkout?** Delete the `TAILORING_LLM_VARIANT_ENABLED`
-> line from your `.env` if it is still there — the setting was removed (ADR 016
-> amendment) and `Settings` forbids unknown keys, so a backend/worker process
-> that loads that file (a native run, not Compose) now fails validation at
-> import. The AI rewrite variant is instead turned on by enabling the LLM in
-> Admin → LLM with an API key.
->
-> No data migration is needed for tailored CVs: artifacts written before ADR 016
-> (a `generated_cvs` row with `structured_json` NULL) are **repaired in place** by
-> the next tailor run for that job — same row id, so the application link and the
-> PDF keep working. Nothing is deleted.
-
-### 3. Access from the LAN
-
-Replace `SERVER_IP` with the server's LAN address (`hostname -I`):
-
-| What | URL |
-|------|-----|
-| **App UI** | `http://SERVER_IP:9400` |
-| Grafana dashboards | `http://SERVER_IP:9300` (admin / admin) |
-| RabbitMQ management | `http://SERVER_IP:9672` (pudimjobs / pudimjobs_dev) |
-| Mailpit (dev email) | `http://SERVER_IP:9025` |
-| Jaeger tracing UI | `http://SERVER_IP:9668` |
-| Prometheus | `http://SERVER_IP:9409` |
-
-### Port reference
-
-All host ports come from `.env` (see [`.env.example`](.env.example)):
 
 | Variable | Service | Default |
 |----------|---------|---------|
 | `PJ_FRONTEND_PORT` | Angular UI | `9400` |
+| `PJ_BACKEND_PORT` | FastAPI (mobile clients, API tooling, Swagger) | `8000` |
 | `PJ_GRAFANA_PORT` | Grafana | `9300` |
 | `PJ_PROMETHEUS_PORT` | Prometheus | `9409` |
 | `PJ_JAEGER_UI_PORT` | Jaeger UI | `9668` |
@@ -194,307 +135,222 @@ All host ports come from `.env` (see [`.env.example`](.env.example)):
 | `PJ_MAILPIT_PORT` | Mailpit UI | `9025` |
 | `PJ_CORS_ORIGINS` | Allowed browser origins (comma-separated) | `http://localhost:9400,…` |
 
-PostgreSQL, Redis, RabbitMQ AMQP and the FastAPI backend are **not** exposed to
-the host. To reach them from the server itself, use `docker compose exec`:
+From the LAN, `http://SERVER_IP:9400` is the app UI; the dashboards move to the
+same host with the ports above. PostgreSQL, Redis and RabbitMQ AMQP are **not**
+exposed — reach them with `docker compose exec`:
 
 ```bash
 docker compose exec postgres psql -U pudimjobs -d pudimjobs
 docker compose exec backend python -c "import httpx; print(httpx.get('http://localhost:8000/health').json())"
 ```
 
-> 💡 Need the API reachable from the LAN for tooling (e.g. the scripts in
-> `scripts/`)? Add a host binding to the `backend` service in
-> `docker-compose.yml` (`ports: - "${PJ_BACKEND_PORT:-8000}:8000"`) and set
-> `PJ_BACKEND_PORT` in `.env`.
+The `scripts/` tooling (load test, chaos experiments) talks to
+`http://localhost:8000` — set `PJ_BACKEND_PORT` in `.env` if that port is taken.
 
-## Development Commands
+> **Upgrading an existing checkout?** Delete the `TAILORING_LLM_VARIANT_ENABLED`
+> line from your `.env` — the setting was removed (ADR 016 amendment) and
+> `Settings` forbids unknown keys, so a native `backend`/`worker` run now fails
+> validation at import. The AI rewrite variant is instead turned on by enabling
+> the LLM in Admin → LLM with an API key. No data migration is needed for
+> tailored CVs: artifacts written before ADR 016 (`structured_json` NULL) are
+> repaired in place by the next tailor run for that job, same row id, so the
+> application link and PDF keep working.
+
+## Development commands
 
 ```bash
 make test       # Backend tests (pytest)
 make lint       # Backend lint (ruff)
 make logs       # Stream all service logs
-make up         # Start services
-make down       # Stop services
+make up / down  # Start / stop services
 ```
 
-Backend tests can also be run directly:
+**Backend (FastAPI + PostgreSQL)**
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest            # runs tests/ with asyncio mode auto
-ruff check .      # lint
-```
-
-Integration tests need a PostgreSQL test database. They default to
-`postgresql+asyncpg://pudimjobs:pudimjobs_test@localhost:5433/pudimjobs_test`
-and are skipped automatically when no database is reachable. Override with:
-
-```bash
-TEST_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/db pytest
-```
-
-Local development helpers:
-
-```bash
-cd backend
+pytest                    # tests/ with asyncio mode auto
+ruff check .              # lint
 alembic upgrade head      # apply migrations
 python -m app.seed        # create the admin user (idempotent)
 uvicorn app.main:app --reload
 ```
 
-Frontend:
+Integration tests need PostgreSQL and default to
+`postgresql+asyncpg://pudimjobs:pudimjobs_test@localhost:5433/pudimjobs_test`
+(skipped automatically when unreachable); override with `TEST_DATABASE_URL=…`.
+
+**Frontend (Angular 17)**
 
 ```bash
 cd frontend
 npm ci
 npm start                 # dev server on :4200
 npm test                  # unit tests (Karma + Jasmine)
-npm run build             # production build
+npm run build             # production build into dist/
 ```
 
-## Status & Roadmap
+The UI is token-driven: design tokens, shared classes (`.btn`, `.panel`, `.card`,
+`.input`, `.modal-*`, `.toast`, …) and inline-SVG icons live in
+`src/styles.scss` and `src/app/shared/icons/`. Dark mode persists to
+`localStorage` (`pudimjobs_theme`) with a `prefers-color-scheme` fallback;
+`angular.json` enforces a 6 kB/8 kB `anyComponentStyle` budget. The app is
+installable and works offline (`@angular/service-worker`, `ngsw-config.json`,
+`manifest.webmanifest`).
 
-See [docs/DEV_PLAN.md](docs/DEV_PLAN.md) for the full development plan.
+**Mobile (React Native / Expo SDK 57)**
 
-| Phase | Status |
-|-------|--------|
-| 0 — Project skeleton, infra & CI/CD | ✅ Done |
-| 1 — Core data models & basic CRUD | ✅ Done |
-| 2 — Scraping engine & reprocessing | ✅ Done |
-| 3 — JD parsing & CV tailoring | ✅ Done |
-| 4 — Matching alerts & notifications | ✅ Done |
-| 5 — Observability, data quality & search | ✅ Done |
-| 6 — Security hardening | ✅ Done |
-| 7 — Chaos & incident postmortem | ✅ Done |
-| 8 — Cost analysis & portfolio polish | ✅ Done |
+```bash
+cd mobile
+npm run typecheck   # tsc --noEmit
+npm run lint        # eslint .
+npm test            # jest
+npm run format      # prettier --write .   (format:check = verify only)
+npx expo export --platform android   # validate the production bundle
+```
 
-Known gaps (mobile parity for the newest features, prep-task reminders, free-text
-retrospectives) are listed at the end of the development plan.
+The i18n dictionary is **generated** from the web frontend
+(`node mobile/scripts/extract-dictionary.js`, run from the repo root) so the two
+never drift; app icons are generated from the web brand mark by
+`mobile/scripts/generate-icons.js`. These checks run in CI via
+`.github/workflows/mobile-ci.yml`.
 
-### What's implemented so far
+**Workers (Celery + RabbitMQ)**
 
-**Backend (FastAPI + PostgreSQL)**
-- JWT authentication (`POST /api/auth/login`, `GET /api/auth/me`) with bcrypt hashing
-- User-scoped CRUD: sources, jobs (manual add + search/filter), master CV
-  (versioned), applications (pipeline status, notes)
-- Audit logging for CV modifications and application status changes
-- Alembic migrations (`alembic upgrade head`) and an idempotent seed
-  (`python -m app.seed`)
-- 294 backend unit + integration tests, 24 Angular component/shell specs
-  (PostgreSQL + Redis test services via `TEST_DATABASE_URL` / `REDIS_URL`)
+The worker imports the backend's `app` package, so install the backend
+requirements first. With RabbitMQ and Redis up:
 
-**Scraping engine (Celery + RabbitMQ)**
-- Celery worker + Beat scheduler in `workers/`, wired into docker-compose
-- Pluggable scrapers in `scrapers/` (career page via schema.org/JSON-LD, RSS
-  via feedparser, aggregator base, discovery providers)
-- `scrape_source` task: circuit-breaker check → rate limit → fetch → parse →
-  normalize → dedup insert → publish `job.new` event → update source health
-- Discovery sources (`scrapers/discovery.py`): ATS feeds (Ashby, Greenhouse,
-  Lever, Workable) and search APIs (Google CSE, Bing, Brave, SerpApi, Bright
-  Data) — provider selected per source; search providers fetch each result
-  page with per-domain robots + rate limiting; `serpapi`/`brightdata` cover
-  LinkedIn Jobs and Indeed via paid third-party APIs
-- Resilience: Redis-backed per-source circuit breaker (5 failures → pause 1h),
-  per-domain rate limiting, robots.txt checks, user-agent rotation,
-  exponential-backoff retries, RabbitMQ DLX
-- Reprocessing: `scrape_runs` durable failed-run log; admin endpoints to list
-  the DLQ and replay failed runs
-- Versioned `job.new` events in `api/events/` (JSON on a topic exchange,
-  `job.new.v1` routing key)
-- Admin dashboard in the frontend: stats, source health, DLQ with replay
+```bash
+cd backend && python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cd ../workers && pip install -r requirements.txt
 
-**JD parsing & CV tailoring**
-- JD parsing worker (spaCy): extracts skills, years of experience, education
-  level, keywords into `jobs.parsed_jd` (JSONB)
-- Curated skills taxonomy (`app/data/skills_taxonomy.json`) + word-boundary
-  matching with a `match_skills` relevance score
-- Rule-based tailoring engine (`cv_tailor.tailor_cv`): scores/reorders/selects
-  experience & project blocks, reorders skills (matched first) and leads the
-  summary with the JD-matched strengths; reports `used_fallback` when nothing
-  matched instead of silently returning the top blocks
-- Optional **second** variant: a full LLM rewrite kept *alongside* the
-  deterministic one (an LLM enabled in Admin → LLM with a stored API key; there
-  is no env flag since ADR 016 was amended), schema-validated and degrading
-  gracefully. Its prompt asks for a CV **tailored for the job** (the master CV is
-  the only source of truth, and the model *may* omit roles/projects/bullets that
-  do not support the application) that fits **two pages**, expressed as the levers
-  the model controls — keep the 3-4 most relevant roles with 3-5 bullets each,
-  ~550-650 words — because page length is the template's call, not the model's.
-  The page count of the stored PDF is recorded as `cv_artifact_pages`, and
-  `llm_rewrite_over_page_budget` warns when the budget was ignored: it is
-  *reported, never corrected* (nothing is trimmed afterwards, and a shorter
-  structure is a perfectly valid reply). Both variants are scored by the
-  deterministic ATS scorer so they can be compared (ADR 016). Both gates (the
-  admin toggle and the API key) are silent when unmet, so a skipped variant is
-  logged as `cv_tailored_llm_variant_skipped` with the reason — check
-  `docker compose logs worker | grep llm_variant_skipped` when only the
-  deterministic CV appears. Env *fallback* changes (`TAILORING_LLM_ENABLED`,
-  `OPENAI_*`) only reach the worker after
-  `docker compose up -d --force-recreate worker`
-- Every LLM call in the app (CV structuring, bullet rephrasing, full-CV rewrite,
-  ATS review) goes through `app/services/llm_client.py`, which is also where
-  provider quirks are handled: DeepSeek endpoints get
-  `thinking: {"type": "disabled"}` (with thinking on, `max_tokens` is spent on
-  `reasoning_content` and the answer arrives **empty**, silently degrading the
-  feature), JSON callers ask for a bare object (retried without it if the
-  provider rejects `response_format`), and an empty reply is logged as
-  `llm_empty_content` with the model, `finish_reason` and token budget instead of
-  being treated as success. Admin → LLM "Test connection" uses the same client and
-  therefore requires a *usable* reply, not merely HTTP 200
-- Self-healing tailored artifacts: a `generated_cvs` row with no
-  `structured_json` (pre-ADR-016 leftovers) does not count as "already tailored",
-  so the next run repairs that same row in place — retaining the row id,
-  `created_at` and the `applications.generated_cv_id` link
-- PDF generation: Jinja2 template + weasyprint; a tailored CV is a
-  **self-contained `generated_cvs` artifact** (its own `structured_json` and
-  `variant`, `rule` or `llm`) — a tailor run never creates a `master_cv` version
-  (ADR 016)
-- CV import: `POST /api/cv/parse` uploads a PDF/DOCX/ODT and returns a
-  structured `CVStructure` (rule-based parser, optional LLM upgrade — ADR 011);
-  the editor is pre-filled for review before saving
-- ATS scoring: `POST /api/cv/ats-score` returns a 0–100 score with weighted
-  factors (skills 40%, keywords 15%, completeness 20%, readability 25%),
-  matched/missing skills, recommendations and layout warnings; a qualitative
-  LLM review is blended in at 30% when an LLM is configured, and the report is
-  cached on the generated CV (`ats_score` / `ats_report`) — ADR 013
-- ATS-safe export: the `ats` template (`template=ats`) renders a plain
-  single-column PDF built for parsers, alongside the default `classic` layout
-- API: `POST /api/jobs/{id}/parse`, `POST /api/jobs/{id}/tailor`
-  (optional `application_id` links the run to an application),
-  `GET /api/jobs/{id}/parsed`, `POST /api/cv/parse`, `POST /api/cv/ats-score`,
-  `POST /api/cv/pdf`, `GET /api/cv/generated` (optional `?job_id=`),
-  `GET /api/cv/generated/{id}`, `PUT /api/cv/generated/{id}` (edit one artifact:
-  re-renders its PDF, clears the stale ATS cache), `GET /api/cv/generated/{id}/pdf`
-- Frontend: parsed-JD panel on the job detail page, which links to the
-  **application workspace** rather than tailoring from the job page itself;
-  CV editor with contact/links/certifications/languages fields,
-  `PDF`/`DOCX`/`ODT` import and a Classic ⇄ ATS-safe export selector. The
-  tailored CVs, their PDFs, their cached ATS scores, an inline editor (summary /
-  skills / bullets) and the "Use this one" action live in the application
-  workspace (`/applications/:id`) — the master CV page is master-only, never
-  loads a tailored CV, and the job page only triages (ADR 015, ADR 016)
+celery -A workers.celery_app worker --loglevel=info   # worker
+celery -A workers.celery_app beat   --loglevel=info   # periodic sweep
+```
 
-**Matching alerts & notifications**
-- Alert rules (saved searches): keywords, companies, tags, remote-only,
-  min years of experience, channels, active toggle — `alert_rules` table +
-  full CRUD API + frontend page
-- Event-driven matching: `workers/consume_events.py` consumes `job.new`
-  RabbitMQ events and enqueues `match_job`; `match_job` evaluates the job
-  against all active rules for its owner (`app/services/matcher.py`)
-- Delivery: in-app notifications (`notifications` table) + email via SMTP
-  (Mailpit for local dev, Jinja2 template); per-notification delivery status
-  (created/sent/failed) for observability
-- API: `/api/alert-rules`, `/api/notifications` (list, mark-read, read-all)
-- Frontend: Alerts page (CRUD + pause/resume) and Notifications page
+`workers/beat_schedule.py` runs `sweep_sources` every
+`scrape_sweep_interval_minutes`, enqueuing a `scrape_source` task per due source.
 
-**Applications, retrospectives & interview prep**
-- Per-application workspace (`/applications/:id`): the job it targets
-  (`GET /api/applications/{id}`, returning the description), the pipeline fields
-  (status, applied date, notes, retrospective), the job description and the
-  tailored-CV panel — where `Application.generated_cv_id` records the artifact
-  that was sent (ADR 015, ADR 016)
-- Applications keep a per-record `lessons_learned` retrospective note
-  (migration `0016`) plus a cross-application feed surfaced by
-  `GET /api/applications/lessons` (only non-empty notes, newest first)
-- Interview prep tasks: `prep_tasks` table (migration `0017`) with full CRUD
-  under `/api/prep-tasks` — title, category, status, due date, notes and
-  optional job/application link; ownership-checked, validated and audit-logged,
-  with a list ordering that surfaces unfinished work first (pending → in
-  progress → done), then the nearest due date
-- API: `/api/prep-tasks` (list, get, create, update, delete),
-  `GET /api/applications/{id}`, `GET /api/applications/lessons`
-- Frontend: "Interview prep" workspace (status chips, job filter, inline status
-  cycling, create/edit/delete form, optional job *and* application links), a
-  "Lessons learned" feed with status/text filtering, and an application
-  workspace that edits the notes/retrospective next to the CV panel (ADR 014,
-  ADR 015)
+| Resilience mechanism | Implementation |
+|----------------------|----------------|
+| Circuit breaker | Redis `cb:{source_id}` counter; ≥5 consecutive failures pause the source for 1h |
+| Rate limiting | Redis `rate:{domain}` TTL per source (`sources.rate_limit_seconds`, default 30s) |
+| User-agent rotation | Configured pool in `app.config` |
+| robots.txt | Checked per domain, cached in-process 1h (`sources.respect_robots_txt`, default on) |
+| Retry | Celery `autoretry_for`, exponential backoff 1m→2m→4m |
+| Dead letters | RabbitMQ DLX (`pudimjobs.dlx`) + durable `scrape_runs` failed records |
 
-**Observability, data quality & search**
-- PostgreSQL Full-Text Search: generated `search_vector` (title A > company B
-  > description C) + GIN index; `plainto_tsquery`/`ts_rank` ranking with a
-  per-result `score` (replaces ILIKE) — migration `0006`
-- Data quality pipeline: `scrape_quality` table; company/title/skill
-  normalization (mapping files + taxonomy aliases), completeness scoring,
-  fuzzy cross-source duplicate detection — dispatched from the same `job.new`
-  event consumer as alert matching (migration `0007`)
-- Admin "Data Quality" dashboard: overview cards, per-source breakdown,
-  flagged-jobs list with normalization + issues
-- OpenTelemetry: FastAPI + Celery instrumentation → Jaeger (OTLP), trace IDs
-  bridged to structured logs; docker-compose now runs Prometheus, Grafana
-  (provisioned RED/scraper dashboard), and Jaeger
-- Worker Prometheus metrics wired into the scrape task (scrapes total,
-  duration); `/metrics` on a sidecar port
-- Load test script (`scripts/load_test.py`) + real `EXPLAIN ANALYZE` results
-  in `docs/database-performance.md`; PostgreSQL-vs-Elasticsearch evaluation in
-  `docs/elasticsearch-comparison.md`
+**Chaos experiments** (`scripts/chaos/`, run against a live stack — each injects
+a failure, verifies the response, then restores and prints `[PASS]`/`[FAIL]`):
 
-**Security hardening (Phase 6)**
-- STRIDE threat model for API + scrapers (`docs/stride-threat-model.md`)
-- API rate limiting with `slowapi` (Redis-backed): login 5/min, authenticated
-  API 120/min; 429 responses
-- Audit investigation API (`GET /api/admin/audit` with user/action/entity/date
-  filters + `/audit/actions` facets) and an Audit Log tab in the admin UI with
-  expandable change-diffs
-- CI security gates: `pip-audit` on Python deps + Trivy container scan
-- Secrets rotation guide (`docs/secrets-rotation.md`)
+| Script | Injects | Verifies |
+|--------|---------|----------|
+| `kill_rabbitmq.py` | stop RabbitMQ mid-scrape | durable queues buffer events; worker recovers |
+| `break_scraper_html.py` | malformed feed HTML | retries → circuit breaker → DLQ → recovery |
+| `exhaust_worker_memory.py` | cap worker at 64MB during a burst | OOM tasks retried; no duplicate jobs |
+| `drop_data_quality.py` | empty the company-name mapping | normalization degrades visibly, then recovers |
 
-**Resilience, chaos & postmortems (Phase 7)**
-- Chaos experiment scripts (`scripts/chaos/`): kill RabbitMQ, break scraper
-  HTML, exhaust worker memory, break a normalization rule — each injects a
-  failure and verifies the system's response
-- Blameless postmortem: `docs/postmortems/001-scraper-outage-data-quality.md`
-  (simulated job-board HTML change → circuit breaker → DLQ → re-scrape
-  recovery, with corrective actions)
-- Four runbooks in `docs/runbooks/`: scraper failure, RabbitMQ backlog, data
-  quality degradation, database failover
+```bash
+cd scripts/chaos && python break_scraper_html.py
+```
 
-**Frontend (Angular)**
-- Login page + auth guard + JWT interceptor
-- Source management (add / edit / delete)
-- Job listing with keyword/company/tag/date search + manual add + detail view
-  (parsed requirements, *add to applications*, and — once the job is tracked — a
-  pipeline badge plus a link straight to its application workspace)
-- Master CV editor (contact block, summary, experience, education, skills,
-  projects, certifications, languages) with version history, PDF/DOCX/ODT
-  import, live preview and Classic/ATS-safe PDF export
-- Application pipeline (Kanban: saved → applied → interview → offer → rejected);
-  cards open a per-application workspace holding the job description, the
-  notes/retrospective edits and the tailored-CV + ATS panel
-- Interview prep checklist (`/prep-tasks`) and the lessons-learned feed (`/lessons`)
-- Admin dashboard (source health, scrape stats, dead-letter queue)
+**Infrastructure (Terraform)** — `infra/` provisions RDS PostgreSQL 16
+(`db.t3.micro`, encrypted at rest, 7-day backups, `multi_az`, deletion protection
+in prod; inputs `environment`, `db_password`, optional `db_name`/`db_user`/
+`allocated_storage`; outputs `endpoint`/`port`/`db_name`/`db_user`) and the ECR
+repositories for backend/frontend images. ECS, ALB, VPC, S3 and ElastiCache are
+documented provisioning gaps.
 
-**Demo credentials** (seeded by `python -m app.seed`, dev only):
-`admin@pudimjobs.dev` / `admin123`
+## Status & features
 
-## Documentation
+All eight development phases are complete: skeleton/infra/CI → data models →
+scraping & reprocessing → JD parsing & CV tailoring → matching alerts →
+observability/data quality/search → security hardening → chaos & postmortem →
+cost analysis. Known gaps (mobile parity for the newest features, prep-task
+reminders, free-text retrospectives) are listed in the ADRs.
 
-**Planning & decisions**
-- [Development Plan](docs/DEV_PLAN.md) — phased roadmap with completion checklists (Phases 0–8 ✅)
-- [Architecture Decision Records](docs/adr/) — **16 ADRs** (001–016)
-- [Tradeoffs](docs/tradeoffs.md) — every decision at a glance, linked to ADRs
+**Backend (FastAPI + PostgreSQL)** — JWT auth (`POST /api/auth/login`,
+`GET /api/auth/me`, bcrypt); user-scoped CRUD for sources, jobs (manual add +
+search/filter), versioned master CV and applications (pipeline status, notes);
+audit logging for CV and application mutations; Alembic migrations + idempotent
+seed. 366 backend tests (221 run without PostgreSQL, 145 integration tests
+skipped when it is unreachable) and 60 Angular specs.
 
-**Operational**
-- [SLOs & Error Budgets](docs/slo.md) — availability 99.5%, freshness, latency
-- [Database Performance](docs/database-performance.md) — real `EXPLAIN ANALYZE` results
-- [Search Evaluation](docs/elasticsearch-comparison.md) — PostgreSQL FTS vs OpenSearch
-- [Cost Estimate](docs/cost-estimate.md) · [Capacity Plan](docs/capacity-plan.md)
-- [Secrets Rotation](docs/secrets-rotation.md)
-- [C4 Architecture Diagram](docs/architecture-c4.puml)
+**Scraping engine (Celery + RabbitMQ)** — pluggable scrapers (`scrapers/`:
+career page via schema.org/JSON-LD, RSS via feedparser, aggregator adapters,
+discovery providers). `scrape_source` runs circuit-breaker check → rate limit →
+fetch → parse → normalize → dedup insert → publish `job.new` → update source
+health. Discovery sources (`scrapers/discovery.py`) cover ATS JSON boards
+(Ashby, Greenhouse, Lever, Workable, SmartRecruiters, Recruitee, Personio,
+Workday), generic JSON APIs and search providers (Google CSE, Bing, Brave,
+SerpApi, Bright Data — the paid route to LinkedIn/Indeed). Reprocessing is
+backed by the durable `scrape_runs` failed-run log with admin DLQ list + replay.
+Versioned `job.new` events live in `api/events/` (JSON on a topic exchange).
 
-**Security & resilience**
-- [STRIDE Threat Model](docs/stride-threat-model.md)
-- [Runbooks](docs/runbooks/) — scraper failure, RabbitMQ backlog, data quality, database failover
-- [Postmortems](docs/postmortems/) — simulated scraper-outage incident
-- [Chaos Experiments](scripts/chaos/README.md) — failure-injection scripts
+**JD parsing & CV tailoring** — a spaCy worker extracts skills, years of
+experience, education level and keywords into `jobs.parsed_jd` (JSONB), backed
+by a curated taxonomy (`app/data/skills_taxonomy.json`) with word-boundary
+matching and a `match_skills` score. Rule-based tailoring
+(`cv_tailor.tailor_cv`) scores/reorders/selects experience and project blocks,
+reorders skills (matched first) and leads the summary with JD-matched strengths,
+reporting `used_fallback` instead of silently returning the top blocks. An
+optional **second** variant is a full LLM rewrite kept *alongside* the
+deterministic one (enabled in Admin → LLM with a stored API key; no env flag),
+schema-validated and degrading gracefully; its prompt asks for a CV tailored for
+the job (master CV as single source of truth, roles that do not support the
+application may be omitted) that fits two pages. Both variants render PDF/DOCX
+via Jinja2 templates (Classic and ATS-safe) behind `GET /api/cv/generated/{id}/pdf`.
 
-## Demo Video
+**Applications, retrospectives & interview prep** — a per-application workspace
+(`/applications/:id`) with the target job (`GET /api/applications/{id}`), the
+pipeline fields (status, applied date, notes, retrospective), the job
+description and the tailored-CV + ATS panel; `Application.generated_cv_id`
+records the artifact that was sent. Applications keep a per-record
+`lessons_learned` note (migration `0016`) plus a cross-application feed
+(`GET /api/applications/lessons`). Interview prep tasks live in `prep_tasks`
+(migration `0017`) with full CRUD under `/api/prep-tasks`, ordered to surface
+unfinished work first, then the nearest due date.
 
-A walkthrough script is outlined in [docs/DEV_PLAN.md](docs/DEV_PLAN.md) (Phase 8):
-scraping workflow → data quality dashboard → CV tailoring → alert notification →
-reprocessing. To record: start the stack, run `python scripts/chaos/break_scraper_html.py`
-to show resilience, then run the tailoring + alert flows described in the README.
+**Matching alerts & notifications** — alert rules (keywords, companies, tags,
+remote-only, min years, channels, active toggle) with full CRUD
+(`/api/alert-rules`). `workers/consume_events.py` consumes `job.new` and
+enqueues `match_job`, which evaluates the job against every active rule of its
+owner (`app/services/matcher.py`). Delivery is in-app (`notifications` table) and
+by email (SMTP, Mailpit in dev, Jinja2 template) with per-notification delivery
+status; `/api/notifications` lists, marks-read and reads-all.
+
+**Observability, data quality & search** — PostgreSQL FTS with a generated
+`search_vector` (title A > company B > description C), GIN index and
+`plainto_tsquery`/`ts_rank` scoring (migration `0006`). A `scrape_quality` table
+(migration `0007`) tracks company/title/skill normalization, completeness scoring
+and fuzzy cross-source duplicate detection, dispatched from the same `job.new`
+consumer as alert matching, with an admin Data Quality dashboard. OpenTelemetry
+instruments FastAPI + Celery into Jaeger (OTLP) with trace IDs bridged to
+structlog; Prometheus/Grafana and worker metrics (scrapes total/duration) are
+provisioned by docker-compose.
+
+**Frontend (Angular)** — login + auth guard + JWT interceptor; source
+management; job listing with keyword/company/tag/date search, manual add and a
+detail view (parsed requirements, *add to applications*, pipeline badge once
+tracked); master CV editor (contact, summary, experience, education, skills,
+projects, certifications, languages) with version history, PDF/DOCX/ODT import,
+live preview and Classic/ATS-safe PDF export; a kanban pipeline (saved → applied
+→ interview → offer → rejected) with Angular CDK drag & drop whose cards open the
+per-application workspace; interview prep and lessons-learned pages; a
+five-tab admin panel (Overview, Sources, Quality, Dead-Letter Queue, Audit Log);
+onboarding panel for new users; client-side pagination (12/page).
+
+**Mobile (React Native / Expo SDK 57)** — mirrors the web UI: login, jobs +
+detail, applications kanban and workspace (dual `rule`/`llm` tailoring variants,
+inline edit, *Use this one*), master CV editor (edit/preview, import, export),
+sources (CRUD + auth), alerts, notifications and the admin panel. React
+Navigation 7, TanStack Query, Zustand (keychain-backed session via
+`expo-secure-store`), react-hook-form + zod, and design tokens ported 1:1 from
+`frontend/src/styles.scss`. Remaining polish: an e2e smoke test on a device and
+the Android release build (EAS).
 
 ## License
 

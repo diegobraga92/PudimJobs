@@ -1,9 +1,4 @@
-"""Skill taxonomy matching utilities.
-
-``extract_skills`` finds taxonomy skills (and their aliases — e.g. "k8s",
-"react.js") in free text; ``match_skills`` compares JD requirements against a
-CV's skill list, canonicalizing aliases on both sides.
-"""
+"""Skill taxonomy matching utilities."""
 
 import json
 import re
@@ -76,16 +71,7 @@ def canonical_skill(skill: str) -> str:
 
 
 def group_skills(skills: list[str]) -> list[tuple[str, list[str]]]:
-    """Group a flat skill list into labelled categories for a CV section.
-
-    Résumés that read as a single comma-separated keyword dump are hard for both
-    a recruiter and a parser to skim, so the PDF templates render one line per
-    category instead. Skills keep the order they were given in (the tailoring
-    engine already leads with the JD-matched ones), are canonicalized through the
-    taxonomy so aliases land in the right bucket and cannot show up twice, and
-    anything the taxonomy does not know falls into a final ``Other`` group.
-    Empty groups are omitted; the result is ``[(label, [skill, ...]), ...]``.
-    """
+    """Group a flat skill list into labelled categories for a CV section."""
     buckets: dict[str, list[str]] = {}
     other: list[str] = []
     seen: set[str] = set()
@@ -139,12 +125,7 @@ def extract_skills(text: str) -> list[str]:
 
 
 def match_skills(jd_skills: list[str], cv_skills: list[str]) -> dict:
-    """Compare JD-required skills against the CV's skills.
-
-    Skills are canonicalized via the taxonomy's alias table on both sides
-    ("k8s" == "kubernetes"). Returns matched/missing lists and a relevance
-    score in [0, 1].
-    """
+    """Compare JD-required skills against the CV's skills."""
     jd_set = {canonical_skill(s).lower() for s in jd_skills}
     cv_set = {canonical_skill(s).lower() for s in cv_skills}
     matched = [s for s in jd_skills if canonical_skill(s).lower() in cv_set]

@@ -1,10 +1,5 @@
 """Drop the never-populated ``jobs.raw_html`` column; add ``jobs.external_id``.
 
-Raw HTML is intentionally not retained (copyright/ToS and storage), so the
-replay/reparse column was dead weight. ``external_id`` is the provider-native
-job id (RSS guid, ATS requisition id, JSON-LD identifier) used for
-deduplication alongside the existing ``(source_id, url)`` constraint.
-
 Revision ID: 0013
 Revises: 0012
 Create Date: 2026-08-14

@@ -3,10 +3,7 @@ import { Observable } from 'rxjs';
 
 import { TOKEN_STORAGE_KEY } from '../services/auth.service';
 
-/**
- * Functional HTTP interceptor that attaches the JWT to every request.
- * Registered in app.config.ts via `withInterceptors`.
- */
+/** Functional HTTP interceptor that attaches the JWT to every request. Registered in app.config.ts via `withInterceptors`. */
 export function authInterceptor(
   req: HttpRequest<unknown>,
   next: HttpHandlerFn

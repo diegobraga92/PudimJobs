@@ -3,10 +3,7 @@ import { Component, HostListener } from '@angular/core';
 import { AppIconComponent } from '../icons/icon.component';
 import { ConfirmService } from './confirm.service';
 
-/**
- * Accessible confirmation dialog (role="dialog", Escape to cancel,
- * focus stays within the modal via inert backdrop behavior).
- */
+/** Accessible confirmation dialog (role="dialog", Escape to cancel, focus stays within the modal via inert backdrop behavior). */
 @Component({
   selector: 'app-confirm-dialog',
   standalone: true,

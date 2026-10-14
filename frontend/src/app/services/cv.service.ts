@@ -52,11 +52,7 @@ export interface CVInput {
   label?: string;
 }
 
-/**
- * How a tailored CV was produced (mirrors `app/models/enums.CVVariant`).
- * `rule` is the deterministic engine (always produced); `llm` is the optional
- * full rewrite kept alongside it.
- */
+/** How a tailored CV was produced (mirrors `app/models/enums.CVVariant`). */
 export type CvVariant = 'rule' | 'llm';
 
 /** A tailored CV artifact — its own document, not a master CV version. */
@@ -85,15 +81,9 @@ export interface AtsFactor {
 
 export interface AtsReport {
   score: number;
-  /**
-   * The deterministic baseline on its own (mirrors `score`). Optional because a
-   * report cached on an artifact before this field existed carries only `score`.
-   */
+  /** The deterministic baseline on its own (mirrors `score`). Optional because a report cached on an artifact before this field existed carries only `score`. */
   deterministic_score?: number | null;
-  /**
-   * The ATS reviewer LLM's own 0..100 estimate, reported *beside* the baseline
-   * (never blended into it). `null` when no reviewer ran.
-   */
+  /** The ATS reviewer LLM's own 0..100 estimate, reported *beside* the baseline (never blended into it). `null` when no reviewer ran. */
   llm_score?: number | null;
   method: 'heuristic' | 'hybrid' | string;
   factors: AtsFactor[];
@@ -154,11 +144,7 @@ export class CvService {
     return this.http.get<GeneratedCV>(`/api/cv/generated/${id}`);
   }
 
-  /**
-   * Edit a tailored CV in place. The artifact owns its content (ADR 016), so
-   * this re-renders its PDF and clears the stale ATS cache; the master CV is
-   * never touched.
-   */
+  /** Edit a tailored CV in place. The artifact owns its content (ADR 016), so this re-renders its PDF and clears the stale ATS cache; the master CV is never touched. */
   updateGenerated(id: string, structuredJson: CVStructure): Observable<GeneratedCV> {
     return this.http.put<GeneratedCV>(`/api/cv/generated/${id}`, {
       structured_json: structuredJson,
@@ -173,28 +159,18 @@ export class CvService {
     return this.http.delete<void>(`/api/cv/generated/${id}`);
   }
 
-  /**
-   * Render an (optionally edited) CV structure to a PDF for download.
-   * `template` selects `classic` (styled, default) or `ats` (plain, ATS-safe).
-   */
+  /** Render an (optionally edited) CV structure to a PDF for download. `template` selects `classic` (styled, default) or `ats` (plain, ATS-safe). */
   exportPdf(structure: CVStructure, template: CvTemplate = 'classic'): Observable<Blob> {
     const params = new HttpParams().set('template', template);
     return this.http.post('/api/cv/pdf', structure, { params, responseType: 'blob' });
   }
 
-  /**
-   * Score a CV structure against a stored job (`job_id`), a raw description
-   * (`job_description`) and/or a bare `job_title`. Supplying `generated_cv_id`
-   * caches the report on that generated CV so later reads are free.
-   */
+  /** Score a CV structure against a stored job (`job_id`), a raw description (`job_description`) and/or a bare `job_title`. */
   atsScore(payload: AtsScoreInput): Observable<AtsReport> {
     return this.http.post<AtsReport>('/api/cv/ats-score', payload);
   }
 
-  /**
-   * Upload a PDF/DOCX/ODT CV and get it back as a structured CVStructure
-   * (nothing is persisted — the caller pre-fills the editor for review).
-   */
+  /** Upload a PDF/DOCX/ODT CV and get it back as a structured CVStructure (nothing is persisted — the caller pre-fills the editor for review). */
   parse(file: File): Observable<CVStructure> {
     const form = new FormData();
     form.append('file', file, file.name);

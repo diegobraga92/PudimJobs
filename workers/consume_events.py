@@ -1,11 +1,4 @@
-"""Long-running RabbitMQ consumer for ``job.new`` events.
-
-Consumes messages from the ``matching.job.new`` queue (bound to the
-``pudimjobs.events`` topic exchange on routing key ``job.new.#``) and enqueues
-the ``match_job`` Celery task for each event. Run as its own process::
-
-    python -m workers.consume_events
-"""
+"""Long-running RabbitMQ consumer for ``job.new`` events."""
 
 import time
 

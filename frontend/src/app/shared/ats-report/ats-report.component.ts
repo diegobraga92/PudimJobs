@@ -3,14 +3,7 @@ import { Component, Input, inject } from '@angular/core';
 import { AtsReport } from '../../services/cv.service';
 import { I18nService } from '../../services/i18n.service';
 
-/**
- * Read-only rendering of an ATS score report (see ADR 013): the score dial,
- * weighted factors, matched/missing skills, recommendations and parser
- * warnings.
- *
- * Purely presentational (no HTTP) so it can be dropped anywhere a report is
- * available — today the application workspace's CV panel.
- */
+/** Read-only rendering of an ATS score report (see ADR 013): the score dial, weighted factors, matched/missing skills, recommendations and parser warnings. */
 @Component({
   selector: 'app-ats-report',
   standalone: true,
@@ -22,10 +15,7 @@ export class AtsReportComponent {
 
   @Input({ required: true }) report!: AtsReport;
 
-  /**
-   * The headline number: the deterministic baseline. Falls back to `score` for a
-   * report cached before `deterministic_score` existed (ADR 013 amendment).
-   */
+  /** The headline number: the deterministic baseline. Falls back to `score` for a report cached before `deterministic_score` existed (ADR 013 amendment). */
   get deterministicScore(): number {
     return this.report.deterministic_score ?? this.report.score;
   }

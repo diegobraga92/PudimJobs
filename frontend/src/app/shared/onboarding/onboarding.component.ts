@@ -13,10 +13,7 @@ interface OnboardingStep {
   ctaKey: string;
 }
 
-/**
- * First-run welcome panel. Shown on the Jobs page until the user dismisses it
- * (persisted in localStorage) or starts adding content.
- */
+/** First-run welcome panel. Shown on the Jobs page until the user dismisses it (persisted in localStorage) or starts adding content. */
 @Component({
   selector: 'app-onboarding',
   standalone: true,

@@ -1,9 +1,5 @@
 """Add ``applications.lessons_learned`` retrospective notes.
 
-Free-form text the user writes after an interview round to capture what went
-well and what to improve. Surfaced by ``GET /api/applications/lessons`` and the
-web "Lessons Learned" page.
-
 Revision ID: 0016
 Revises: 0015
 Create Date: 2026-10-13

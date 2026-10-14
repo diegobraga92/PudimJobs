@@ -1,7 +1,4 @@
-/**
- * API types for PudimJobs — mirrors the interfaces declared in the Angular
- * frontend services (frontend/src/app/services/*) so payloads stay identical.
- */
+/** API types for PudimJobs — mirrors the interfaces declared in the Angular frontend services (frontend/src/app/services/*) so payloads stay identical. */
 
 // ---- Auth --------------------------------------------------------------
 
@@ -349,11 +346,7 @@ export interface CVInput {
   label?: string;
 }
 
-/**
- * How a tailored CV was produced (mirrors `app/models/enums.CVVariant`).
- * `rule` is the deterministic engine (always produced); `llm` is the optional
- * full rewrite kept alongside it.
- */
+/** How a tailored CV was produced (mirrors `app/models/enums.CVVariant`). */
 export type CvVariant = 'rule' | 'llm';
 
 /** A tailored CV artifact — its own document, not a master CV version. */
@@ -383,15 +376,9 @@ export interface AtsFactor {
 
 export interface AtsReport {
   score: number;
-  /**
-   * The deterministic baseline on its own (mirrors `score`). Optional because a
-   * report cached on an artifact before this field existed carries only `score`.
-   */
+  /** The deterministic baseline on its own (mirrors `score`). Optional because a report cached on an artifact before this field existed carries only `score`. */
   deterministic_score?: number | null;
-  /**
-   * The ATS reviewer LLM's own 0..100 estimate, reported *beside* the baseline
-   * (never blended into it). `null` when no reviewer ran.
-   */
+  /** The ATS reviewer LLM's own 0..100 estimate, reported *beside* the baseline (never blended into it). `null` when no reviewer ran. */
   llm_score?: number | null;
   method: 'heuristic' | 'hybrid' | string;
   factors: AtsFactor[];

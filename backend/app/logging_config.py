@@ -4,15 +4,7 @@ import structlog
 
 
 def configure_logging(log_level: str = "DEBUG") -> None:
-    """Configure structured JSON logging with structlog.
-
-    All log lines include:
-    - timestamp
-    - level
-    - logger name
-    - trace_id (if set by middleware)
-    - message
-    """
+    """Configure structured JSON logging with structlog."""
     timestamper = structlog.processors.TimeStamper(fmt="iso")
 
     shared_processors = [

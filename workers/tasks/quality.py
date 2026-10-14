@@ -1,9 +1,4 @@
-"""Data quality Celery task.
-
-Triggered by ``job.new`` events (dispatched from the event consumer). Runs
-company/title/skill normalization, completeness scoring, and fuzzy duplicate
-detection, then stores a ``scrape_quality`` row per job.
-"""
+"""Data quality Celery task."""
 
 import asyncio
 import uuid

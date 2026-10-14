@@ -1,5 +1,4 @@
-"""JD parsing Celery task: parse a job description and store structured
-requirements on the job record."""
+"""JD parsing Celery task: store structured requirements on the job record."""
 
 import asyncio
 import uuid

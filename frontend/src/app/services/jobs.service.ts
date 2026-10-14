@@ -79,11 +79,7 @@ export class JobsService {
     return this.http.post<{ enqueued: boolean; job_id: string }>(`/api/jobs/${id}/parse`, {});
   }
 
-  /**
-   * Enqueue CV tailoring for a job. `cvId` picks the source master version
-   * (defaults to the current one); `applicationId` links the application to the
-   * tailored version once the task finishes. Runs async — the caller polls.
-   */
+  /** Enqueue CV tailoring for a job (async: the caller polls for the artifact). */
   tailor(
     id: string,
     cvId?: string,

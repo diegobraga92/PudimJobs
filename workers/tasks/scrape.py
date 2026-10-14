@@ -1,10 +1,4 @@
-"""The ``scrape_source`` Celery task: full scraping pipeline for one source.
-
-Pipeline: circuit-breaker check → rate limit → fetch → parse → normalize →
-dedup insert → emit ``job.new`` events → update source health. Failures are
-recorded in ``scrape_runs`` (the reprocessing/DLQ record) and trigger the
-Redis-backed circuit breaker.
-"""
+"""The ``scrape_source`` Celery task: full scraping pipeline for one source."""
 
 import asyncio
 import inspect
@@ -42,12 +36,7 @@ logger = structlog.get_logger(__name__)
 
 
 class EmptyScrapeError(Exception):
-    """Raised when a scrape completes but parses zero jobs.
-
-    Usually signals a site format change or broken selectors; the circuit
-    breaker trips after repeated occurrences (see postmortem 001). Sources that
-    are legitimately empty can opt out with ``config['allow_empty'] = true``.
-    """
+    """Raised when a scrape completes but parses zero jobs."""
 
 
 async def _existing_keys(session, source_id: uuid.UUID) -> tuple[set[str], set[str]]:
@@ -94,11 +83,7 @@ async def _skip_run(source_id: str, run: ScrapeRun, reason: str) -> dict:
 
 
 async def _discover(scraper, page) -> list[str]:
-    """Extract detail URLs from a page, tolerating scrapers without the hook.
-
-    The contract hook is async; some duck-typed scrapers (e.g. test doubles)
-    omit it or implement it synchronously, so this also covers those cases.
-    """
+    """Extract detail URLs from a page, tolerating scrapers without the hook."""
     discover = getattr(scraper, "discover_urls", None)
     if not callable(discover):
         return []
@@ -270,7 +255,7 @@ async def _run_scrape(source_id: str) -> dict:
 
         # Fail fast when a source yields no jobs at all: a site format change
         # or broken selectors usually manifests as an empty parse, and treating
-        # it as "0 new jobs, success" hides the breakage (see postmortem 001).
+        # it as "0 new jobs, success" hides the breakage (see docs/operations.md).
         # Sources that are legitimately empty can opt out via config.
         allow_empty = bool((source.config or {}).get("allow_empty", False))
         if not normalized and not allow_empty:

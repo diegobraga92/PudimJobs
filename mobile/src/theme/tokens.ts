@@ -1,8 +1,4 @@
-/**
- * PudimJobs Design Tokens — React Native port of the web design system
- * (frontend/src/styles.scss). Colors mirror the CSS custom properties 1:1,
- * including the `[data-theme='dark']` overrides.
- */
+/** PudimJobs Design Tokens — React Native port of the web design system (frontend/src/styles.scss). */
 
 export interface ThemeColors {
   primary: string;

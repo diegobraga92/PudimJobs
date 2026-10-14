@@ -1,24 +1,4 @@
-"""Discovery providers: search-engine and ATS-board job sources.
-
-A ``discovery`` source turns a *query* (or an ATS board) into job postings via
-a pluggable provider, selected per-source with ``sources.config["provider"]``.
-
-Providers come in two families:
-
-- ``ats``         — fetch a board's public JSON endpoint and parse jobs directly
-                    (one stage).
-- ``json``        — config-driven JSON list (``json_list``): the source config
-                    says where the items and fields live, so onboarding a new
-                    board needs no code.
-- ``search_api``  — query a search API (needs an encrypted API key), extract
-                    result links, then fetch + parse each job detail page
-                    (two stages).
-
-Each provider exposes the standard scraper pieces — ``fetch``, ``parse``,
-``normalize`` — plus the two-stage hooks ``discover_urls`` (links on a results
-page) and ``next_page_url`` (results pagination). ``DiscoveryScraper`` wraps a
-provider so the registry can dispatch it like any other scraper.
-"""
+"""Discovery providers: search-engine and ATS-board job sources."""
 
 import json
 from abc import ABC, abstractmethod
@@ -121,11 +101,7 @@ class DiscoveryProvider(ABC):
 
     @classmethod
     def config_metadata(cls) -> dict:
-        """The provider's config contract, published by ``/api/sources/providers``.
-
-        Drives the Sources form hints and create/update validation
-        (``app.services.source_config``).
-        """
+        """The provider's config contract, published by ``/api/sources/providers``."""
         return _DISCOVERY_CONFIG_METADATA.get(
             cls.provider_name,
             {"required": (), "required_any": (), "optional": (), "example": {}},
@@ -271,15 +247,7 @@ class WorkableProvider(ATSProvider):
 
 
 class SmartRecruitersProvider(ATSProvider):
-    """SmartRecruiters public postings API (``companies/{company}/postings``).
-
-    Verified live: the payload is ``{offset, limit, totalFound, content: [...]}``
-    where each item carries ``name``, ``company.{identifier,name}``,
-    ``releasedDate``, ``location.fullLocation`` and facet dicts
-    (``typeOfEmployment``/``department``/``function``). The public job page is
-    ``https://jobs.smartrecruiters.com/{identifier}/{id}``. ``max_results`` caps
-    the API ``limit`` (default 100).
-    """
+    """SmartRecruiters public postings API (``companies/{company}/postings``)."""
 
     provider_name = "smartrecruiters"
     endpoint_tpl = "https://api.smartrecruiters.com/v1/companies/{company}/postings"
@@ -318,12 +286,7 @@ class SmartRecruitersProvider(ATSProvider):
 
 
 class RecruiteeProvider(ATSProvider):
-    """Recruitee public offers API (``{company}.recruitee.com/api/offers/``).
-
-    Verified live: ``{"offers": [...]}`` with ``title``, ``careers_url``,
-    ``company_name``, ``city``/``country_code``, ``created_at`` (``2026-09-14
-    07:17:14 UTC``), ``tags`` and ``department``.
-    """
+    """Recruitee public offers API (``{company}.recruitee.com/api/offers/``)."""
 
     provider_name = "recruitee"
     endpoint_tpl = "https://{company}.recruitee.com/api/offers/"
@@ -361,15 +324,7 @@ class RecruiteeProvider(ATSProvider):
 
 
 class PersonioProvider(ATSProvider):
-    """Personio XML feed (``{company}.jobs.personio.de/xml``).
-
-    The feed exposes ``position`` elements with ``id``, ``name``,
-    ``subcompany``, ``office`` (+ ``additionalOffices``), ``createdAt``, facet
-    tags and ``jobDescriptions``. It carries **no** public job URL, so
-    ``url_tpl`` is required in the source config (``{id}`` and config keys are
-    interpolated), e.g. ``https://{company}.jobs.personio.de/job/{id}`` — confirm
-    the tenant's pattern with the source preview before relying on it.
-    """
+    """Personio XML feed (``{company}.jobs.personio.de/xml``)."""
 
     provider_name = "personio"
     endpoint_tpl = "https://{company}.jobs.personio.de/xml"
@@ -443,17 +398,7 @@ class PersonioProvider(ATSProvider):
 
 
 class WorkdayProvider(ATSProvider):
-    """Workday CXS job API — public JSON, reached with a POST.
-
-    Config: ``host`` (e.g. ``acme.wd1.myworkdayjobs.com``), ``tenant`` and
-    ``site`` — both taken from the careers URL
-    (``https://{host}/en-US/{site}``) — plus optional ``query``, ``locale``
-    (default ``en-US``) and ``company`` for display. Verified live: the response
-    is ``{total, jobPostings: [{title, externalPath, locationsText, postedOn,
-    bulletFields}]}`` and the job page is
-    ``https://{host}/{locale}/{site}{externalPath}``. ``postedOn`` is a relative
-    label ("Posted Today"), so ``posted_date`` stays empty.
-    """
+    """Workday CXS job API — public JSON, reached with a POST."""
 
     provider_name = "workday"
     endpoint_tpl = "https://{host}/wday/cxs/{tenant}/{site}/jobs"
@@ -515,34 +460,7 @@ class WorkdayProvider(ATSProvider):
 
 
 class JsonListProvider(DiscoveryProvider):
-    """Config-driven provider for boards exposing a JSON array of jobs.
-
-    Selected with ``config["provider"] = "json_list"``, the whole mapping lives
-    in the source config, so onboarding a new board needs no code::
-
-        {
-          "provider": "json_list",
-          "url_tpl": "https://api.example/jobs?tag={tag}",
-          "tag": "python",
-          "items_path": "data.items",
-          "id_path": "id",
-          "title_path": "position",
-          "url_path": "url",
-          "company_path": "company",
-          "location_path": "location",
-          "date_path": "date",
-          "tags_path": "tags",
-          "description_path": "description",
-          "max_results": 50
-        }
-
-    ``url`` is an alternative to ``url_tpl`` when no substitution is needed; both
-    are formatted with the source config, so any config key can be interpolated.
-    Omitting ``items_path`` means the payload *is* the array (a single object is
-    also accepted). Every field path is optional — missing ones simply yield
-    empty values — and items without a title or URL are skipped. Relative URLs
-    are resolved against the fetched page.
-    """
+    """Config-driven provider for boards exposing a JSON array of jobs."""
 
     provider_name = "json_list"
     family = "json"
@@ -757,13 +675,7 @@ class BraveProvider(SearchApiProvider):
 
 
 class SerpApiProvider(SearchApiProvider):
-    """Third-party search API covering LinkedIn Jobs / Indeed / Google Jobs.
-
-    SerpApi returns structured JSON (``jobs_results``) for the configured
-    ``engine`` (``linkedin_jobs``, ``indeed``, ``google_jobs``); the API key is
-    sent as the ``api_key`` query param and billed per search query — an
-    explicit opt-in via the encrypted key.
-    """
+    """Third-party search API covering LinkedIn Jobs / Indeed / Google Jobs."""
 
     provider_name = "serpapi"
 
@@ -798,19 +710,7 @@ class SerpApiProvider(SearchApiProvider):
 
 
 class BrightDataProvider(SearchApiProvider):
-    """Bright Data Web Unlocker / SERP API: renders the target search page.
-
-    The API key is sent as ``Authorization: Bearer`` and the target search URL
-    is POSTed as JSON to ``api.brightdata.com/serp/req``, returning *rendered*
-    HTML. By default the target is the LinkedIn/Indeed search URL built from
-    ``engine`` + ``query``/``location``; set ``url`` (or ``url_tpl``, interpolated
-    with the source config) to render any other search/jobs page — then also set
-    ``result_selector`` unless the engine default happens to match. Result links
-    are extracted with per-engine CSS selectors (``result_selector`` overrides
-    them). Bright Data's exact endpoint and params should be confirmed against
-    their current docs; they are config-adjustable (``customer``, ``zone``,
-    ``country``, ``locale``).
-    """
+    """Bright Data Web Unlocker / SERP API: renders the target search page."""
 
     provider_name = "brightdata"
     key_header = "Authorization"
@@ -869,11 +769,7 @@ class BrightDataProvider(SearchApiProvider):
             )
 
     def next_page_url(self, page: ScrapedPage) -> str | None:
-        """Pagination is intentionally unsupported.
-
-        ``fetch`` always re-POSTs ``_target_url()`` and ignores the passed URL,
-        so a second "page" would duplicate the first result set.
-        """
+        """Pagination is intentionally unsupported."""
         return None
 
     def result_links(self, page: ScrapedPage) -> list[str]:

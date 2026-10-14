@@ -1,30 +1,4 @@
-"""CV tailoring Celery task (ADR 016).
-
-Produces one or two *self-contained* tailored-CV artifacts for a job:
-
-* ``rule`` — always, from the deterministic engine (strengthened: the summary
-  leads with the JD-matched strengths and a no-match fallback is signalled); and
-* ``llm`` — when enabled, a tailored CV produced by the LLM, kept alongside the
-  rule variant so the user can compare and choose. Its prompt asks for a CV that
-  fits ``LLM_TARGET_PAGES`` pages and explicitly *permits* dropping what does not
-  support the application; the page count of the rendered PDF is then measured
-  (``cv_artifact_pages``) rather than enforced, because page length is the
-  template's call, not the model's.
-
-Each artifact is a ``generated_cvs`` row owning its own ``structured_json`` and
-rendered PDF. ATS scoring is **not** run here (ADR 013, amended): it is an
-explicit user action (`POST /api/cv/ats-score`), so a tailor run spends no
-scoring time and every artifact starts with no cached report. The single score
-kept at generation time is the AI variant's own estimate (``llm_self_score``),
-stored so the UI can show it next to the on-demand deterministic score. The
-master CV is never modified, so tailored output no longer leaks into the master
-version history.
-
-Re-running is idempotent per ``(user, job, source CV version, variant)`` — with
-one exception: a stored artifact that has no content (``structured_json`` NULL,
-as left behind by pre-ADR-016 rows) does *not* count as produced, and the run
-repairs that same row in place instead of reusing an empty card forever.
-"""
+"""CV tailoring Celery task (ADR 016)."""
 
 import asyncio
 import uuid
@@ -51,14 +25,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _pdf_pages(pdf_bytes: bytes) -> int | None:
-    """Page count of a rendered CV, or ``None`` when the PDF cannot be read.
-
-    The AI variant's page budget is a *prompt* instruction (page length is decided
-    by the template and the fonts, not by the model), so the only honest way to
-    know whether it was respected is to measure the PDF that was actually stored
-    (``cv_artifact_pages``). This is a best-effort observation: a broken PDF is
-    reported as ``None`` and never fails the run.
-    """
+    """Page count of a rendered CV, or ``None`` when the PDF cannot be read."""
     try:
         return len(PdfReader(BytesIO(pdf_bytes)).pages)
     except Exception:  # noqa: BLE001 - an unreadable PDF must not fail a tailor run
@@ -90,25 +57,14 @@ async def _find_generated(
 
 
 def _has_content(row: GeneratedCV) -> bool:
-    """True when an artifact actually carries its own CV content.
-
-    Rows written before ADR 016 (or by a run that persisted a PDF without the
-    structured payload) exist with ``structured_json`` NULL: there is nothing to
-    preview and no ATS report to show. Counting such a row as "already produced"
-    is what made a broken card impossible to regenerate.
-    """
+    """True when an artifact actually carries its own CV content."""
     return bool(row.structured_json)
 
 
 async def _link_application(
     session, application_id: str | None, cv: MasterCV, job: Job, generated_cv_id: uuid.UUID
 ) -> None:
-    """Point an application at the CV artifact it was sent with.
-
-    Best-effort and guarded: a missing, foreign, or mismatched id is ignored, so
-    a stale request can never cross-link another user's pipeline. Does not
-    commit — the caller commits.
-    """
+    """Point an application at the CV artifact it was sent with."""
     if not application_id:
         return
     application = await session.get(Application, uuid.UUID(application_id))
@@ -129,22 +85,7 @@ async def _store_variant(
     llm_self_score: int | None = None,
     existing: GeneratedCV | None = None,
 ) -> GeneratedCV:
-    """Render and persist one tailored artifact.
-
-    ``existing`` is a *content-less* row for the same key: it is repaired in
-    place instead of being duplicated. Reusing its id keeps ``created_at``, the
-    ``applications.generated_cv_id`` link and variant uniqueness intact, so a
-    legacy empty artifact cannot linger in the panel forever (ADR 016).
-
-    No ATS score is computed here (ADR 013, amended): scoring is an explicit
-    request, so the artifact is stored unscored and the panel's "Check score"
-    fills ``ats_score``/``ats_report`` later. Only the AI variant's own
-    ``llm_self_score`` is persisted when the model provided one.
-
-    The rendered page count is logged (`cv_artifact_pages`) and, for the AI
-    variant, compared against ``LLM_TARGET_PAGES`` (`llm_rewrite_over_page_budget`)
-    — measured and reported, never enforced.
-    """
+    """Render and persist one tailored artifact."""
     tailored = TailoredCV.from_structure(structure)
     pdf_bytes = generate_pdf(tailored, name=_pdf_name(user), email=user.email if user else "")
     pages = _pdf_pages(pdf_bytes)
@@ -197,13 +138,7 @@ async def _store_variant(
 
 
 def _llm_variant_skip_reason(config: LlmRuntimeConfig) -> str:
-    """Why the full-LLM variant will not be produced, or ``""`` when it will.
-
-    Enabling the LLM in Admin -> LLM is what opts a deployment into the second
-    variant (ADR 016); there is no separate flag. Naming the missing half is the
-    point: a skipped variant used to leave no trace at all, so "I only got the
-    deterministic CV" was indistinguishable from a bug.
-    """
+    """Why the full-LLM variant will not be produced, or ``""`` when it will."""
     if not config.enabled:
         return "the LLM is disabled in Admin -> LLM"
     if not config.api_key:

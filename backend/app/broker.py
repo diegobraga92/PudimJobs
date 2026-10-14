@@ -1,9 +1,4 @@
-"""Task-enqueueing helper for the API.
-
-Sends Celery tasks by name so the API can enqueue work (e.g. DLQ replay, JD
-parsing, CV tailoring) without importing the ``workers`` package. The worker
-consumes from the default ``celery`` queue and dispatches by task name.
-"""
+"""Task-enqueueing helper for the API."""
 
 from celery import Celery
 
@@ -29,11 +24,5 @@ def enqueue_parse_jd(job_id: str) -> None:
 def enqueue_tailor(
     job_id: str, cv_id: str | None = None, application_id: str | None = None
 ) -> None:
-    """Enqueue a CV tailoring task; ``cv_id=None`` uses the current CV.
-
-    ``application_id`` is optional: when given, the task points that application
-    at the deterministic (``rule``) artifact it produced
-    (``Application.generated_cv_id``); the optional LLM variant is only linked
-    when the user explicitly picks it (ADR 016).
-    """
+    """Enqueue a CV tailoring task; ``cv_id=None`` uses the current CV."""
     _sender.send_task(TAILOR_CV_TASK, args=[job_id, cv_id, application_id])

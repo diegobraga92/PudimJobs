@@ -1,15 +1,4 @@
-"""Source config contracts: form metadata plus fail-fast validation.
-
-``discovery`` and ``aggregator`` sources dispatch on a config key
-(``provider`` / ``adapter``) and then read provider-specific keys. The Sources
-form takes free-form JSON, so a typo or a missing key used to surface only on
-the next scheduled scrape — possibly 15 minutes later, in a ``scrape_runs`` row.
-
-This module publishes the contract each provider/adapter declares
-(``required``, ``required_any``, ``optional``, ``example``) through
-``/api/sources/providers`` and ``/api/sources/adapters``, and validates a config
-before it is stored.
-"""
+"""Source config contracts: form metadata plus fail-fast validation."""
 
 from app.models.enums import SourceType
 
@@ -44,12 +33,7 @@ def adapter_metadata() -> list[dict]:
 
 
 def validate_source_config(source_type: SourceType, config: dict | None) -> None:
-    """Raise ``ValueError`` when the config cannot drive its scraper.
-
-    ``rss`` and ``career_page`` sources take no config, so they are never
-    rejected; unknown extra keys are always allowed (providers may read keys
-    this module does not know about).
-    """
+    """Raise ``ValueError`` when the config cannot drive its scraper."""
     config = config or {}
     if source_type == SourceType.discovery:
         from scrapers.discovery import DISCOVERY_PROVIDERS

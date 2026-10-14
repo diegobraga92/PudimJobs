@@ -129,12 +129,7 @@ async def parse_uploaded_cv(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Extract and structure an uploaded PDF/DOCX CV (never persisted).
-
-    Returns a CVStructure the frontend can pre-fill the editor with; the user
-    reviews it and saves via ``POST /api/cv``. Structuring is rule-based by
-    default and upgraded by the LLM when one is configured (ADR 011).
-    """
+    """Extract and structure an uploaded PDF/DOCX CV (never persisted)."""
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in _SUPPORTED_CV_EXTENSIONS:
         raise HTTPException(
@@ -199,18 +194,7 @@ async def list_generated(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """List generated (tailored) CVs with their target job info.
-
-    Pass ``job_id`` to scope the list to a single job — this powers the CV panel
-    on the per-application workspace.
-
-    Content-less artifacts are withheld: ``generated_cvs.structured_json`` is
-    nullable and rows written before ADR 016 exist with it NULL, so such a row
-    has nothing to preview, edit or score. Listing one made the panel claim the
-    job had a CV while blaming the missing ``llm`` variant for the empty body.
-    The row itself is kept — the next tailor run repairs it in place, which
-    preserves ``applications.generated_cv_id``.
-    """
+    """List generated (tailored) CVs with their target job info."""
     stmt = (
         select(GeneratedCV, Job)
         .outerjoin(Job, GeneratedCV.job_id == Job.id)
@@ -243,12 +227,7 @@ async def get_generated_cv(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Fetch one generated CV, including the structured content it was built from.
-
-    Unlike the list endpoint this does not filter: a direct fetch (download, edit
-    screen) still resolves a legacy content-less row, reported with
-    ``structured_json`` NULL.
-    """
+    """Fetch one generated CV, including the structured content it was built from."""
     result = await db.execute(
         select(GeneratedCV, Job)
         .outerjoin(Job, GeneratedCV.job_id == Job.id)
@@ -268,12 +247,7 @@ async def update_generated_cv(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Edit a tailored CV in place.
-
-    The artifact owns its content (ADR 016), so an edit re-renders the stored PDF
-    and drops the now-stale ATS cache; the master CV is untouched. The name/email
-    fallbacks used when rendering come from the account.
-    """
+    """Edit a tailored CV in place."""
     generated = await get_owned_generated(generated_id, user, db)
     structure = payload.structured_json.model_dump()
 
@@ -346,13 +320,7 @@ async def export_cv_pdf(
     template: str = "classic",
     user: User = Depends(get_current_user),
 ):
-    """Render an (optionally edited) CV structure to a downloadable PDF.
-
-    Lets the user tweak a tailored CV in the editor and export the result
-    without going through the tailoring worker again. Nothing is persisted.
-    ``template`` selects the layout: ``classic`` (default, styled) or ``ats``
-    (plain single-column; see ADR 013).
-    """
+    """Render an (optionally edited) CV structure to a downloadable PDF."""
     if template not in TEMPLATES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -392,12 +360,7 @@ async def delete_version(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Delete a master CV version.
-
-    If the deleted version was the current one, the newest remaining version
-    is promoted to current so the app keeps a usable CV; if none remain,
-    ``GET /api/cv/current`` will simply return 404 again.
-    """
+    """Delete a master CV version."""
     cv = await get_owned_cv(cv_id, user, db)
     was_current = cv.is_current
     deleted_version = cv.version
@@ -470,20 +433,7 @@ async def score_cv_ats(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Score an (optionally edited) CV structure against a job description.
-
-    Always returns the deterministic baseline (skill coverage, keyword coverage,
-    content completeness and ATS-readability heuristics) as both ``score`` and
-    ``deterministic_score``. When an LLM is configured, its own qualitative
-    review adds ``llm_score``, a summary and extra suggestions *beside* that
-    baseline — the two numbers are never blended (see ADR 013). Job skills and
-    keywords come from the stored ``parsed_jd`` when available; otherwise the
-    raw description is parsed on the fly.
-
-    This is the only place a tailored CV is scored: the tailoring worker stores
-    artifacts unscored, so the score always reflects something the user asked
-    for.
-    """
+    """Score an (optionally edited) CV structure against a job description."""
     jd_text = payload.job_description or ""
     jd_title = payload.job_title
     jd_skills: list[str] = []

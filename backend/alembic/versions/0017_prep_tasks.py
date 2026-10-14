@@ -1,8 +1,5 @@
 """Create ``prep_tasks`` for tracking interview-preparation checklists.
 
-Each task belongs to a user and may optionally target a job and/or an
-application, so a checklist can be scoped per pipeline entry or kept general.
-
 Revision ID: 0017
 Revises: 0016
 Create Date: 2026-10-13

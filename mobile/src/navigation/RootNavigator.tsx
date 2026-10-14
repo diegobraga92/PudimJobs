@@ -7,11 +7,7 @@ import { AppDrawer } from './AppDrawer';
 import { AuthStack } from './AuthStack';
 import { navigationTheme } from './theme';
 
-/**
- * Root navigator — switches between the Auth stack and the app drawer based on
- * the presence of a JWT (mirrors the web authGuard). Renders a splash until the
- * secure store has rehydrated so we never flash the wrong screen.
- */
+/** Root navigator — switches between the Auth stack and the app drawer based on the presence of a JWT (mirrors the web authGuard). */
 export function RootNavigator() {
   const { theme } = useTheme();
   const token = useAuthStore((state) => state.token);

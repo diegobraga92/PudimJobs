@@ -1,13 +1,4 @@
-"""Career page scraper.
-
-Parses HTML from company career pages. Strategy:
-1. JSON-LD ``application/ld+json`` blocks with ``@type: JobPosting``
-   (the most reliable structured format).
-2. Fallback to common CSS selectors used by static career pages.
-
-Both strategies live in ``scrapers.utils`` so they are shared with the
-search/ATS discovery providers.
-"""
+"""Career page scraper."""
 
 from scrapers.base import AbstractScraper
 from scrapers.types import FetchAuth, RawJob, ScrapedPage

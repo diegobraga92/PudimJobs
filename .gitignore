@@ -44,6 +44,3 @@ bazel-out/
 
 # Logs
 *.log
-
-# Local, non-public notes (keep out of history)
-docs/local/

@@ -29,15 +29,7 @@ interface ProjectFormItem {
   description: string;
   link: string;
 }
-/**
- * Master CV page.
- *
- * Owns the single source-of-truth document: edit it, import it from a file,
- * preview it, export it and keep the version history. Tailored (per-job) CVs
- * are separate artifacts (ADR 016) and live with the application they belong to
- * — on `/applications/:id`, where they are previewed, edited and ATS-scored.
- * Nothing on this page ever loads or writes a tailored CV.
- */
+/** Master CV page. */
 @Component({
   selector: 'app-cv-editor',
   standalone: true,
@@ -252,10 +244,7 @@ export class CvEditorComponent implements OnInit {
     this.projects.removeAt(index);
   }
 
-  /**
-   * Upload a PDF/DOCX/ODT file, parse it on the backend and pre-fill the editor
-   * so the user can review/edit before saving as a new version.
-   */
+  /** Upload a PDF/DOCX/ODT file, parse it on the backend and pre-fill the editor so the user can review/edit before saving as a new version. */
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];

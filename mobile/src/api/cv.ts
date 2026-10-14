@@ -20,11 +20,7 @@ export async function deleteCvVersion(id: string): Promise<void> {
   await apiClient.delete(`/api/cv/${id}`);
 }
 
-/**
- * Edits a tailored CV in place. The artifact owns its content (ADR 016), so
- * this re-renders its PDF and clears the stale ATS cache; the master CV is
- * never touched.
- */
+/** Edits a tailored CV in place. The artifact owns its content (ADR 016), so this re-renders its PDF and clears the stale ATS cache; the master CV is never touched. */
 export async function updateGeneratedCv(id: string, structure: CVStructure): Promise<GeneratedCV> {
   const { data } = await apiClient.put<GeneratedCV>(`/api/cv/generated/${id}`, {
     structured_json: structure,
@@ -45,10 +41,7 @@ export async function getGeneratedCv(id: string): Promise<GeneratedCV> {
   return data;
 }
 
-/**
- * Scores a CV against a job. Passing `generated_cv_id` caches the report on
- * that tailored CV so later reads are free.
- */
+/** Scores a CV against a job. Passing `generated_cv_id` caches the report on that tailored CV so later reads are free. */
 export async function atsScore(payload: AtsScoreInput): Promise<AtsReport> {
   const { data } = await apiClient.post<AtsReport>('/api/cv/ats-score', payload);
   return data;
@@ -74,10 +67,7 @@ export async function exportPdf(structure: CVStructure): Promise<unknown> {
   return data;
 }
 
-/**
- * Uploads a PDF/DOCX CV and returns the parsed CVStructure (nothing is
- * persisted — the caller pre-fills the editor for review).
- */
+/** Uploads a PDF/DOCX CV and returns the parsed CVStructure (nothing is persisted — the caller pre-fills the editor for review). */
 export async function parseCvFile(uri: string, name: string): Promise<CVStructure> {
   const formData = new FormData();
   // RN FormData file entry (the type cast keeps TS happy about the blob shape).

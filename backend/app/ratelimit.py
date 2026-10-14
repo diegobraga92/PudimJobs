@@ -1,8 +1,4 @@
-"""API rate limiting (slowapi, Redis-backed).
-
-The limiter key defaults to the client's remote address. Authenticated
-endpoints can use ``auth_key`` to scope by IP + token hash.
-"""
+"""API rate limiting (slowapi, Redis-backed)."""
 
 import hashlib
 

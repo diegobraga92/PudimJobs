@@ -17,11 +17,7 @@ export function useApplications() {
   });
 }
 
-/**
- * The application tracking `jobId`, if the job is already in the pipeline.
- * Reads the cached list, so creating an application (which invalidates
- * `['applications']`) makes the job detail swap its "add" action for a link.
- */
+/** The application tracking `jobId`, if the job is already in the pipeline. */
 export function useApplicationForJob(jobId: string): Application | null {
   const { data } = useApplications();
   return useMemo(

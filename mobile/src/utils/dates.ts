@@ -1,12 +1,4 @@
-/**
- * Date helpers mirroring the Angular `date` pipe usages in the web UI:
- * - `mediumDate` (e.g. "Aug 16, 2026")
- * - `short`     (e.g. "8/16/26, 4:05 PM")
- * - `formatMonthYear` used by the CV preview ("Jan 2026")
- *
- * Like the web (Angular locale pipes), the language is explicit so dates
- * follow the app's selected language rather than the device locale.
- */
+/** Date helpers mirroring the Angular `date` pipe usages in the web UI: - `mediumDate` (e.g. */
 import type { Language } from '@/i18n/I18nProvider';
 
 export type DateLocale = 'en-US' | 'pt-BR';
@@ -68,10 +60,7 @@ export function shortDate(value: string | null | undefined, locale: DateLocale =
   }).format(date);
 }
 
-/**
- * CV preview date formatter. Accepts "YYYY", "YYYY-MM" or full ISO dates and
- * renders the short month name + year (mirrors CvPreviewComponent.formatDates).
- */
+/** CV preview date formatter. Accepts "YYYY", "YYYY-MM" or full ISO dates and renders the short month name + year (mirrors CvPreviewComponent.formatDates). */
 export function formatMonthYear(
   value: string | null | undefined,
   locale: DateLocale = 'en-US',

@@ -1,11 +1,4 @@
-"""Resilience primitives: a Redis-backed per-source circuit breaker and a
-per-domain rate limiter. Shared by the scraping tasks.
-
-Uses the **sync** ``redis`` client: Celery tasks run via ``asyncio.run()``
-(one fresh event loop per task), so an async client would leak connections
-across loops. Circuit-breaker/rate-limit operations are microsecond-scale and
-safe to call from async code.
-"""
+"""Resilience primitives: a per-source circuit breaker and a per-domain rate limiter."""
 
 from urllib.parse import urlparse
 
@@ -13,6 +6,8 @@ import redis
 
 from app.config import settings
 
+# Sync client on purpose: Celery tasks run via asyncio.run(), one event loop per
+# task, so an async client would leak connections across loops.
 redis_client: redis.Redis = redis.Redis.from_url(
     settings.redis_url, decode_responses=True
 )
@@ -47,11 +42,7 @@ def _domain_key(url: str) -> str:
 
 
 def rate_limit_wait(url: str, cooldown_seconds: int = 30) -> float:
-    """Return the number of seconds the caller should wait before fetching.
-
-    A Redis key ``rate:{domain}`` with a TTL equal to the cooldown means the
-    domain was fetched within the cooldown window.
-    """
+    """Return the number of seconds the caller should wait before fetching."""
     ttl = redis_client.ttl(f"rate:{_domain_key(url)}")
     return max(0.0, float(ttl)) if ttl > 0 else 0.0
 

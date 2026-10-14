@@ -1,12 +1,4 @@
-"""Idempotent seed script.
-
-Creates the development admin user. Run with::
-
-    python -m app.seed
-
-Credentials (dev only):
-    admin@pudimjobs.dev / admin123
-"""
+"""Idempotent seed script."""
 
 import asyncio
 

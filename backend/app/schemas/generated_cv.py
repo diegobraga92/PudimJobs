@@ -8,11 +8,7 @@ from app.schemas.master_cv import CVStructure
 
 
 class GeneratedCVResponse(BaseModel):
-    """A tailored CV artifact (ADR 016).
-
-    Unlike the pre-0019 model this no longer borrows its content from a master CV
-    version: ``structured_json`` is the artifact's own, editable document.
-    """
+    """A tailored CV artifact (ADR 016)."""
 
     id: uuid.UUID
     job_id: uuid.UUID | None

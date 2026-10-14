@@ -1,9 +1,4 @@
-"""OpenTelemetry setup shared by the API and the workers.
-
-Exporters send spans to an OTLP endpoint (e.g. Jaeger). When
-``settings.otlp_endpoint`` is empty, telemetry is a no-op so tests and local
-runs without a collector are unaffected.
-"""
+"""OpenTelemetry setup shared by the API and the workers."""
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter

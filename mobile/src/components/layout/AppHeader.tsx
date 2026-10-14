@@ -6,11 +6,7 @@ import { Icon } from '@/components/icons/Icon';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 
-/**
- * Top app bar. With `back` it shows a back arrow (used on pushed detail
- * screens); otherwise it shows the drawer (hamburger) toggle — the mobile
- * analog of the web sidebar toggle.
- */
+/** Top app bar: a drawer toggle, or a back arrow when `back` is set. */
 export function AppHeader({
   title,
   onLeftPress,

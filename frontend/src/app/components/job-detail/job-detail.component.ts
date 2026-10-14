@@ -10,14 +10,7 @@ import { pipelineBadgeClass, pipelineLabelFor } from '../../shared/pipeline';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
 
-/**
- * Job detail. A reading + triage surface: it shows what the posting asks for and
- * tracks the job in the pipeline.
- *
- * Tailoring deliberately does *not* live here (ADR 015): the tailored CV and its
- * ATS check belong to one application, so they are reached through the
- * application workspace (`/applications/:id`) — this page only links there.
- */
+/** Job detail. A reading + triage surface: it shows what the posting asks for and tracks the job in the pipeline. */
 @Component({
   selector: 'app-job-detail',
   standalone: true,
@@ -66,10 +59,7 @@ export class JobDetailComponent implements OnInit {
     });
   }
 
-  /**
-   * Resolves whether this job is already tracked, so the page can offer the
-   * application workspace instead of a duplicate "add" action.
-   */
+  /** Resolves whether this job is already tracked, so the page can offer the application workspace instead of a duplicate "add" action. */
   private loadPipeline(): void {
     if (!this.job) {
       return;

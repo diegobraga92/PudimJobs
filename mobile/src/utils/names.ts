@@ -1,7 +1,4 @@
-/**
- * Best-effort display name derived from an account email — the app has no
- * dedicated "full name" field, so `jane.doe@example.com` becomes "Jane Doe".
- */
+/** Best-effort display name derived from an account email — the app has no dedicated "full name" field, so `jane.doe@example.com` becomes "Jane Doe". */
 export function displayNameFromEmail(email: string | undefined): string {
   if (!email) {
     return 'Your Name';

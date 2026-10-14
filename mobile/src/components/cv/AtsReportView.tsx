@@ -7,12 +7,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { AtsReport } from '@/types';
 import { factorPercent, deterministicScore, scoreVariant } from '@/utils/ats';
 
-/**
- * Read-only ATS report (see ADR 013) — the mobile analog of the web
- * `app-ats-report` component: the deterministic score, the LLM reviewer's own
- * estimate beside it, weighted factors, matched/missing skills,
- * recommendations and parser warnings.
- */
+/** Read-only ATS report (ADR 013) — the mobile analog of the web `app-ats-report` component. */
 export function AtsReportView({ report }: { report: AtsReport }) {
   const { theme } = useTheme();
   const i18n = useI18n();

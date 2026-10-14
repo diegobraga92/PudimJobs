@@ -1,9 +1,4 @@
-"""Matching engine Celery task.
-
-Evaluates a freshly-stored job against every active alert rule owned by the
-job's user. Matches create notifications (in-app and/or email) and record
-delivery status for observability.
-"""
+"""Matching engine Celery task."""
 
 import asyncio
 import uuid

@@ -10,13 +10,7 @@ from app.models.enums import CVVariant, enum_values
 
 
 class GeneratedCV(Base):
-    """A tailored CV — a first-class artifact, not a master-CV version (ADR 016).
-
-    Owns its ``structured_json`` (so it can be edited without touching the master
-    CV) and a ``variant`` distinguishing the deterministic engine from the
-    optional LLM rewrite. Idempotent per
-    ``(user_id, job_id, source_master_cv_id, variant)``.
-    """
+    """A tailored CV — a first-class artifact, not a master-CV version (ADR 016)."""
 
     __tablename__ = "generated_cvs"
 

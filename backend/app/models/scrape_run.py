@@ -8,11 +8,7 @@ from app.database import Base
 
 
 class ScrapeRun(Base):
-    """One scrape attempt for one source.
-
-    Doubles as the reprocessing/DLQ record: failed runs are inspectable and
-    replayable from the admin API.
-    """
+    """One scrape attempt for one source."""
 
     __tablename__ = "scrape_runs"
 

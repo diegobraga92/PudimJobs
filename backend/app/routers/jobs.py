@@ -57,18 +57,7 @@ async def list_jobs(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Search and filter jobs using PostgreSQL full-text search.
-
-    The ``search_vector`` generated column weights title (A) > company (B) >
-    description (C). Results are ordered by ``ts_rank`` when a keyword is
-    given (with a per-result ``score``), otherwise by recency.
-
-    ``include_hidden`` opts into returning soft-hidden (dismissed) jobs;
-    ``hide_applied`` drops jobs the user already applied to (pipeline
-    statuses ``applied``/``interview``/``offer``/``rejected``) from the
-    listing, so the list can be kept clean while bookmarked ("saved") jobs
-    stay visible.
-    """
+    """Search and filter jobs using PostgreSQL full-text search."""
     has_keyword = bool(q and q.strip())
     if has_keyword:
         query = func.plainto_tsquery("english", q.strip())
@@ -204,10 +193,7 @@ async def tailor_for_job(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Enqueue CV tailoring; ``cv_id=None`` uses the current master CV.
-
-    ``application_id`` (optional) links the application to the tailored version.
-    """
+    """Enqueue CV tailoring; ``cv_id=None`` uses the current master CV."""
     await get_owned_job(job_id, user, db)
     cv_id = str(payload.cv_id) if payload and payload.cv_id else None
     application_id = str(payload.application_id) if payload and payload.application_id else None

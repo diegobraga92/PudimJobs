@@ -1,8 +1,4 @@
-"""RSS/Atom feed scraper.
-
-Parses job feeds with ``feedparser``. Feed entries map to ``RawJob`` and the
-feed's title/company metadata supplies the company name when entries lack one.
-"""
+"""RSS/Atom feed scraper."""
 
 from datetime import UTC, datetime
 

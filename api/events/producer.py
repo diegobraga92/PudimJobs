@@ -1,9 +1,4 @@
-"""RabbitMQ event producer.
-
-Uses kombu (already a Celery dependency) to publish ``job.new`` events to the
-``pudimjobs.events`` topic exchange. Connection strings come from
-``app.config.settings`` so workers and the API share one configuration.
-"""
+"""RabbitMQ event producer."""
 
 import logging
 

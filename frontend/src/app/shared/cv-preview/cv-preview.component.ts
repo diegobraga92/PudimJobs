@@ -3,10 +3,7 @@ import { Component, Input, inject } from '@angular/core';
 import { CVStructure } from '../../services/cv.service';
 import { I18nService } from '../../services/i18n.service';
 
-/**
- * Renders a CVStructure as a clean, A4-style single-page document. Used by the
- * CV editor's "Preview" tab for a live, WYSIWYG look at the resume.
- */
+/** Renders a CVStructure as a clean, A4-style single-page document. Used by the CV editor's "Preview" tab for a live, WYSIWYG look at the resume. */
 @Component({
   selector: 'app-cv-preview',
   standalone: true,

@@ -1,9 +1,4 @@
-"""Celery Beat schedule.
-
-A single periodic ``sweep_sources`` task runs every N minutes and enqueues a
-``scrape_source`` task per source due for scraping. Per-source intervals are a
-Phase-5 refinement; the sweep uses a uniform freshness threshold today.
-"""
+"""Celery Beat schedule."""
 
 from app.config import settings
 

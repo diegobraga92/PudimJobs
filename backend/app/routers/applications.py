@@ -1,8 +1,4 @@
-"""Application pipeline + retrospective endpoints.
-
-The kanban CRUD lives here; ``GET /api/applications/lessons`` exposes the
-cross-application ``lessons_learned`` feed (ADR 014).
-"""
+"""Application pipeline + retrospective endpoints."""
 
 import uuid
 
@@ -107,12 +103,7 @@ async def list_lessons(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """List retrospective notes ("lessons learned") across applications.
-
-    Only applications that actually carry a non-empty ``lessons_learned`` value
-    are returned, most recently updated first — this backs the "Lessons
-    Learned" page.
-    """
+    """List retrospective notes ("lessons learned") across applications."""
     stmt = (
         select(Application, Job)
         .join(Job, Application.job_id == Job.id)
@@ -144,11 +135,7 @@ async def get_application(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Fetch one application with its job description.
-
-    Backs the per-application workspace (pipeline + jobs details + CV panel).
-    Declared after ``/lessons`` so the static path is not shadowed.
-    """
+    """Fetch one application with its job description."""
     application = await get_owned_application(application_id, user, db)
     result = await db.execute(select(Job).where(Job.id == application.job_id))
     job = result.scalar_one()

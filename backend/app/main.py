@@ -114,20 +114,11 @@ async def _health_response() -> JSONResponse:
 
 @app.get("/health")
 async def health():
-    """Health check endpoint.
-
-    Returns 200 if the service is healthy (DB connected),
-    or 503 if the database is unavailable.
-    """
+    """Health check endpoint."""
     return await _health_response()
 
 
 @app.get("/api/health")
 async def api_health():
-    """Frontend-facing health check.
-
-    The Angular dev-server proxy forwards /api/* unchanged to the backend,
-    so the frontend's /api/health request is served here (and /health remains
-    available for infra probes, README, and tests).
-    """
+    """Frontend-facing health check."""
     return await _health_response()

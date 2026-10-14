@@ -5,10 +5,7 @@ import { AppIconComponent } from '../icons/icon.component';
 import { I18nService } from '../../services/i18n.service';
 import { ToastService } from './toast.service';
 
-/**
- * Global toast viewport. Rendered once at the app root; toasts are fed in
- * through the ToastService. Accessible via role="status" (aria-live polite).
- */
+/** Global toast viewport. Rendered once at the app root; toasts are fed in through the ToastService. Accessible via role="status" (aria-live polite). */
 @Component({
   selector: 'app-toast-viewport',
   standalone: true,

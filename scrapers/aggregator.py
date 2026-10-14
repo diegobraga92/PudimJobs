@@ -1,10 +1,4 @@
-"""Aggregator scrapers: job boards that list many jobs on one page.
-
-Adapters are registered in ``AGGREGATOR_ADAPTERS`` and selected per-source via
-``sources.config["adapter"]`` (default ``generic_html_list``). The base class
-provides ``fetch`` (auth + SSRF-guarded) and ``normalize``; each adapter
-implements ``parse`` and optionally ``next_page_url`` for pagination.
-"""
+"""Aggregator scrapers: job boards that list many jobs on one page."""
 
 import json
 import re
@@ -101,45 +95,7 @@ class AggregatorScraper(AbstractScraper):
 
 
 class GenericHtmlListScraper(AggregatorScraper):
-    """CSS-selector-driven list scraper for static job boards.
-
-    Reads selectors from ``Source.config``::
-
-        {
-          "adapter": "generic_html_list",
-          "item_selector": "li.job",
-          "title_selector": "h2",
-          "url_selector": "a",
-          "company_selector": ".company",
-          "location_selector": ".location",
-          "date_selector": "time",
-          "next_page_selector": "a.next",
-          "max_pages": 3
-        }
-
-    Boards whose listing rows only link to detail pages that carry the real data
-    (the common case for modern boards) switch to two stages with
-    ``"detail": true``: the pipeline fetches every row link and parses the
-    *detail* page — JSON-LD first, then the ``detail_*`` selectors — so no new
-    adapter is needed::
-
-        {
-          "adapter": "generic_html_list",
-          "detail": true,
-          "item_selector": "li.job",
-          "url_selector": "a",
-          "company": "Acme",
-          "detail_title_selector": "h1",
-          "detail_company_selector": ".company",
-          "detail_description_selector": ".description",
-          "detail_location_selector": ".location",
-          "detail_date_selector": "time[datetime]",
-          "max_results": 20
-        }
-
-    ``max_pages`` and ``max_results`` are applied by the pipeline
-    (``workers/tasks/scrape.py``), not here.
-    """
+    """CSS-selector-driven list scraper for static job boards."""
 
     adapter_name = "generic_html_list"
 
@@ -149,11 +105,7 @@ class GenericHtmlListScraper(AggregatorScraper):
         return self._parse_list(page)
 
     def discover_urls(self, page: ScrapedPage) -> list[str]:
-        """Job *detail* URLs for every listing row (only in ``detail`` mode).
-
-        Rows are emitted even when they carry no title, which is what makes
-        list→detail crawling work on boards whose list markup is link-only.
-        """
+        """Job *detail* URLs for every listing row (only in ``detail`` mode)."""
         if not _flag(self.config.get("detail")):
             return []
         soup = BeautifulSoup(page.html_content, "lxml")
@@ -265,36 +217,7 @@ class GenericHtmlListScraper(AggregatorScraper):
 
 
 class EmbeddedJsonListScraper(AggregatorScraper):
-    """Config-driven adapter for boards that embed their data in the page.
-
-    Next.js ships a ``<script id="__NEXT_DATA__">`` JSON blob and Nuxt apps set
-    ``window.__NUXT__ = {...}`` — neither is in the DOM, so CSS selectors cannot
-    reach it. This adapter extracts the blob and reads the jobs with the same
-    path keys as the ``json_list`` discovery provider::
-
-        {
-          "adapter": "embedded_json_list",
-          "payload_script": "__NEXT_DATA__",
-          "items_path": "props.pageProps.jobs",
-          "id_path": "id",
-          "title_path": "title",
-          "url_path": "slug",
-          "url_tpl": "https://board.example/jobs/{url}",
-          "company_path": "company.name",
-          "location_path": "location.city",
-          "date_path": "publishedAt",
-          "tags_path": "tags",
-          "company": "Acme",
-          "max_results": 50
-        }
-
-    ``payload_global`` (e.g. ``__NUXT__``) reads a ``window.<name> = ...`` blob
-    instead of a script tag. ``url_path`` values are resolved against the page
-    URL, and ``url_tpl`` (interpolated with ``{url}`` plus the source config) can
-    turn a slug into a full link — needed when the board's paths are rooted
-    elsewhere than the listing page. When no blob is found — or it holds no array
-    — the page's JSON-LD is used as a fallback.
-    """
+    """Config-driven adapter for boards that embed their data in the page."""
 
     adapter_name = "embedded_json_list"
 
@@ -342,11 +265,7 @@ class EmbeddedJsonListScraper(AggregatorScraper):
         return None
 
     def _payload_from_global(self, text: str, name: str) -> object | None:
-        """Decode the JSON assigned to ``window.<name>`` (Nuxt-style blobs).
-
-        Uses ``raw_decode`` rather than a greedy regex so trailing markup (other
-        scripts, HTML) cannot swallow the object.
-        """
+        """Decode the JSON assigned to ``window.<name>`` (Nuxt-style blobs)."""
         match = re.search(rf"window\.{re.escape(name)}\s*=\s*", text)
         if not match:
             return None

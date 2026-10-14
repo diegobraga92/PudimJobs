@@ -1,24 +1,4 @@
-"""The one place an OpenAI-compatible chat completion is called (ADR 016).
-
-Every LLM feature in PudimJobs — CV structuring (``cv_parser``), bullet
-rephrasing and the full-CV rewrite (``cv_tailor``) and the ATS review overlay
-(``ats_scorer``) — goes through this transport, so the provider quirks and the
-failure diagnostics live in exactly one place:
-
-* **Thinking-mode models.** Some providers (DeepSeek's ``deepseek-flash`` /
-  ``deepseek-reasoner``) emit a chain-of-thought *before* the answer and share
-  ``max_tokens`` with it. With a tight budget the API still answers ``200 OK``
-  while ``content`` comes back empty, which used to drop every feature onto its
-  rule-based path with no visible reason. The toggle is provider-specific
-  (``thinking`` is not an OpenAI parameter), so it is only sent to DeepSeek
-  endpoints — where ``temperature`` is ignored as long as thinking is on.
-* **JSON mode.** ``response_format`` asks for a bare JSON object, so a
-  prose-wrapped or explained reply cannot break parsing. A provider that does
-  not know the parameter is retried once without it.
-* **Never raises.** A failed call, or a reply with no usable content, returns
-  ``None`` after logging *why* — the callers all degrade gracefully, and that
-  reason used to be invisible ("it only ever kept the deterministic CV").
-"""
+"""The one place an OpenAI-compatible chat completion is called (ADR 016)."""
 
 import json
 
@@ -49,11 +29,7 @@ def request_body(
     temperature: float,
     json_mode: bool = False,
 ) -> dict:
-    """The exact payload posted to ``{base_url}/chat/completions``.
-
-    Public so the admin "Test connection" probe can exercise the same request
-    (including the provider-specific thinking toggle) as the real features.
-    """
+    """The exact payload posted to ``{base_url}/chat/completions``."""
     body: dict = {
         "model": config.model,
         "messages": [
@@ -196,11 +172,7 @@ async def chat_json(
     timeout: float = 60.0,
     label: str = "LLM request",
 ) -> dict | None:
-    """Ask for a JSON object; ``None`` on any failure (already logged).
-
-    Markdown fences are tolerated (``strip_code_fence``), anything that is not a
-    JSON *object* is rejected, and no exception ever reaches the caller.
-    """
+    """Ask for a JSON object; ``None`` on any failure (already logged)."""
     content = await _fetch(
         config,
         system=system,

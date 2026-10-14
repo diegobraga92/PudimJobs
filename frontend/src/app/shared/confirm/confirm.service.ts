@@ -30,10 +30,7 @@ export class ConfirmService {
     resolve: null,
   });
 
-  /**
-   * Opens a confirmation dialog and resolves the returned promise when the
-   * user confirms or cancels. Replaces native window.confirm().
-   */
+  /** Opens a confirmation dialog and resolves the returned promise when the user confirms or cancels. Replaces native window.confirm(). */
   confirm(options: ConfirmOptions): Promise<boolean> {
     this.state.update((current) => ({
       ...current,

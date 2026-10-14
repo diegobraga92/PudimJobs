@@ -1,8 +1,4 @@
-"""Celery application for PudimJobs workers.
-
-The broker is RabbitMQ (enables durable queues and broker-level dead-letter
-exchanges); Redis is the result backend and stores circuit-breaker state.
-"""
+"""Celery application for PudimJobs workers."""
 
 from app.config import settings
 from app.telemetry import init_telemetry

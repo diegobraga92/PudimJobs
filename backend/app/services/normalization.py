@@ -1,9 +1,4 @@
-"""Normalization helpers for the data quality pipeline.
-
-Company/title normalization uses curated mapping files; skill normalization
-uses the skill taxonomy's alias table. Values fall back to the original when
-no mapping applies.
-"""
+"""Normalization helpers for the data quality pipeline."""
 
 import json
 import re

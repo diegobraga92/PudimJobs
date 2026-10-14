@@ -1,13 +1,4 @@
-"""PDF/DOCX/ODT CV import: extract raw text and structure it into a CVStructure.
-
-Text extraction is deterministic (``pypdf`` for PDF, ``python-docx`` for DOCX,
-and the stdlib ``zipfile`` + ``xml.etree`` for ODT — an ODT is a ZIP whose
-``content.xml`` holds the paragraphs). Structuring follows ADR 011 and mirrors
-the ADR 006 philosophy: a rule-based heuristic core always runs, and an
-optional LLM (OpenAI-compatible) is tried first when configured. Any LLM
-failure degrades gracefully to the heuristics, so CV import works out of the
-box without an API key.
-"""
+"""PDF/DOCX/ODT CV import: extract raw text and structure it into a CVStructure."""
 
 import logging
 import re
@@ -210,11 +201,7 @@ def extract_text_from_pdf(content: bytes) -> str:
 
 
 def _is_docx_list_item(paragraph: Paragraph) -> bool:
-    """True when a DOCX paragraph belongs to a bullet/numbered list.
-
-    Word stores list membership as ``w:numPr`` — either directly on the
-    paragraph or on the numbering style it references — so both are checked.
-    """
+    """True when a DOCX paragraph belongs to a bullet/numbered list."""
     properties = paragraph._p.pPr
     if properties is not None and properties.find(_W_NUM_PR) is not None:
         return True
@@ -263,13 +250,7 @@ def _is_odt_list_item(
 
 
 def extract_text_from_odt(content: bytes) -> str:
-    """Extract text from an ODT byte stream (paragraphs + headings).
-
-    An ODT is a ZIP archive; the document body lives in ``content.xml`` as
-    ``text:p`` (paragraphs) and ``text:h`` (headings) elements. Keeping both
-    in document order lets the heading matcher see section titles, and nested
-    spans are flattened by ``itertext``. No third-party ODF library is needed.
-    """
+    """Extract text from an ODT byte stream (paragraphs + headings)."""
     try:
         with zipfile.ZipFile(BytesIO(content)) as archive:
             xml_bytes = archive.read("content.xml")
@@ -401,11 +382,7 @@ _ENTRY_HEADER_SEPARATORS = (" | ", " @ ", " - ", " \u2013 ", " \u2014 ")
 
 
 def _looks_like_entry_header(line: str) -> bool:
-    """True when a non-bullet line starts a new role rather than continuing one.
-
-    Experience headers carry a date range and/or a title/company separator;
-    wrapped bullet continuations (common in PDF text extraction) carry neither.
-    """
+    """True when a non-bullet line starts a new role rather than continuing one."""
     if _extract_date_range(line)[0]:
         return True
     return any(sep in line for sep in _ENTRY_HEADER_SEPARATORS)
@@ -558,12 +535,7 @@ def _parse_items(lines: list[str], *, max_items: int = 50) -> list[str]:
 
 
 def _parse_contact(preamble: list[str]) -> dict:
-    """Best-effort contact block from the header lines before the first section.
-
-    Email, phone and links are extracted deterministically; the display name and
-    location are heuristics (first short, digit-free header line; the remaining
-    comma-separated "City, Country" line). Users can correct them in the editor.
-    """
+    """Best-effort contact block from the header lines before the first section."""
     email = ""
     phone = ""
     full_name = ""
@@ -735,11 +707,7 @@ async def _llm_structured(text: str, config: LlmRuntimeConfig) -> dict | None:
 
 
 async def structure_cv_with_llm(text: str, config: LlmRuntimeConfig) -> CVStructure | None:
-    """Structure ``text`` via the LLM, validated against CVStructure.
-
-    Returns ``None`` when the API call fails or the reply is not a valid
-    structure, so callers can fall back to the rule-based parser.
-    """
+    """Structure ``text`` via the LLM, validated against CVStructure."""
     payload = await _llm_structured(text, config)
     if payload is None:
         return None
@@ -762,11 +730,7 @@ async def parse_cv_file(
     *,
     llm_config: LlmRuntimeConfig | None = None,
 ) -> CVStructure:
-    """Extract and structure a CV file into a CVStructure (never persists).
-
-    Tries the LLM first when a config with an API key is supplied; any failure
-    falls back to the deterministic rule-based parser.
-    """
+    """Extract and structure a CV file into a CVStructure (never persists)."""
     text = extract_text(filename, content)
     if llm_config is not None and llm_config.enabled and llm_config.api_key:
         llm_result = await structure_cv_with_llm(text, llm_config)

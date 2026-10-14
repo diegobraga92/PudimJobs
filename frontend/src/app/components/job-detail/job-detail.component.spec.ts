@@ -36,11 +36,7 @@ const APPLICATION: Application = {
   job_url: 'https://acme.example/jobs/1',
 };
 
-/**
- * The job page is a reading + triage surface: it must never enqueue tailoring
- * itself (ADR 015) — it only links to the application workspace, where the
- * tailored CV and its ATS check live.
- */
+/** The job page only triages: it links to the application workspace, never enqueues tailoring (ADR 015). */
 describe('JobDetailComponent', () => {
   let fixture: ComponentFixture<JobDetailComponent>;
   let component: JobDetailComponent;

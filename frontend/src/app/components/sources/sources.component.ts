@@ -164,10 +164,7 @@ export class SourcesComponent implements OnInit {
     this.previewResult = null;
   }
 
-  /**
-   * Dry-run the current form values. Nothing is persisted: the API fetches and
-   * parses once and returns a sample, so selectors can be tuned before saving.
-   */
+  /** Dry-run the current form values. Nothing is persisted: the API fetches and parses once and returns a sample, so selectors can be tuned before saving. */
   preview(): void {
     if (this.previewing) {
       return;
@@ -262,11 +259,7 @@ export class SourcesComponent implements OnInit {
     this.previewResult = null;
   }
 
-  /**
-   * The `config` to send for the current form state, or null when the JSON is
-   * invalid (an error toast is shown). Shared by save() and preview() so the dry
-   * run exercises exactly what would be stored.
-   */
+  /** The `config` to send for the current form state, or null when the JSON is invalid (an error toast is shown). */
   private buildConfig(type: string): Record<string, unknown> | null {
     const parsed = this.parseConfigJson(type);
     if (parsed === null) {

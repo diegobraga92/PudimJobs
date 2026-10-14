@@ -21,10 +21,7 @@ interface AuthState {
   rehydrated: () => void;
 }
 
-/**
- * Secure session store — mirrors the web AuthService's localStorage token
- * handling, but the JWT (+ user profile) live in the Android/iOS keychain.
- */
+/** Secure session store — mirrors the web AuthService's localStorage token handling, but the JWT (+ user profile) live in the Android/iOS keychain. */
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({

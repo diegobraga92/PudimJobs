@@ -15,15 +15,7 @@ import { I18nService } from '../../services/i18n.service';
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
 
-/**
- * Per-application workspace.
- *
- * One place for a single application: the job it targets (description + link),
- * the pipeline fields that used to live in the kanban modal (status, dates,
- * notes, retrospective) and — new — the CV panel holding the tailored CV and its
- * ATS check. Previously those lived apart on `/cv`, which now only manages the
- * master source document.
- */
+/** Per-application workspace. */
 @Component({
   selector: 'app-application-detail',
   standalone: true,

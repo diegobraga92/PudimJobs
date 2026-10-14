@@ -1,16 +1,5 @@
 """Make tailored CVs self-contained artifacts (ADR 016).
 
-Before this migration every tailor run stored its output twice: a new
-(non-current) ``master_cv`` version holding the content, plus a ``generated_cvs``
-row only holding the PDF and a pointer at that version. Tailored output therefore
-leaked into the master CV version history (web + mobile) and the artifact could
-not carry its own edits.
-
-After the migration a ``generated_cvs`` row *is* the tailored CV: it owns its
-``structured_json`` and a ``variant`` (``rule`` for the deterministic engine,
-``llm`` for the optional full-LLM rewrite). ``applications`` now points at the
-artifact it was sent with (``generated_cv_id``) instead of at a master version.
-
 Revision ID: 0019
 Revises: 0018
 Create Date: 2026-10-13

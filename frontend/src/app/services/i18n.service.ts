@@ -9,11 +9,7 @@ export interface TranslationEntry {
 
 const STORAGE_KEY = 'pudimjobs_language';
 
-/**
- * Translation dictionary for the PudimJobs frontend.
- * Every user-facing string lives here in English (`en`) and Brazilian
- * Portuguese (`pt-BR`). Keys are dot-namespaced by feature/domain.
- */
+/** Translation dictionary for the PudimJobs frontend. */
 export const DICTIONARY: Record<string, TranslationEntry> = {
   // ---- App shell -----------------------------------------------------------
   'app.skipToContent': { en: 'Skip to content', 'pt-BR': 'Pular para o conteúdo' },
@@ -814,11 +810,7 @@ export class I18nService {
     return this.lang();
   }
 
-  /**
-   * Returns the translation for `key` in the active language, interpolating any
-   * `{placeholder}` tokens from `params`. Falls back to the key itself when the
-   * dictionary has no entry for it.
-   */
+  /** Returns the translation for `key` in the active language, interpolating any `{placeholder}` tokens from `params`. */
   t(key: string, params?: Record<string, string | number | null | undefined>): string {
     const entry = DICTIONARY[key];
     let value = entry ? entry[this.lang()] : key;

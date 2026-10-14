@@ -1,12 +1,4 @@
-/**
- * Translation dictionary for the PudimJobs app.
- * Every user-facing string lives here in English (en) and Brazilian
- * Portuguese (pt-BR). Keys are dot-namespaced by feature/domain.
- *
- * NOTE: this file is generated from the Angular web frontend
- * (frontend/src/app/services/i18n.service.ts) to keep web + mobile strings
- * identical. Regenerate with: node scripts/extract-dictionary.js
- */
+/** Translation dictionary for the PudimJobs app. */
 
 export interface TranslationEntry {
   en: string;

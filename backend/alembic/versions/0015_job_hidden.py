@@ -1,9 +1,5 @@
 """Add ``jobs.hidden`` flag for soft-dismissing jobs from the list.
 
-Jobs the user marks as "not interesting" (or that they already applied to)
-are soft-hidden behind this flag instead of being deleted, so the listing
-stays clean while the record (and its applications) is preserved.
-
 Revision ID: 0015
 Revises: 0014
 Create Date: 2026-08-15

@@ -4,11 +4,7 @@ import * as Sharing from 'expo-sharing';
 import { API_BASE_URL } from '@/api/config';
 import { useAuthStore } from '@/store/auth';
 
-/**
- * PDF helpers — the React Native analog of the web's blob download. Blobs are
- * written to the app cache directory and handed to the Android share sheet so
- * the user can save them anywhere (Downloads, Drive, …).
- */
+/** PDF helpers — the React Native analog of the web's blob download. */
 
 /** Reads a fetch/axios blob into a base64 data-URL payload (no `data:` prefix). */
 export function blobToBase64(blob: unknown): Promise<string> {

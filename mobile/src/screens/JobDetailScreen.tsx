@@ -35,23 +35,13 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { dateLocale, mediumDate } from '@/utils/dates';
 import { pipelineBadgeVariant, pipelineLabel } from '@/utils/pipeline';
 
-/**
- * The screen sits in the jobs stack but links across to the application
- * workspace, so its navigation prop is composed with the parent drawer.
- */
+/** The screen sits in the jobs stack but links across to the application workspace, so its navigation prop is composed with the parent drawer. */
 type JobDetailNavigation = CompositeNavigationProp<
   NativeStackNavigationProp<JobsStackParamList, 'JobDetail'>,
   DrawerNavigationProp<AppDrawerParamList>
 >;
 
-/**
- * Job detail. A reading + triage surface: it shows what the posting asks for and
- * tracks the job in the pipeline.
- *
- * Tailoring deliberately does *not* live here (ADR 015): the tailored CV and its
- * ATS check belong to one application, so they are reached through the
- * application workspace — this screen only links there.
- */
+/** Job detail. A reading + triage surface: it shows what the posting asks for and tracks the job in the pipeline. */
 export function JobDetailScreen() {
   const { theme } = useTheme();
   const i18n = useI18n();

@@ -52,11 +52,7 @@ class PrepStatus(enum.StrEnum):
 
 
 class CVVariant(enum.StrEnum):
-    """How a tailored CV was produced (ADR 016).
-
-    ``rule`` is the deterministic engine (always produced); ``llm`` is the
-    optional full-CV rewrite, kept as a second artifact so the user can pick.
-    """
+    """How a tailored CV was produced (ADR 016)."""
 
     rule = "rule"
     llm = "llm"

@@ -117,12 +117,7 @@ async def import_sources(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Bulk-create sources from a catalog, idempotently per user.
-
-    Credentials are never imported (add them with ``PUT /api/sources/{id}/auth``)
-    and re-running the same catalog skips what the user already has — matched on
-    ``url`` + ``type`` — so it is safe to repeat.
-    """
+    """Bulk-create sources from a catalog, idempotently per user."""
     existing = await db.execute(select(Source.url, Source.type).where(Source.user_id == user.id))
     known = {(row.url, row.type) for row in existing.all()}
 
@@ -370,11 +365,7 @@ async def test_source_auth(
 
 
 async def _discover_detail_urls(scraper, page) -> list[str]:
-    """Detail URLs for a page, tolerating scrapers without the hook.
-
-    Mirrors ``workers.tasks.scrape._discover`` (the backend image does not mount
-    ``workers/``, so the logic is duplicated rather than imported).
-    """
+    """Detail URLs for a page, tolerating scrapers without the hook."""
     discover = getattr(scraper, "discover_urls", None)
     if not callable(discover):
         return []
@@ -465,10 +456,7 @@ async def preview_source_config(
     payload: SourcePreviewRequest,
     user: User = Depends(get_current_user),
 ):
-    """Dry-run a URL/type/config so selectors can be tuned before saving.
-
-    Nothing is persisted: no source, no jobs and no ``scrape_runs`` row.
-    """
+    """Dry-run a URL/type/config so selectors can be tuned before saving."""
     return await _run_preview(
         source_type=payload.type, url=payload.url, config=payload.config or {}
     )

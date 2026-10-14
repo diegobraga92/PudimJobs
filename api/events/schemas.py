@@ -1,11 +1,4 @@
-"""Event schemas.
-
-Versioning contract (see ``CHANGELOG.md``):
-- ``version`` is a monotonically increasing integer.
-- New fields MUST be additive (optional, with a sensible default) so that
-  consumers of older versions can still parse newer payloads.
-- Deprecated fields keep their default for two versions before removal.
-"""
+"""Event schemas."""
 
 import uuid
 from datetime import date, datetime, timezone

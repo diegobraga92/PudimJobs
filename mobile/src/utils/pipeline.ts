@@ -15,10 +15,7 @@ export function pipelineBadgeVariant(status: ApplicationStatus): BadgeVariant {
   return PIPELINE_BADGES[status] ?? 'info';
 }
 
-/**
- * Localised label for a pipeline status. Unknown statuses (e.g. one added by a
- * newer backend) fall back to "In pipeline" instead of leaking the raw key.
- */
+/** Localised label for a pipeline status. Unknown statuses (e.g. one added by a newer backend) fall back to "In pipeline" instead of leaking the raw key. */
 export function pipelineLabel(status: string, t: (key: string) => string): string {
   const key = `pipeline.${status}`;
   const label = t(key);

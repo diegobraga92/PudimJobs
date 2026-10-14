@@ -1,8 +1,4 @@
-"""Schemas for per-source authentication.
-
-Credentials (bearer token / API key) are write-only fields: they are encrypted
-on write and never included in responses.
-"""
+"""Schemas for per-source authentication."""
 
 from datetime import datetime
 

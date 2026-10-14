@@ -1,16 +1,4 @@
-"""Per-source authentication secrets (1:1 with ``sources``).
-
-Credentials are stored encrypted at rest (see ``app.services.secrets``) and are
-write-only through the API — responses only expose ``auth_type`` and whether a
-secret is set. Supported auth types:
-
-- ``none`` — public fetch (default)
-- ``token`` — a bearer token sent as ``Authorization: Bearer ...``
-- ``api_key`` — an API key (search/ATS providers decide its placement)
-
-Cookie-based auth was removed: automating logged-in sessions violates most
-sites' terms of service.
-"""
+"""Per-source authentication secrets (1:1 with ``sources``)."""
 
 import uuid
 from datetime import datetime

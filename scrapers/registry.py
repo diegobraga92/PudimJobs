@@ -20,14 +20,7 @@ SCRAPER_REGISTRY: dict[SourceType, type[AbstractScraper]] = {
 
 
 def get_scraper(source, api_key: str | None = None) -> AbstractScraper:
-    """Instantiate the scraper registered for a source.
-
-    Aggregator sources are dispatched to the adapter named in
-    ``source.config["adapter"]`` (default ``generic_html_list``). Discovery
-    sources are dispatched to the provider named in
-    ``source.config["provider"]`` and receive the source's encrypted API key
-    (used by search-API providers).
-    """
+    """Instantiate the scraper registered for a source."""
     try:
         scraper_cls = SCRAPER_REGISTRY[source.type]
     except KeyError as exc:

@@ -1,8 +1,4 @@
-"""ORM models for PudimJobs.
-
-Importing this package registers every model on ``Base.metadata`` so that
-Alembic autogenerate and ``Base.metadata.create_all`` see the full schema.
-"""
+"""ORM models for PudimJobs."""
 
 from app.database import Base
 from app.models.alert_rule import AlertRule

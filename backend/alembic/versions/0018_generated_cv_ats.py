@@ -1,8 +1,5 @@
 """Add ATS scoring columns to ``generated_cvs``.
 
-Stores the score (0-100) and the full breakdown report produced by the ATS
-scorer so the UI can show it without recomputing (see ADR 013).
-
 Revision ID: 0018
 Revises: 0017
 Create Date: 2026-10-13

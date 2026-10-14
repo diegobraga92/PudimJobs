@@ -28,23 +28,10 @@ import { dateLocale, shortDate } from '@/utils/dates';
 import { displayNameFromEmail } from '@/utils/names';
 import { sharePdfFromUrl } from '@/utils/pdf';
 
-/**
- * Give up after ~90s. A long or stuck job must not leave the screen hammering
- * the API forever; the manual *Refresh* button stays as the fallback.
- */
+/** Give up after ~90s. A long or stuck job must not leave the screen hammering the API forever; the manual *Refresh* button stays as the fallback. */
 const POLL_TIMEOUT_MS = 90_000;
 
-/**
- * Per-job tailored-CV workspace.
- *
- * Merges the two things that used to live apart on the Master CV screen: the CV
- * tailored for a job and its ATS check. Dropped into the application workspace
- * so "the CV I sent, and how it scores" sits next to the application.
- *
- * Tailoring is asynchronous (`POST /api/jobs/{id}/tailor` → 202 + Celery), so
- * enqueueing flips the panel into a pending state that resolves itself — the
- * list polls until the artifact lands, and *Refresh* remains available.
- */
+/** Per-job tailored-CV workspace. */
 export function CvPanel({
   jobId,
   applicationId,

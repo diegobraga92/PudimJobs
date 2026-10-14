@@ -52,11 +52,7 @@ describe('ApplicationDetailComponent', () => {
 
   afterEach(() => http.verify());
 
-  /**
-   * Flushes the application fetch plus the embedded CV panel's first request.
-   * The panel lives inside the `@if (application)` block, so the component has to
-   * re-render in between for its request to be issued.
-   */
+  /** Flushes the application fetch plus the embedded CV panel's first request. */
   function load(): void {
     http.expectOne('/api/applications/app-1').flush(APPLICATION);
     fixture.detectChanges();

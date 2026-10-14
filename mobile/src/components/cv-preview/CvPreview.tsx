@@ -5,10 +5,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { CVStructure } from '@/types';
 import { dateLocale, formatDateRange } from '@/utils/dates';
 
-/**
- * Renders a CVStructure as a clean A4-style document — mirrors the web
- * `app-cv-preview` component used by the CV editor's Preview tab.
- */
+/** Renders a CVStructure as a clean A4-style document — mirrors the web `app-cv-preview` component used by the CV editor's Preview tab. */
 export function CvPreview({ cv, name }: { cv: CVStructure; name: string }) {
   const { theme } = useTheme();
   const i18n = useI18n();

@@ -3,10 +3,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 import { AppIconName } from './icon-name';
 
-/**
- * The SVG element markup for each icon. All markup is a compile-time constant,
- * so it is safe to render with bypassSecurityTrustHtml.
- */
+/** The SVG element markup for each icon. All markup is a compile-time constant, so it is safe to render with bypassSecurityTrustHtml. */
 const ICON_MARKUP: Record<AppIconName, string> = {
   activity:
     '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />',

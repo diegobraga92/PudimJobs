@@ -1,8 +1,4 @@
-"""Interview-preparation checklist endpoints (ADR 014).
-
-A prep task is an owned to-do that may optionally point at a job and/or an
-application; every mutation is validated and audit-logged.
-"""
+"""Interview-preparation checklist endpoints (ADR 014)."""
 
 import uuid
 
@@ -78,11 +74,7 @@ async def list_prep_tasks(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """List prep tasks, optionally filtered by status and/or job.
-
-    Ordering keeps unfinished work visible first (pending, then in progress,
-    then done), then by due date with undated tasks last, then newest first.
-    """
+    """List prep tasks, optionally filtered by status and/or job."""
     stmt = (
         select(PrepTask, Job)
         .outerjoin(Job, PrepTask.job_id == Job.id)

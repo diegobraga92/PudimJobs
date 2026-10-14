@@ -1,9 +1,4 @@
-/**
- * Supported icon names for the AppIcon component.
- *
- * Icons are Lucide-style stroke SVGs (MIT licensed). All path data is
- * hardcoded in icon.component.ts so the bundle only ships what is used.
- */
+/** Supported icon names for the AppIcon component. */
 export type AppIconName =
   | 'activity'
   | 'arrow-left'

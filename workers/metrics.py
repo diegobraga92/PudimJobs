@@ -1,8 +1,4 @@
-"""Prometheus metrics for the scraping workers.
-
-Started as a daemon HTTP server (default port 9100) so the worker process can
-be scraped without exposing an HTTP framework.
-"""
+"""Prometheus metrics for the scraping workers."""
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 

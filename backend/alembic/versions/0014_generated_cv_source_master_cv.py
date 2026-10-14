@@ -1,9 +1,5 @@
 """Add ``generated_cvs.source_master_cv_id`` for tailoring idempotency.
 
-``generated_cvs.master_cv_id`` points at the *generated* CV version; the new
-column records the *source* master-CV version a tailored artifact came from, so
-re-tailoring the same job against the same source CV is idempotent.
-
 Revision ID: 0014
 Revises: 0013
 Create Date: 2026-08-14

@@ -1,9 +1,4 @@
-"""PDF generation: renders a tailored CV via a Jinja2 template + weasyprint.
-
-Two templates ship: ``classic`` (the styled default) and ``ats`` (a plain,
-single-column layout designed to be parsed cleanly by applicant tracking
-systems — see ADR 013).
-"""
+"""PDF generation: renders a tailored CV via a Jinja2 template + weasyprint."""
 
 from pathlib import Path
 
@@ -35,11 +30,7 @@ def render_cv_html(
     email: str = "",
     template: str = DEFAULT_TEMPLATE,
 ) -> str:
-    """Render a tailored CV to HTML using the named template.
-
-    Contact values embedded in the CV itself take precedence over the
-    ``name``/``email`` fallbacks (which are derived from the user account).
-    """
+    """Render a tailored CV to HTML using the named template."""
     try:
         filename = TEMPLATES[template]
     except KeyError as exc:

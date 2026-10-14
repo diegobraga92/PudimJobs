@@ -36,14 +36,7 @@ import { ApplicationDetail, ApplicationInput, ApplicationStatus } from '@/types'
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
 
-/**
- * Per-application workspace (mobile).
- *
- * One place for a single application: the job it targets, the pipeline fields
- * that used to live in the kanban modal (status, applied date, notes,
- * retrospective) and — new — the CV panel holding the tailored CV and its ATS
- * check. Mirrors the web `/applications/:id` page.
- */
+/** Per-application workspace (mobile). */
 export function ApplicationDetailScreen() {
   const { theme } = useTheme();
   const i18n = useI18n();
@@ -165,12 +158,7 @@ export function ApplicationDetailScreen() {
   );
 }
 
-/**
- * Pipeline fields + notes editor for one application.
- *
- * Mounted with `key={application.updated_at}` so a refetch re-seeds the drafts
- * from the server without a `setState`-in-effect.
- */
+/** Pipeline fields + notes editor for one application. */
 function ApplicationForm({
   application,
   saving,

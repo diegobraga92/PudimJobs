@@ -14,14 +14,7 @@ import { I18nService } from '../../services/i18n.service';
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
 
-/**
- * Application pipeline (kanban).
- *
- * A navigation surface: cards open the per-application workspace
- * (`/applications/:id`), where the notes, retrospective and the tailored CV +
- * ATS panel live. Dragging a card between columns persists the status change
- * here, so the board stays a fast triage view.
- */
+/** Application pipeline (kanban). */
 @Component({
   selector: 'app-applications',
   standalone: true,
@@ -61,11 +54,7 @@ export class ApplicationsComponent implements OnInit {
     this.router.navigate(['/applications', application.id]);
   }
 
-  /**
-   * Handles a drag-and-drop between columns. CDK does not mutate the column data
-   * arrays itself, so we move the item between them here; the new status is
-   * persisted through PUT /api/applications/:id and reverted on error.
-   */
+  /** Move a card between pipeline columns, persist the new status and revert on error. */
   onDrop(event: CdkDragDrop<Application[]>): void {
     if (event.previousContainer === event.container) {
       // Intra-column reorder — visual only, not persisted.

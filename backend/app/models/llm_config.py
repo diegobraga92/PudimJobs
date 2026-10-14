@@ -1,9 +1,4 @@
-"""Global LLM configuration (single-row table, admin-editable).
-
-The row is upserted with a fixed id so there is always at most one config.
-``cv_tailor.enhance_with_llm`` reads the runtime config through
-``app.services.llm_config.get_llm_config`` (DB row with env-var fallback).
-"""
+"""Global LLM configuration (single-row table, admin-editable)."""
 
 import uuid
 from datetime import datetime

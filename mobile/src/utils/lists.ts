@@ -1,7 +1,4 @@
-/**
- * Comma/newline list parsers — mirrors the helpers in the Angular components
- * (parseTags / parseList / parseLines).
- */
+/** Comma/newline list parsers — mirrors the helpers in the Angular components (parseTags / parseList / parseLines). */
 
 export function parseList(input: string): string[] {
   return input

@@ -131,10 +131,7 @@ export class SourcesService {
     return this.http.get<AggregatorAdapter[]>('/api/sources/adapters');
   }
 
-  /**
-   * Dry-run a URL/type/config: fetches and parses once, persisting nothing, so
-   * selectors can be tuned before saving the source.
-   */
+  /** Dry-run a URL/type/config: fetches and parses once, persisting nothing, so selectors can be tuned before saving the source. */
   preview(payload: SourcePreviewInput): Observable<SourcePreview> {
     return this.http.post<SourcePreview>('/api/sources/preview', payload);
   }

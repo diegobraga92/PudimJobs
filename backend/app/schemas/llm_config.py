@@ -5,10 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMConfigUpdate(BaseModel):
-    """Admin updates for the global LLM config.
-
-    ``api_key`` is write-only: it is encrypted at rest and never returned.
-    """
+    """Admin updates for the global LLM config."""
 
     enabled: bool
     base_url: str = Field(min_length=1, max_length=255)

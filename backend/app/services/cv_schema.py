@@ -1,10 +1,4 @@
-"""The JSON shape of a structured CV, shared by the LLM prompts (ADR 016).
-
-Both the CV importer (``cv_parser``, ADR 011) and the LLM tailoring variant
-(``cv_tailor``) ask a model for a ``CVStructure``-shaped object. Keeping the
-literal here means the two prompts can never drift apart from each other or from
-``app/schemas/master_cv.CVStructure``.
-"""
+"""The JSON shape of a structured CV, shared by the LLM prompts (ADR 016)."""
 
 import re
 

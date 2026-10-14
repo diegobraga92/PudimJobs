@@ -1,5 +1,4 @@
-"""Fetching helpers shared by all scrapers: user-agent rotation, robots.txt
-compliance, and a per-domain rate limiter backed by Redis."""
+"""Fetching helpers shared by all scrapers: user-agent rotation, robots.txt, rate limiting."""
 
 import ipaddress
 import json
@@ -39,13 +38,7 @@ def domain_of(url: str) -> str:
 
 
 def assert_safe_url(url: str) -> None:
-    """SSRF guard: only public http(s) URLs may be fetched.
-
-    Blocks non-http(s) schemes and hosts that resolve to private, loopback,
-    link-local, multicast, reserved, or unspecified addresses. Set
-    ``SCRAPER_ALLOW_PRIVATE_NETWORKS=true`` to allow internal targets (e.g. a
-    LAN-hosted careers site); the default is safe for shared deployments.
-    """
+    """SSRF guard: only public http(s) URLs may be fetched."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"Only http/https URLs are allowed (got {parsed.scheme!r})")
@@ -72,14 +65,7 @@ def assert_safe_url(url: str) -> None:
 
 
 def is_allowed_by_robots(url: str) -> bool:
-    """Check robots.txt for the domain (cached in-process for 1h).
-
-    The robots.txt body is cached per domain; each URL path is then matched
-    against the cached rules (``Allow``/``Disallow`` + wildcard semantics from
-    ``urllib.robotparser``) using the declared bot identity
-    (``settings.scraper_bot_user_agent``). A failed robots.txt fetch defaults
-    to *allowed*.
-    """
+    """Check robots.txt for the domain (cached in-process for 1h)."""
     host = domain_of(url)
     now = time.monotonic()
     cached = _robots_parser_cache.get(host)
@@ -104,11 +90,7 @@ def rate_limit_key(url: str, cooldown_seconds: int = 30) -> tuple[str, int]:
 
 
 def redact_sensitive(text: str) -> str:
-    """Redact API keys/tokens embedded in URLs or exception messages.
-
-    Search providers (SerpApi, Google CSE) put the key in the query string;
-    this keeps it out of ``scrape_runs`` errors and structured logs.
-    """
+    """Redact API keys/tokens embedded in URLs or exception messages."""
     return _SENSITIVE_QUERY_PARAM_RE.sub(r"\1REDACTED", text)
 
 
@@ -133,13 +115,7 @@ async def fetch_html(
     timeout: float = 20.0,
     auth: FetchAuth | None = None,
 ) -> ScrapedPage:
-    """Fetch a URL and return a ``ScrapedPage`` with the response HTML.
-
-    ``auth`` optionally provides extra headers (e.g. a bearer token) for
-    authenticated sources. Every hop — including redirects, which are followed
-    manually — is validated against the SSRF blocklist, and the response body is
-    capped at ``settings.scraper_max_response_bytes``.
-    """
+    """Fetch a URL and return a ``ScrapedPage`` with the response HTML."""
     headers = {"User-Agent": random_user_agent(), "Accept-Language": "en-US,en;q=0.9"}
     if auth and auth.headers:
         headers.update(auth.headers)
@@ -218,15 +194,7 @@ def _split_selectors(value: object) -> list[str] | None:
 
 
 def resolve_path(data: object, path: object, *, default: object = None) -> object:
-    """Resolve a dotted/indexed path inside a JSON payload (``a.b[0].c``).
-
-    Used by the config-driven providers/adapters (``json_list``,
-    ``embedded_json_list``) so new boards are described by source config instead
-    of code. Dict keys (``a.b``), list indices (``a[0]`` or ``a.0``) and an
-    empty/``None`` path (which returns ``data`` unchanged) are supported. A
-    missing key, an out-of-range index, a non-container hop and a non-string
-    path all yield ``default`` instead of raising.
-    """
+    """Resolve a dotted/indexed path inside a JSON payload (``a.b[0].c``)."""
     if not path:
         return data
     if not isinstance(path, str):
@@ -252,12 +220,7 @@ def resolve_path(data: object, path: object, *, default: object = None) -> objec
 
 
 def coerce_date(value: object) -> date | None:
-    """Best-effort ``date`` from a JSON payload value.
-
-    Handles ``date``/``datetime`` instances, ISO strings (with or without a time
-    component, e.g. ``2026-08-01T10:00:00``) and epoch seconds. Anything else —
-    including booleans — returns ``None``.
-    """
+    """Best-effort ``date`` from a JSON payload value."""
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -292,12 +255,7 @@ def as_optional_str(value: object) -> str | None:
 
 
 def parse_json_ld_jobs(html_content: str) -> list[RawJob]:
-    """Extract schema.org ``JobPosting`` records from JSON-LD script blocks.
-
-    Returns an empty list when the page has no ``JobPosting`` JSON-LD. This is
-    the primary strategy for career pages and for job *detail* pages discovered
-    by search providers.
-    """
+    """Extract schema.org ``JobPosting`` records from JSON-LD script blocks."""
     soup = BeautifulSoup(html_content, "lxml")
     jobs: list[RawJob] = []
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
@@ -331,13 +289,7 @@ def parse_json_ld_jobs(html_content: str) -> list[RawJob]:
 
 
 def parse_job_detail(page: ScrapedPage, selectors: dict | None = None) -> list[RawJob]:
-    """Best-effort single-listing parser for a job detail page (CSS selectors).
-
-    ``selectors`` optionally overrides the default selector lists with
-    comma-separated strings (``title_selectors``, ``company_selectors``,
-    ``location_selectors``, ``description_selectors``, ``date_selectors``).
-    Returns ``[]`` when the page does not look like a job listing.
-    """
+    """Best-effort single-listing parser for a job detail page (CSS selectors)."""
     selectors = selectors or {}
     title_sel = _split_selectors(selectors.get("title_selectors")) or _TITLE_SELECTORS
     company_sel = _split_selectors(selectors.get("company_selectors")) or _COMPANY_SELECTORS

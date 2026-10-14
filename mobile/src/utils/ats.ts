@@ -14,10 +14,7 @@ export function factorPercent(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score * 100)));
 }
 
-/**
- * The headline ATS number: the deterministic baseline. Falls back to `score`
- * for a report cached before `deterministic_score` existed (ADR 013 amendment).
- */
+/** The headline ATS number: the deterministic baseline. Falls back to `score` for a report cached before `deterministic_score` existed (ADR 013 amendment). */
 export function deterministicScore(report: AtsReport): number {
   return report.deterministic_score ?? report.score;
 }
