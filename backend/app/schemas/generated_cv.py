@@ -29,6 +29,22 @@ class GeneratedCVUpdate(BaseModel):
     structured_json: CVStructure
 
 
+class TailorResponse(BaseModel):
+    """Acknowledgement of an enqueued tailor run (ADR 016).
+
+    ``variants`` names the artifacts the run will produce — ``rule`` always, plus
+    ``llm`` when the LLM is enabled with a usable key. The client polls until the
+    expected set has landed, so it can tell a finished single-variant run from one
+    whose AI rewrite is still being written.
+    """
+
+    enqueued: bool
+    job_id: uuid.UUID
+    cv_id: uuid.UUID | None = None
+    application_id: uuid.UUID | None = None
+    variants: list[CVVariant]
+
+
 class TailorRequest(BaseModel):
     cv_id: uuid.UUID | None = None
     # When set, the application is pointed at the deterministic (``rule``) variant

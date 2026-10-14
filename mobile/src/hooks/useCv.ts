@@ -11,7 +11,8 @@ import {
   updateCv,
   updateGeneratedCv,
 } from '@/api/cv';
-import { AtsScoreInput, CVInput, CVStructure } from '@/types';
+import { AtsScoreInput, CVInput, CVStructure, CvVariant } from '@/types';
+import { hasContent } from '@/utils/cv';
 
 export function useCvVersions() {
   return useQuery({
@@ -23,13 +24,34 @@ export function useCvVersions() {
 /** How often to re-check for a tailored artifact while a run is in flight. */
 export const CV_POLL_INTERVAL_MS = 3000;
 
-/** Tailored CVs for a job, newest first. */
-export function useGeneratedCvs(jobId?: string, options?: { pollUntilData?: boolean }) {
+/**
+ * Tailored CVs for a job, newest first.
+ *
+ * `pollUntilData` keeps re-fetching while a tailor run is in flight.
+ * `expectedVariants` (from the enqueue response) keeps that polling going until
+ * *every* one of them has landed: the worker commits the deterministic variant
+ * before the slow AI rewrite (ADR 016), so stopping at the first artifact would
+ * strand the screen until a manual refresh. Without it, any artifact settles.
+ */
+export function useGeneratedCvs(
+  jobId?: string,
+  options?: { pollUntilData?: boolean; expectedVariants?: CvVariant[] | null },
+) {
+  const expected = options?.expectedVariants ?? null;
   return useQuery({
     queryKey: ['cv', 'generated', jobId ?? 'all'],
     queryFn: () => listGeneratedCvs(jobId),
-    refetchInterval: (query) =>
-      options?.pollUntilData && (query.state.data?.length ?? 0) === 0 ? CV_POLL_INTERVAL_MS : false,
+    refetchInterval: (query) => {
+      if (!options?.pollUntilData) {
+        return false;
+      }
+      const usable = (query.state.data ?? []).filter(hasContent);
+      if (!expected || expected.length === 0) {
+        return usable.length === 0 ? CV_POLL_INTERVAL_MS : false;
+      }
+      const settled = expected.every((variant) => usable.some((item) => item.variant === variant));
+      return settled ? false : CV_POLL_INTERVAL_MS;
+    },
   });
 }
 

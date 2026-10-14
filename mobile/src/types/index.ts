@@ -80,6 +80,16 @@ export interface EnqueueResult {
   application_id?: string | null;
 }
 
+/**
+ * Acknowledgement of an enqueued tailor run (`POST /api/jobs/:id/tailor`, 202).
+ * `variants` names the artifacts the run will produce — `rule` always, plus `llm`
+ * when the LLM is on — so the caller can poll until *all* of them have landed
+ * instead of stopping at the first one (ADR 016).
+ */
+export interface TailorEnqueueResult extends EnqueueResult {
+  variants: CvVariant[];
+}
+
 // ---- Applications ------------------------------------------------------
 
 export type ApplicationStatus = 'saved' | 'applied' | 'interview' | 'offer' | 'rejected';

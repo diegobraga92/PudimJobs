@@ -2,6 +2,8 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
+import { CvVariant } from './cv.service';
+
 export interface JobSummary {
   id: string;
   title: string;
@@ -36,6 +38,15 @@ export interface JobFilters {
 }
 
 export type JobInput = Partial<JobDetail>;
+
+/** Acknowledgement of an enqueued tailor run. `variants` names the artifacts the run will produce (`rule` always, plus `llm` when the LLM is on) so the caller knows what to wait for (ADR 016). */
+export interface TailorEnqueueResult {
+  enqueued: boolean;
+  job_id: string;
+  cv_id?: string | null;
+  application_id: string | null;
+  variants: CvVariant[];
+}
 
 @Injectable({ providedIn: 'root' })
 export class JobsService {
@@ -84,7 +95,7 @@ export class JobsService {
     id: string,
     cvId?: string,
     applicationId?: string
-  ): Observable<{ enqueued: boolean; job_id: string; application_id: string | null }> {
+  ): Observable<TailorEnqueueResult> {
     const body: { cv_id?: string; application_id?: string } = {};
     if (cvId) {
       body.cv_id = cvId;
@@ -92,10 +103,7 @@ export class JobsService {
     if (applicationId) {
       body.application_id = applicationId;
     }
-    return this.http.post<{ enqueued: boolean; job_id: string; application_id: string | null }>(
-      `/api/jobs/${id}/tailor`,
-      body
-    );
+    return this.http.post<TailorEnqueueResult>(`/api/jobs/${id}/tailor`, body);
   }
 
   getParsed(id: string): Observable<ParsedJD | null> {

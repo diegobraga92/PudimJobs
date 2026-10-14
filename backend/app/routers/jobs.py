@@ -11,14 +11,15 @@ from app.broker import enqueue_parse_jd, enqueue_tailor
 from app.config import settings
 from app.database import get_db
 from app.models.application import Application
-from app.models.enums import ApplicationStatus
+from app.models.enums import ApplicationStatus, CVVariant
 from app.models.job import Job
 from app.models.source import Source
 from app.models.user import User
 from app.ratelimit import auth_key, limiter
-from app.schemas.generated_cv import TailorRequest
+from app.schemas.generated_cv import TailorRequest, TailorResponse
 from app.schemas.jd import ParsedJDResponse
 from app.schemas.job import JobCreate, JobResponse, JobSummary, JobUpdate
+from app.services.llm_config import get_llm_config, llm_variant_wanted
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -186,7 +187,9 @@ async def parse_job(
     return {"enqueued": True, "job_id": str(job_id)}
 
 
-@router.post("/{job_id}/tailor", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{job_id}/tailor", status_code=status.HTTP_202_ACCEPTED, response_model=TailorResponse
+)
 async def tailor_for_job(
     job_id: uuid.UUID,
     payload: TailorRequest | None = None,
@@ -197,13 +200,21 @@ async def tailor_for_job(
     await get_owned_job(job_id, user, db)
     cv_id = str(payload.cv_id) if payload and payload.cv_id else None
     application_id = str(payload.application_id) if payload and payload.application_id else None
+    # Advertise the artifacts the run will produce (``rule`` always, plus ``llm``
+    # when the LLM is enabled with a key). The client polls until the expected set
+    # lands, so it does not stop at the deterministic variant while the slow AI
+    # rewrite is still being written. Same rule the worker uses (ADR 016).
+    variants = [CVVariant.rule]
+    if llm_variant_wanted(await get_llm_config(db)):
+        variants.append(CVVariant.llm)
     enqueue_tailor(str(job_id), cv_id, application_id)
-    return {
-        "enqueued": True,
-        "job_id": str(job_id),
-        "cv_id": cv_id,
-        "application_id": application_id,
-    }
+    return TailorResponse(
+        enqueued=True,
+        job_id=job_id,
+        cv_id=cv_id,
+        application_id=application_id,
+        variants=variants,
+    )
 
 
 @router.get("/{job_id}/parsed", response_model=ParsedJDResponse | None)

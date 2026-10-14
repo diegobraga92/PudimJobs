@@ -35,3 +35,21 @@ async def get_llm_config(db: AsyncSession) -> LlmRuntimeConfig:
         base_url=row.base_url,
         model=row.model,
     )
+
+
+def llm_variant_skip_reason(config: LlmRuntimeConfig) -> str:
+    """Why the full-LLM tailoring variant will not be produced, or ``""`` when it will.
+
+    Shared by the API (to tell the client which variants to expect on enqueue) and
+    the worker (to decide what to generate), so both agree on one rule (ADR 016).
+    """
+    if not config.enabled:
+        return "the LLM is disabled in Admin -> LLM"
+    if not config.api_key:
+        return "no LLM API key is configured"
+    return ""
+
+
+def llm_variant_wanted(config: LlmRuntimeConfig) -> bool:
+    """The full-LLM variant needs an enabled LLM config with a usable API key."""
+    return not llm_variant_skip_reason(config)

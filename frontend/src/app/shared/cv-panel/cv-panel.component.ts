@@ -2,7 +2,7 @@ import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@
 import { CommonModule } from '@angular/common';
 import { Subscription, interval } from 'rxjs';
 
-import { AtsReport, CVStructure, CvService, GeneratedCV } from '../../services/cv.service';
+import { AtsReport, CVStructure, CvService, CvVariant, GeneratedCV } from '../../services/cv.service';
 import { ApplicationsService } from '../../services/applications.service';
 import { JobsService } from '../../services/jobs.service';
 import { I18nService } from '../../services/i18n.service';
@@ -56,6 +56,14 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
   private poll?: Subscription;
   /** Ticks spent waiting for the worker; see {@link POLL_MAX_TICKS}. */
   private pollTicks = 0;
+  /**
+   * Variants the in-flight run will produce (`rule` always, plus `llm` when the
+   * LLM is enabled), as advertised by the enqueue response. Polling keeps going
+   * until every one has landed, so the slow AI rewrite is picked up without a
+   * manual *Refresh*. `null` means "any artifact settles the run" (a manual
+   * reload, or a run queued elsewhere).
+   */
+  private expectedVariants: CvVariant[] | null = null;
 
   constructor(
     private service: CvService,
@@ -95,6 +103,10 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
 
   /** Only the deterministic variant exists, so the AI rewrite was skipped server-side (the LLM is disabled in Admin → LLM, or no API key is stored). */
   get llmVariantMissing(): boolean {
+    if (this.pending) {
+      // Still waiting on the run: the AI rewrite may simply not have landed yet.
+      return false;
+    }
     const only = this.tailored.length === 1 ? this.tailored[0] : null;
     return !!only && only.variant === 'rule' && this.hasContent(only);
   }
@@ -103,6 +115,8 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
   load(): void {
     this.loading = true;
     this.error = null;
+    // A manual reload is the fallback for a run we are no longer tracking.
+    this.expectedVariants = null;
     this.service.generated(this.jobId).subscribe({
       next: (items) => {
         this.loading = false;
@@ -120,19 +134,50 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
     this.tailored = items.filter((item) => this.hasContent(item));
   }
 
-  /** Apply a freshly fetched list: resolve the pending state once an artifact exists, and keep the current selection when it is still there. */
-  private applyLoaded(items: GeneratedCV[]): void {
-    this.setTailored(items);
-    const usable = this.tailored;
-    if (usable.length > 0) {
-      this.pending = false;
-      this.stopPolling();
-    }
+  /** Keep the current selection when it survived the reload, else fall back to the newest artifact. */
+  private selectFrom(usable: GeneratedCV[]): void {
     const stillThere = usable.some((item) => item.id === this.selectedId);
     this.select(stillThere ? this.selectedId : (usable[0]?.id ?? null));
   }
 
-  /** Watch for the artifact a queued tailor run will produce. */
+  /** Apply a freshly fetched list: resolve the pending state once an artifact exists, and keep the current selection when it is still there. */
+  private applyLoaded(items: GeneratedCV[]): void {
+    this.setTailored(items);
+    const usable = this.tailored;
+    this.selectFrom(usable);
+    if (usable.length > 0) {
+      this.pending = false;
+      this.stopPolling();
+    }
+  }
+
+  /**
+   * Apply a polled list: refresh what the panel shows, but only settle once the
+   * run is done. The worker commits the deterministic variant before the slow AI
+   * rewrite (ADR 016), so stopping at the first artifact would strand the panel on
+   * the deterministic CV and force a manual *Refresh*.
+   */
+  private applyPolled(items: GeneratedCV[]): void {
+    this.setTailored(items);
+    const usable = this.tailored;
+    this.selectFrom(usable);
+    if (this.runSettled(usable)) {
+      this.pending = false;
+      this.expectedVariants = null;
+      this.stopPolling();
+    }
+  }
+
+  /** True when every awaited variant is present; without an expected set, any artifact settles the run. */
+  private runSettled(usable: GeneratedCV[]): boolean {
+    const expected = this.expectedVariants;
+    if (!expected) {
+      return usable.length > 0;
+    }
+    return expected.every((variant) => usable.some((item) => item.variant === variant));
+  }
+
+  /** Watch for the artifacts a queued tailor run will produce. */
   private startWatching(): void {
     this.stopPolling();
     this.pollTicks = 0;
@@ -143,7 +188,7 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
         return;
       }
       this.service.generated(this.jobId).subscribe({
-        next: (items) => this.applyLoaded(items),
+        next: (items) => this.applyPolled(items),
         // A failed poll must not replace the pending notice with an error.
         error: () => undefined,
       });
@@ -268,12 +313,22 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
     this.tailoring = true;
     this.error = null;
     this.jobs.tailor(this.jobId, undefined, this.applicationId ?? undefined).subscribe({
-      next: () => {
+      next: (result) => {
         this.tailoring = false;
         this.pending = true;
+        // Wait for every variant the run will produce. The worker commits the
+        // deterministic one first and the AI rewrite later (ADR 016), so the
+        // enqueue response — not the first artifact to appear — defines "done".
+        this.expectedVariants = result.variants ?? null;
         // Resolve the pending state on its own instead of asking the user to
         // keep clicking *Refresh* while the Celery worker runs.
-        this.startWatching();
+        if (!this.runSettled(this.tailored)) {
+          this.startWatching();
+        } else {
+          // Re-run of an already-tailored CV: nothing left to wait for.
+          this.pending = false;
+          this.expectedVariants = null;
+        }
         this.toast.success(this.i18n.t('cv.panel.enqueued'));
       },
       error: () => {

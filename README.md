@@ -303,6 +303,10 @@ schema-validated and degrading gracefully; its prompt asks for a CV tailored for
 the job (master CV as single source of truth, roles that do not support the
 application may be omitted) that fits two pages. Both variants render PDF/DOCX
 via Jinja2 templates (Classic and ATS-safe) behind `GET /api/cv/generated/{id}/pdf`.
+The two variants are committed one after the other — the deterministic one first —
+so the 202 from `POST /api/jobs/{id}/tailor` reports which variants the run will
+produce and the web/mobile panels keep polling until *all* of them have landed
+instead of settling on the first artifact and hiding the AI rewrite.
 
 **Applications, retrospectives & interview prep** — a per-application workspace
 (`/applications/:id`) with the target job (`GET /api/applications/{id}`), the

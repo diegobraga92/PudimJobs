@@ -1,5 +1,8 @@
 """Tests for the jobs API (manual CRUD + search/filter)."""
 
+from app.routers import jobs as jobs_router
+from app.services.llm_config import LlmRuntimeConfig
+
 
 async def test_create_job_manual(auth_client):
     client, _, _ = auth_client
@@ -151,3 +154,54 @@ async def test_hide_applied_applies_to_keyword_search(auth_client):
         "/api/jobs", params={"q": "backend", "hide_applied": "false"}
     )
     assert len(with_filter_off.json()) == 1
+
+
+async def test_tailor_enqueue_announces_the_variants_the_run_will_produce(auth_client, monkeypatch):
+    """The client polls until the promised artifacts exist, so the 202 body must
+    name them — the deterministic variant lands long before the AI rewrite
+    (ADR 016) and stopping at the first artifact stranded the panel."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/jobs",
+        json={"title": "Backend Engineer", "company": "Acme", "description": "Python API"},
+    )
+    job_id = created.json()["id"]
+
+    queued: list[tuple[str, str | None, str | None]] = []
+    monkeypatch.setattr(jobs_router, "enqueue_tailor", lambda *args: queued.append(args))
+
+    # No LLM row and no env key: the run degrades to the deterministic variant.
+    accepted = await client.post(f"/api/jobs/{job_id}/tailor", json={})
+
+    assert accepted.status_code == 202
+    body = accepted.json()
+    assert body["enqueued"] is True
+    assert body["job_id"] == job_id
+    assert body["variants"] == ["rule"]
+    assert len(queued) == 1
+
+
+async def test_tailor_enqueue_announces_the_ai_variant_when_the_llm_is_enabled(
+    auth_client, monkeypatch
+):
+    """With a usable LLM config the run also produces the `llm` rewrite, and the
+    client must wait for it instead of settling on `rule`."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/jobs",
+        json={"title": "Backend Engineer", "company": "Acme", "description": "Python API"},
+    )
+    job_id = created.json()["id"]
+
+    async def _enabled_config(_db):
+        return LlmRuntimeConfig(
+            enabled=True, api_key="sk-x", base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    monkeypatch.setattr(jobs_router, "get_llm_config", _enabled_config)
+    monkeypatch.setattr(jobs_router, "enqueue_tailor", lambda *args: None)
+
+    accepted = await client.post(f"/api/jobs/{job_id}/tailor", json={})
+
+    assert accepted.status_code == 202
+    assert accepted.json()["variants"] == ["rule", "llm"]

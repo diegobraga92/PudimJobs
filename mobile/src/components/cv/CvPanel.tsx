@@ -21,7 +21,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { ApplicationsStackParamList } from '@/navigation/types';
 import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/theme/ThemeProvider';
-import { AtsReport, GeneratedCV } from '@/types';
+import { AtsReport, CvVariant, GeneratedCV } from '@/types';
 import { scoreVariant } from '@/utils/ats';
 import { hasContent, variantLabelKey } from '@/utils/cv';
 import { dateLocale, shortDate } from '@/utils/dates';
@@ -50,25 +50,30 @@ export function CvPanel({
   const user = useAuthStore((state) => state.user);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  // Variants the in-flight run will produce, from the enqueue response (ADR 016).
+  // `null` means nothing is being tracked (no run queued, or the user refreshed).
+  const [expectedVariants, setExpectedVariants] = useState<CvVariant[] | null>(null);
   // Set once the give-up window elapses so a stuck job cannot poll forever.
   const [pollExpired, setPollExpired] = useState(false);
   const [report, setReport] = useState<AtsReport | null>(null);
   const [reportFor, setReportFor] = useState<string | null>(null);
 
+  /** We are waiting on a run we enqueued; the manual *Refresh* ends the wait. */
+  const tracking = expectedVariants !== null;
+
   useEffect(() => {
-    if (!pending) {
+    if (!tracking || pollExpired) {
       return;
     }
     const timer = setTimeout(() => setPollExpired(true), POLL_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [pending]);
+  }, [tracking, pollExpired]);
 
   const {
     data: tailored = [],
     isPending,
     refetch,
-  } = useGeneratedCvs(jobId, { pollUntilData: pending && !pollExpired });
+  } = useGeneratedCvs(jobId, { pollUntilData: tracking && !pollExpired, expectedVariants });
   const tailor = useTailorCv();
   const score = useAtsScore();
   const deleteGenerated = useDeleteGeneratedCv();
@@ -80,8 +85,16 @@ export function CvPanel({
   // too; filtering here keeps the panel honest for a response fetched before that.
   const artifacts = tailored.filter(hasContent);
 
-  // The notice resolves itself as soon as the worker's artifact shows up.
-  const showPending = pending && !pollExpired && artifacts.length === 0;
+  // The run is only finished once every variant it promised is here: the worker
+  // commits the deterministic variant before the slow AI rewrite (ADR 016), so a
+  // single early artifact must not end the wait. `useGeneratedCvs` stops asking
+  // on its own — its `refetchInterval` applies the same test to the same set.
+  const runSettled = expectedVariants
+    ? expectedVariants.every((variant) => artifacts.some((item) => item.variant === variant))
+    : artifacts.length > 0;
+
+  // The notice resolves itself as soon as the run's artifacts show up.
+  const showPending = tracking && !pollExpired && !runSettled;
 
   const selected = artifacts.find((item) => item.id === selectedId) ?? artifacts[0] ?? null;
   // A freshly computed report wins over the one cached on the artifact.
@@ -114,10 +127,11 @@ export function CvPanel({
     tailor.mutate(
       { id: jobId, applicationId },
       {
-        onSuccess: () => {
-          // The panel now polls on its own until the artifact shows up — no
+        onSuccess: (result) => {
+          // The panel now polls on its own until every variant the run promised
+          // (deterministic first, then the AI rewrite) has landed — no
           // "press Refresh" step for the user.
-          setPending(true);
+          setExpectedVariants(result.variants);
           setPollExpired(false);
           toast.success(i18n.t('cv.panel.enqueued'));
         },
@@ -128,8 +142,9 @@ export function CvPanel({
 
   /** Manual fallback: re-fetch now and stop waiting for the worker. */
   const refresh = async () => {
-    setPending(false);
     setPollExpired(false);
+    // The manual reload takes over from any run we were tracking.
+    setExpectedVariants(null);
     await refetch();
   };
 
@@ -247,7 +262,7 @@ export function CvPanel({
             </View>
           ) : null}
 
-          {artifacts.length === 1 && artifacts[0].variant === 'rule' ? (
+          {!showPending && artifacts.length === 1 && artifacts[0].variant === 'rule' ? (
             <Text style={[styles.muted, { color: theme.colors.textMuted }]}>
               {i18n.t('cv.panel.llmVariantOff')}
             </Text>

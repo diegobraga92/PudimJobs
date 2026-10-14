@@ -17,7 +17,12 @@ from app.services.cv_tailor import (
     tailor_cv,
 )
 from app.services.jd_parser import parse_jd, parsed_jd_to_dict
-from app.services.llm_config import LlmRuntimeConfig, get_llm_config
+from app.services.llm_config import (
+    LlmRuntimeConfig,
+    get_llm_config,
+    llm_variant_skip_reason,
+    llm_variant_wanted,
+)
 from app.services.pdf_generator import generate_pdf
 from workers.celery_app import celery_app
 
@@ -139,16 +144,12 @@ async def _store_variant(
 
 def _llm_variant_skip_reason(config: LlmRuntimeConfig) -> str:
     """Why the full-LLM variant will not be produced, or ``""`` when it will."""
-    if not config.enabled:
-        return "the LLM is disabled in Admin -> LLM"
-    if not config.api_key:
-        return "no LLM API key is configured"
-    return ""
+    return llm_variant_skip_reason(config)
 
 
 def _llm_variant_wanted(config: LlmRuntimeConfig) -> bool:
     """The full-LLM variant needs an enabled LLM config with a usable API key."""
-    return not _llm_variant_skip_reason(config)
+    return llm_variant_wanted(config)
 
 
 async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None = None) -> dict:

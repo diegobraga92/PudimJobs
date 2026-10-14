@@ -3,7 +3,7 @@ import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
-import { AtsReport, CVStructure, GeneratedCV } from '../../services/cv.service';
+import { AtsReport, CVStructure, CvVariant, GeneratedCV } from '../../services/cv.service';
 import { I18nService } from '../../services/i18n.service';
 import { ConfirmService } from '../confirm/confirm.service';
 import { CvPanelComponent, POLL_INTERVAL_MS, POLL_MAX_TICKS } from './cv-panel.component';
@@ -51,6 +51,18 @@ function tailored(overrides: Partial<GeneratedCV> = {}): GeneratedCV {
     ats_report: null,
     ...overrides,
   };
+}
+
+/**
+ * Body of the `POST /api/jobs/:id/tailor` acknowledgement. `variants` names what
+ * the run will produce, which is what the panel polls for (ADR 016).
+ */
+function enqueued(variants: CvVariant[] = ['rule']): {
+  enqueued: boolean;
+  job_id: string;
+  variants: CvVariant[];
+} {
+  return { enqueued: true, job_id: 'job-1', variants };
 }
 
 describe('CvPanelComponent', () => {
@@ -246,7 +258,7 @@ describe('CvPanelComponent', () => {
     const request = http.expectOne('/api/jobs/job-1/tailor');
     expect(request.request.body.application_id).toBe('app-1');
     expect(request.request.body['cv_id']).toBeUndefined();
-    request.flush({ enqueued: true, job_id: 'job-1', application_id: 'app-1' });
+    request.flush(enqueued());
 
     expect(component.pending).toBeTrue();
     expect(component.tailoring).toBeFalse();
@@ -269,7 +281,7 @@ describe('CvPanelComponent', () => {
     http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
 
     component.tailor();
-    http.expectOne('/api/jobs/job-1/tailor').flush({ enqueued: true, job_id: 'job-1' });
+    http.expectOne('/api/jobs/job-1/tailor').flush(enqueued());
     expect(component.pending).toBeTrue();
 
     // Nothing yet: the pending state survives and the panel asks again.
@@ -287,12 +299,57 @@ describe('CvPanelComponent', () => {
     http.expectNone((c) => c.url === '/api/cv/generated');
   }));
 
+  it('keeps polling past the deterministic variant until the promised AI rewrite lands', fakeAsync(() => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+
+    component.tailor();
+    // The enqueue response names every artifact the run will produce.
+    http.expectOne('/api/jobs/job-1/tailor').flush(enqueued(['rule', 'llm']));
+
+    // The worker commits the deterministic variant first (ADR 016)...
+    tick(POLL_INTERVAL_MS);
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+    // ...but the run is not finished, so the panel keeps waiting instead of
+    // stranding the user on the deterministic CV until they hit Refresh.
+    expect(component.pending).toBeTrue();
+    expect(component.llmVariantMissing).toBeFalse();
+
+    // The AI rewrite lands and resolves the run on its own.
+    tick(POLL_INTERVAL_MS);
+    http
+      .expectOne((c) => c.url === '/api/cv/generated')
+      .flush([tailored(), tailored({ id: 'gen-2', variant: 'llm' })]);
+    expect(component.pending).toBeFalse();
+
+    tick(POLL_INTERVAL_MS * 5);
+    http.expectNone((c) => c.url === '/api/cv/generated');
+  }));
+
+  it('resolves at once when the run produces only the deterministic variant', fakeAsync(() => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
+
+    component.tailor();
+    // LLM disabled server-side: `rule` is the whole run, nothing more to await.
+    http.expectOne('/api/jobs/job-1/tailor').flush(enqueued(['rule']));
+
+    tick(POLL_INTERVAL_MS);
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+
+    expect(component.pending).toBeFalse();
+    expect(component.llmVariantMissing).toBeTrue();
+
+    tick(POLL_INTERVAL_MS * 5);
+    http.expectNone((c) => c.url === '/api/cv/generated');
+  }));
+
   it('keeps polling when only a content-less legacy row arrives', fakeAsync(() => {
     build();
     http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
 
     component.tailor();
-    http.expectOne('/api/jobs/job-1/tailor').flush({ enqueued: true, job_id: 'job-1' });
+    http.expectOne('/api/jobs/job-1/tailor').flush(enqueued());
 
     // The row is not the artifact the run was queued for, so it neither counts
     // as the CV landing nor stops the panel watching for the real one.
@@ -317,7 +374,7 @@ describe('CvPanelComponent', () => {
     http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
 
     component.tailor();
-    http.expectOne('/api/jobs/job-1/tailor').flush({ enqueued: true, job_id: 'job-1' });
+    http.expectOne('/api/jobs/job-1/tailor').flush(enqueued());
 
     for (let i = 0; i < POLL_MAX_TICKS; i += 1) {
       tick(POLL_INTERVAL_MS);
@@ -336,7 +393,7 @@ describe('CvPanelComponent', () => {
     http.expectOne((c) => c.url === '/api/cv/generated').flush([]);
 
     component.tailor();
-    http.expectOne('/api/jobs/job-1/tailor').flush({ enqueued: true, job_id: 'job-1' });
+    http.expectOne('/api/jobs/job-1/tailor').flush(enqueued());
 
     component.ngOnDestroy();
     tick(POLL_INTERVAL_MS * 3);

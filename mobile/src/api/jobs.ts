@@ -6,6 +6,7 @@ import {
   JobSummary,
   JobUpdateInput,
   ParsedJD,
+  TailorEnqueueResult,
 } from '@/types';
 import { apiClient } from './client';
 
@@ -53,12 +54,12 @@ export async function parseJob(id: string): Promise<EnqueueResult> {
   return data;
 }
 
-/** Enqueues CV tailoring for a job. `applicationId` links the application to the tailored version once the worker finishes (async — the caller refreshes). */
+/** Enqueues CV tailoring for a job. `applicationId` links the application to the tailored version once the worker finishes. The response's `variants` names every artifact the run will produce; the caller polls until they are all here (ADR 016). */
 export async function tailorCv(
   id: string,
   cvId?: string,
   applicationId?: string,
-): Promise<EnqueueResult> {
+): Promise<TailorEnqueueResult> {
   const body: { cv_id?: string; application_id?: string } = {};
   if (cvId) {
     body.cv_id = cvId;
@@ -66,7 +67,7 @@ export async function tailorCv(
   if (applicationId) {
     body.application_id = applicationId;
   }
-  const { data } = await apiClient.post<EnqueueResult>(`/api/jobs/${id}/tailor`, body);
+  const { data } = await apiClient.post<TailorEnqueueResult>(`/api/jobs/${id}/tailor`, body);
   return data;
 }
 
