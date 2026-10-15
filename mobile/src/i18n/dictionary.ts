@@ -212,7 +212,15 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'sources.genericHtmlList': { en: 'Generic HTML list', 'pt-BR': 'Lista HTML genérica' },
   'sources.adapterConfig': { en: 'Adapter config (JSON)', 'pt-BR': 'Configuração do adaptador (JSON)' },
   'sources.adapterHintPrefix': { en: 'CSS selectors used by the generic HTML-list adapter. Optionally set', 'pt-BR': 'Seletores CSS usados pelo adaptador de lista HTML genérica. Opcionalmente, defina' },
-  'sources.adapterHintSuffix': { en: 'to paginate through listing pages.', 'pt-BR': 'para paginar pelas páginas de listagem.' },
+  'sources.adapterHintSuffix': { en: 'to walk through listing pages,', 'pt-BR': 'para percorrer as páginas de listagem,' },
+  'sources.adapterHintTpl': {
+    en: 'to build the pages when the board pages by query string (e.g. ?page={page}), and',
+    'pt-BR': 'para montar as páginas quando o site pagina por query string (ex.: ?page={page}), e',
+  },
+  'sources.adapterHintUrlTpl': {
+    en: 'to build the first URL from a term kept in this config (e.g. ?q={term}) instead of the URL above.',
+    'pt-BR': 'para montar a primeira URL a partir de um termo desta configuração (ex.: ?q={term}) em vez da URL acima.',
+  },
   'sources.provider': { en: 'Provider', 'pt-BR': 'Provedor' },
   'sources.loadingProviders': { en: 'Loading providers…', 'pt-BR': 'Carregando provedores…' },
   'sources.chooseProviderOption': { en: 'Choose a provider…', 'pt-BR': 'Escolha um provedor…' },

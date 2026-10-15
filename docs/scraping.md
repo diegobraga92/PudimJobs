@@ -53,10 +53,46 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | Key | Meaning | Default |
 |---|---|---|
 | `max_pages` | listing pages to walk via `next_page_url` | `1` |
-| `next_page_tpl` | `embedded_json_list` only: template for pages 2..`max_pages`, rendered with any config key plus `{page}` (`…/search?term={term}&page={page}`). Without it, `generic_html_list` reads the next URL off the page (`next_page_selector`); with it, the URL is **built** — a JSON blob has no `<a>` to follow | — |
+| `next_page_selector` | `generic_html_list`: CSS selector for the next-page `<a>`. Preferred when present — a real link also disappears on the last page, so the walk ends by itself | — |
+| `next_page_tpl` | pages 2..`max_pages` are **built** from this template, rendered with any config key plus `{page}` (`…/search?term={term}&page={page}`; relative templates resolve against the page they were read from). A JSON blob (`embedded_json_list`) has no `<a>` to follow, so here it is the only way to page; `generic_html_list` falls back to it when no `next_page_selector` is set (dev.pro's pager renders the *current* page as a `<span>` and the lowest number first, so "the next link" cannot be expressed as a selector) | — |
+| `url_tpl` | `generic_html_list` / `json_list`: page 1 is built from this template instead of the stored URL (`{page}` = 1 here, plus every other config key), so a term or locale can live in the config. In `embedded_json_list` the same key means the *job* URL (`{url}` from `url_path`) | — |
 | `max_results` | detail pages fetched / jobs returned | `20` (keyed search APIs lower it to `5`) |
 | `allow_empty` | do not fail when the parse yields 0 jobs | `false` |
 | `parse_listing` | parse the *results page itself* instead of fetching each job (search providers: one paid call per run) | `false` |
+
+**URL arguments and search terms.** A stored `url` is fetched **verbatim** by
+`career_page`, `aggregator` and `rss` (`first_fetch_url` defaults to identity),
+so every argument the board understands already works — no config needed:
+
+```
+https://www.infojobs.com.br/empregos.aspx?palabra=Rust      (?palabra= is the board's own filter)
+https://www.trabalhabrasil.com.br/vagas-de-emprego/rust     (term in the path)
+https://www.geekhunter.com/pt/vagas?workModality=remote     (remote-only listing)
+```
+
+One source per term is the simplest setup. When the same board should cover
+*several* terms without duplicating the config, keep the term in the config and
+the URL in `url_tpl` (rendered with every other config key, `{page}` reserved and
+set to `1` here):
+
+```json
+{
+  "adapter": "generic_html_list",
+  "term": "rust",
+  "url_tpl": "https://remoteyeah.com/remote-{term}-jobs-in-brazil",
+  "next_page_tpl": "https://remoteyeah.com/remote-{term}-jobs-in-brazil/page/{page}#jobs",
+  "max_pages": 2,
+  "item_selector": ".job-card-inner",
+  "title_selector": ".job-card-title-text",
+  "url_selector": "a.job-card-title",
+  "company_selector": ".job-card-company"
+}
+```
+
+The keyed discovery providers do the same thing with their own placeholders
+(`{api_key}`, `{page_size}`); see the `json_list` section below. A `url_tpl` that
+cannot be rendered (a placeholder with no matching config key) fails the source,
+the same way a bad `json_list` template does.
 
 **Listing mode (`parse_listing`).** Search providers normally pay one request
 per job (results page → detail pages). When the results page already carries the
@@ -166,7 +202,9 @@ confirmed per tenant with the preview. For these sources the stored `url` is a
 **reference only** — the provider builds the real endpoint from `{org}` /
 `{company}` / `{board_token}` — so a careers page that moves does not break the
 source as long as the ATS key is right (Solvd's `careers.solvd.com` no longer
-resolves, but the `ashby` source keeps working).
+resolves; store `solvd.com/careers/` and keep the `ashby` source, whose
+`?location=` argument the provider ignores — the filter is the board's UI state,
+not a feed parameter).
 
 **RSS / Atom** (`type = rss`): We Work Remotely
 (`weworkremotely.com/remote-jobs.rss`), NoDesk (`nodesk.co/remote-jobs/index.xml`),
@@ -177,18 +215,20 @@ listing. RemoteOK / Remotive / Working Nomads expose JSON (use `json_list`), not
 job RSS.
 
 **Server-rendered HTML** (`type = aggregator` + `generic_html_list`): Programathor,
-GeekHunter, Remote.com, aijobs.ai, dev.pro, Nerdin
+GeekHunter, Remote.com, aijobs.ai, dev.pro, TrabalhaBrasil, InfoJobs, Nerdin
 (`www.nerdin.com.br/vagas.php`, cards `.vaga-card`, next page `?pagina=2`), MWDN
 (`jobs.mwdn.com/careers/` — a **Comeet** embed, 40 cards under
 `.comeet-positions-list li`), SkipTheDrive (its **job-category** pages, e.g.
 `/job-category/remote-part-time-jobs/`, each carry 20 `/job/<slug>/` cards — the
-homepage does not), Sigma Software, JobConvo employer boards, Akvelon
-(PeopleForce), Remote Habit, Job na Gringa, Init-i8, Remotify Europe, JustRemote,
-remote4me, Toughbyte. InfoJobs must be probed on its **job search** route, not
-`/empregos` (that is a company directory). Working Nomads *looks* server-rendered
-but is AngularJS fed by a JSON API → collect it with `json_list` against
-`https://www.workingnomads.com/api/exposed_jobs/`; `jobs.hirewithnear.com/#/` is a
-hash-route SPA, so it stays `manual` (see below).
+homepage does not), JobConvo employer boards, Akvelon
+(PeopleForce), Remote Habit, Job na Gringa, Init-i8, JustRemote,
+remote4me, Toughbyte. InfoJobs only works on its **job search** route
+(`/empregos.aspx?palabra=<term>` — `/empregos` is a company directory). Working
+Nomads *looks* server-rendered but is AngularJS fed by a JSON API → collect it
+with `json_list` against `https://www.workingnomads.com/api/exposed_jobs/`;
+`jobs.hirewithnear.com/#/` is a hash-route SPA, so it stays `manual` (see below).
+`career.sigma.software` and `remotifyeurope.com` are **not** in this list: both
+return a shell with 0 job rows (see the JS-only shells below).
 
 ```json
 {
@@ -203,7 +243,9 @@ hash-route SPA, so it stays `manual` (see below).
 ```
 
 Rules of thumb: `item_selector` must match **every** card and the title/URL
-selectors are evaluated *inside* it (cards without title or URL are skipped); a
+selectors are evaluated *inside* it (cards without title or URL are skipped; a row
+that is itself an `<a>` contributes its own `href`, which is how dev.pro's
+`a.position-row` rows parse); a
 listing that only links out with no title/company yields **0 jobs** — add
 `"detail": true` with `detail_*_selector`, or accept an `Unknown` company.
 Optional extras: `date_selector` (a `<time>` node, absolute or relative) and
@@ -211,6 +253,22 @@ Optional extras: `date_selector` (a `<time>` node, absolute or relative) and
 built from `location_selector`). Both are shared with search providers in
 listing mode (`parse_listing`), so a working card definition can be reused
 verbatim from a paid provider config.
+
+Verified card configurations (each parsed live; job counts at the time of
+writing):
+
+| Board | URL | Config | Jobs/run |
+|---|---|---|---|
+| dev.pro | `career.dev.pro/open-positions/` | `{"item_selector": "a.position-row", "title_selector": "h3", "location_selector": ".position-info span", "next_page_tpl": "https://career.dev.pro/open-positions/page/{page}/", "max_pages": 4}` — the pager shows the current page as a `<span>` and the *lowest* number first, so "next" cannot be a selector | 35 (10/10/10/5) |
+| TrabalhaBrasil | `/vagas-de-emprego/<term>` | `{"term": "rust", "url_tpl": "https://www.trabalhabrasil.com.br/vagas-de-emprego/{term}", "item_selector": "article.job-card", "title_selector": "h2.job-title", "url_selector": "a.job-link", "company_selector": ".job-company", "location_selector": ".job-location"}` — the term route is SSR, the homepage is a directory, and paging is JS | 15 |
+| InfoJobs | `/empregos.aspx?palabra=<term>` | `{"term": "Python", "url_tpl": "https://www.infojobs.com.br/empregos.aspx?palabra={term}", "item_selector": "div.js_cardLink", "title_selector": "h2.js_vacancyTitle", "url_selector": "a[href*='/vaga-de-']"}` | 20 — but only **2** on `palabra=Rust` (that page's card slice is client-rendered), so preview the term you store |
+| GeekHunter | `/pt/vagas?workModality=remote` | `{"item_selector": "article", "title_selector": "h3 a", "url_selector": "h3 a", "next_page_selector": "a[rel=next]", "max_pages": 3}` — list mode has no company (chakra hashes the classes); adding `"detail": true` makes each job page's JSON-LD (tried before the `detail_*_selectors`) supply company, date and description | 25/page |
+| RemoteYeah | `/remote-<term>-jobs-in-brazil` | the `url_tpl` + `next_page_tpl` recipe in *URL arguments and search terms* above (rust 25 + 6, cpp 25 + 13) | 31 / 38 |
+
+`max_results` does **not** cap list-mode rows (it bounds detail fetches and
+`embedded_json_list` items); what bounds a multi-page walk is `max_pages`, and one
+request is paid per page plus per detail page, all under the source's
+`rate_limit_seconds` cooldown.
 
 **Embedded JSON** (`type = aggregator` + `embedded_json_list`): boards that render
 their listing with a JS framework but ship the data in the page. `payload_script`
@@ -292,7 +350,8 @@ board URL (the default, and the only one that works outside a browser session).
   the app reminds them when due. Verified into this bucket: arc.dev, beon.tech,
   Crossover, Encora (`careers.encora.com`), FullStack Talent, Greenhouse's
   candidate dashboard, Impulso, Randstad, Remotar, Trampos, Tecla, X-Team
-  (`x-team.com/remote-jobs` is a 404 now), Vagas.com.br's *meu-perfil* — none of
+  (`x-team.com/remote-jobs` 404s; `jobs.x-team.com` is a shell — see the JS-only
+  shells below), Vagas.com.br's *meu-perfil* — none of
   them render job rows into the initial HTML.
 - **ToS / anti-bot by direct scraping** — LinkedIn, Indeed, Glassdoor, Dice,
   Catho, Jobot, Levels.fyi, Landing.jobs, Wellfound, Hays, Michael Page, Robert
@@ -300,11 +359,23 @@ board URL (the default, and the only one that works outside a browser session).
   the paid providers above (`serpapi` `google_jobs` covers most of them);
   Friday Glee, Outscal, VanHack and YellowIpe block the request outright
   (HTTP 526 / TLS), so they are `manual` until a provider is wired up.
-- **Not listings / dead** — DuckDuckGo *query* URLs (no provider; use
-  `google_cse`/`bing`/`brave`), `jobboardsearch.com` and `readytotouch.com`
+- **Not listings / dead** — DuckDuckGo *query* URLs (returns a 25 KB JS shell with
+  no results; use `google_cse`/`bing`/`brave` with the same `site:` query instead,
+  e.g. `{"provider": "google_cse", "query": "site:jobs.lever.co rust remote"}`),
+  `jobboardsearch.com` and `readytotouch.com`
   (directories: no job rows to extract), archived `lerrua/remote-jobs-brazil`,
   single-job URLs, 404/5xx boards (`careers.solvd.com` no longer resolves,
   `x-team.com/remote-jobs` is gone).
+- **JS-only shells** (a 200 with all the markup but **0** job rows/links; nothing
+  to select). Verified: `career.sigma.software/what-we-offer/vacancies/` (the
+  `?location=` filter changes only the UI state), `remotifyeurope.com/remote-jobs`
+  (its JSON-LD blocks describe the *site*, not jobs), `br.jobsora.com/empregos`,
+  `remotar.com.br` (`__NEXT_DATA__` present but `pageProps` is empty),
+  `jobs.x-team.com` (`x-team.com/remote-jobs` is a 404 and the current host is an
+  SPA shell), `app.tecla.io/jobs`, `work.turing.com/jobs`,
+  `talent.fullstack.com/jobs` (734 bytes of shell), `himalayas.app`
+  (HTTP 403). Keep them `manual` (ADR 018) or wire up a provider — a stored URL
+  with extra query arguments does not help when the listing is fetched by JS.
 - **Hash-route SPAs** — `jobs.hirewithnear.com/#/` renders its list from the URL
   fragment, so a fetch only ever returns the shell; keep it `manual` (or probe the
   API it calls) until an opt-in renderer exists.

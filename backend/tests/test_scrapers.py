@@ -193,6 +193,139 @@ def test_aggregator_next_page_url_none_without_selector():
     assert scraper.next_page_url(page) is None
 
 
+def test_aggregator_builds_next_page_from_tpl():
+    """A board that pages by query string and renders no anchor uses ``next_page_tpl``."""
+    scraper = GenericHtmlListScraper(
+        {
+            "item_selector": "li.job",
+            "modality": "remote",
+            "next_page_tpl": "https://board.example/pt/vagas?workModality={modality}&page={page}",
+            "max_pages": 3,
+        }
+    )
+    page = _aggregator_page(AGGREGATOR_HTML, "https://board.example/pt/vagas?workModality=remote")
+    assert (
+        scraper.next_page_url(page)
+        == "https://board.example/pt/vagas?workModality=remote&page=2"
+    )
+    assert (
+        scraper.next_page_url(page)
+        == "https://board.example/pt/vagas?workModality=remote&page=3"
+    )
+    assert scraper.next_page_url(page) is None
+
+
+def test_aggregator_next_page_selector_wins_over_tpl():
+    """A rendered `?page=2` link is more trustworthy than a built URL, and it ends the walk."""
+    scraper = GenericHtmlListScraper(
+        {
+            "next_page_selector": "a.next",
+            "next_page_tpl": "https://board.example/jobs?page={page}",
+            "max_pages": 3,
+        }
+    )
+    assert (
+        scraper.next_page_url(_aggregator_page(AGGREGATOR_HTML))
+        == "https://board.example/jobs?page=2"
+    )
+
+
+def test_aggregator_next_page_tpl_without_max_pages_is_inert():
+    """The template alone must not paginate: `max_pages` gates the walk."""
+    scraper = GenericHtmlListScraper(
+        {"next_page_tpl": "https://board.example/jobs?page={page}"}
+    )
+    assert scraper.next_page_url(_aggregator_page(AGGREGATOR_HTML)) is None
+
+
+def test_aggregator_relative_next_page_tpl_resolves_against_the_page():
+    """A host-agnostic template (`?pagina={page}`) is joined to the page it was read from."""
+    scraper = GenericHtmlListScraper({"next_page_tpl": "?pagina={page}", "max_pages": 2})
+    page = _aggregator_page(AGGREGATOR_HTML, "https://www.nerdin.com.br/vagas.php")
+    assert scraper.next_page_url(page) == "https://www.nerdin.com.br/vagas.php?pagina=2"
+
+
+def test_aggregator_reports_a_bad_next_page_tpl():
+    scraper = GenericHtmlListScraper(
+        {"next_page_tpl": "https://board.example/jobs?page={missing}", "max_pages": 2}
+    )
+    with pytest.raises(ValueError, match="next_page_tpl"):
+        scraper.next_page_url(_aggregator_page(AGGREGATOR_HTML))
+
+
+def test_aggregator_url_tpl_builds_the_first_fetch():
+    """A term kept in the config replaces the stored URL on page 1 (and in `next_page_tpl`)."""
+    scraper = GenericHtmlListScraper(
+        {
+            "term": "rust",
+            "url_tpl": "https://www.trabalhabrasil.com.br/vagas-de-emprego/{term}",
+            "next_page_tpl": "https://www.trabalhabrasil.com.br/vagas-de-emprego/{term}?pagina={page}",
+            "max_pages": 2,
+        }
+    )
+    assert scraper.first_fetch_url("https://www.trabalhabrasil.com.br/vagas-de-emprego/") == (
+        "https://www.trabalhabrasil.com.br/vagas-de-emprego/rust"
+    )
+    assert scraper.next_page_url(
+        _aggregator_page(
+            AGGREGATOR_HTML, "https://www.trabalhabrasil.com.br/vagas-de-emprego/rust"
+        )
+    ) == "https://www.trabalhabrasil.com.br/vagas-de-emprego/rust?pagina=2"
+
+
+def test_aggregator_without_url_tpl_fetches_the_stored_url_verbatim():
+    """Arguments already in the stored URL are the simplest filter: no config needed."""
+    scraper = GenericHtmlListScraper({"item_selector": "div.js_cardLink"})
+    url = "https://www.infojobs.com.br/empregos.aspx?palabra=Rust"
+    assert scraper.first_fetch_url(url) == url
+
+
+def test_aggregator_reports_a_bad_url_tpl():
+    scraper = GenericHtmlListScraper({"url_tpl": "https://board.example/{term}"})
+    with pytest.raises(ValueError, match="url_tpl"):
+        scraper.first_fetch_url("https://board.example/jobs")
+
+
+def test_aggregator_metadata_publishes_the_url_and_pagination_templates():
+    optional = GenericHtmlListScraper.config_metadata()["optional"]
+    assert {"url_tpl", "next_page_tpl", "next_page_selector"} <= set(optional)
+
+
+def test_aggregator_parses_rows_that_are_the_link():
+    """dev.pro-style rows (`a.position-row`) carry no inner anchor to read the href from."""
+    html = """
+    <div class="position-wrapper">
+      <a class="position-row" href="https://career.dev.pro/vacancy/5cfad0/">
+        <div class="position-title"><h3>Senior System Analyst</h3></div>
+        <div class="position-info"><span> Latin America, Remote </span></div>
+      </a>
+    </div>
+    <div class="vacancy_pagination">
+      <a class="page-numbers" href="https://career.dev.pro/open-positions/page/2/">2</a>
+    </div>
+    """
+    page = _aggregator_page(html, "https://career.dev.pro/open-positions/")
+    scraper = GenericHtmlListScraper(
+        {
+            "item_selector": "a.position-row",
+            "title_selector": "h3",
+            "location_selector": ".position-info span",
+            "next_page_selector": ".vacancy_pagination a.page-numbers",
+            "max_pages": 2,
+        }
+    )
+    raw = scraper.parse(page)
+    assert [job.title for job in raw] == ["Senior System Analyst"]
+    assert raw[0].url == "https://career.dev.pro/vacancy/5cfad0/"
+    assert raw[0].description == "Location: Latin America, Remote"
+    assert scraper.next_page_url(page) == "https://career.dev.pro/open-positions/page/2/"
+
+    detail = GenericHtmlListScraper(
+        {"detail": True, "item_selector": "a.position-row", "url_selector": "a"}
+    )
+    assert detail.discover_urls(page) == ["https://career.dev.pro/vacancy/5cfad0/"]
+
+
 def test_aggregator_normalize_skips_invalid():
     scraper = GenericHtmlListScraper({})
     normalized = scraper.normalize(

@@ -438,7 +438,9 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
     detail page (``parse_listing``). Recognized keys: ``item_selector``,
     ``title_selector``, ``url_selector``, ``company_selector``,
     ``location_selector``, ``date_selector`` and the optional
-    ``description_selector`` (a card snippet; location is appended to it).
+    ``description_selector`` (a card snippet; location is appended to it). Every
+    selector is evaluated *inside* the row; a row that is itself an ``<a>``
+    contributes its own ``href``.
     """
     config = config or {}
     soup = BeautifulSoup(page.html_content, "lxml")
@@ -449,6 +451,10 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
     for item in items:
         title_node = item.select_one(config.get("title_selector") or "h2")
         url_node = item.select_one(config.get("url_selector") or "a")
+        if url_node is None and item.name == "a":
+            # Some boards make the row *itself* the link (`a.position-row` on
+            # dev.pro). soupsieve has no `:scope`, so read the href off the row.
+            url_node = item
         title = title_node.get_text(" ", strip=True) if title_node else None
         url = url_node.get("href") if url_node else None
         if not title or not url:

@@ -386,8 +386,13 @@ export function SourcesScreen() {
                 />
               </FormField>
               <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
-                {i18n.t('sources.adapterHintPrefix')} <Text style={styles.code}>max_pages</Text>{' '}
-                {i18n.t('sources.adapterHintSuffix')}
+                {i18n.t('sources.adapterHintPrefix')} <Text style={styles.code}>max_pages</Text>
+                {' '}
+                {i18n.t('sources.adapterHintSuffix')} <Text style={styles.code}>next_page_tpl</Text>
+                {' '}
+                {i18n.t('sources.adapterHintTpl')} <Text style={styles.code}>url_tpl</Text>
+                {' '}
+                {i18n.t('sources.adapterHintUrlTpl')}
               </Text>
             </>
           ) : null}

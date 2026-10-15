@@ -33,6 +33,28 @@ def _text(soup: BeautifulSoup, selector: object) -> str | None:
     return text or None
 
 
+def _render_context(config: dict, page: int) -> dict:
+    """Template values for ``url_tpl``/``next_page_tpl``: config keys + ``page``.
+
+    Every config key is available (stringified), so a search term or a locale
+    kept in the config reaches the template. ``page`` is reserved and set last,
+    mirroring how ``JsonListProvider`` renders its own templates.
+    """
+    context = {key: str(value) for key, value in config.items()}
+    context["page"] = page
+    return context
+
+
+def _render_tpl(adapter: str, key: str, tpl: object, context: dict) -> str:
+    """Render a URL template, naming the template when a placeholder is unknown."""
+    try:
+        return str(tpl).format(**context)
+    except (KeyError, IndexError, ValueError) as exc:
+        raise ValueError(
+            f"{adapter} could not render {key!r} {str(tpl)!r}: {exc}"
+        ) from exc
+
+
 class AggregatorScraper(AbstractScraper):
     """Base class for aggregator adapters."""
 
@@ -84,6 +106,28 @@ class GenericHtmlListScraper(AggregatorScraper):
 
     adapter_name = "generic_html_list"
 
+    def __init__(self, config: dict | None = None):
+        super().__init__(config)
+        #: Pages walked so far, so `next_page_tpl` can render ``{page}``.
+        self._page = 1
+
+    def first_fetch_url(self, source_url: str) -> str:
+        """The URL fetched first: the stored URL, or its ``url_tpl`` when set.
+
+        A board whose listing depends on a search term can keep the *term* in the
+        config and the URL in ``url_tpl``, so page 1 and ``next_page_tpl`` (whose
+        ``{page}`` starts at 2) render from the same values instead of drifting
+        apart — one source then covers any term. Without ``url_tpl`` the stored
+        URL is fetched **verbatim**, so arguments already in it (``?palabra=Rust``,
+        ``/vagas-de-emprego/rust``) keep working untouched.
+        """
+        tpl = self.config.get("url_tpl")
+        if not tpl:
+            return source_url
+        return _render_tpl(
+            self.adapter_name, "url_tpl", tpl, _render_context(self.config, 1)
+        )
+
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         if as_flag(self.config.get("detail")):
             return self._parse_detail(page)
@@ -99,6 +143,10 @@ class GenericHtmlListScraper(AggregatorScraper):
         links: list[str] = []
         for item in soup.select(item_selector):
             node = item.select_one(url_selector)
+            if node is None and item.name == "a":
+                # The row *is* the link (`a.position-row` on dev.pro): soupsieve
+                # has no `:scope`, so read the href off the row itself.
+                node = item
             href = node.get("href") if node else None
             if href:
                 links.append(urljoin(page.final_url, str(href)))
@@ -160,13 +208,35 @@ class GenericHtmlListScraper(AggregatorScraper):
         ]
 
     def next_page_url(self, page: ScrapedPage) -> str | None:
+        """The next listing page: the ``next_page_selector`` link, else a built URL.
+
+        A *link* wins when the selector is set — a real ``?page=2`` anchor also
+        disappears on the last page, so the walk ends by itself. Boards that page
+        through a query string without such an anchor use ``next_page_tpl``
+        instead: the URL is **built** (``{page}`` starts at 2; page 1 is the
+        source URL) and gated by ``max_pages``, exactly like ``embedded_json_list``.
+        """
         selector = self.config.get("next_page_selector")
-        if not selector:
+        if selector:
+            soup = BeautifulSoup(page.html_content, "lxml")
+            node = soup.select_one(selector)
+            href = node.get("href") if node else None
+            return urljoin(page.final_url, href) if href else None
+
+        tpl = self.config.get("next_page_tpl")
+        if not tpl:
             return None
-        soup = BeautifulSoup(page.html_content, "lxml")
-        node = soup.select_one(selector)
-        href = node.get("href") if node else None
-        return urljoin(page.final_url, href) if href else None
+        max_pages = int(self.config.get("max_pages") or 1)
+        if self._page + 1 > max_pages:
+            return None
+        self._page += 1
+        context = _render_context(self.config, self._page)
+        # A relative template (`?page={page}`) resolves against the page we are
+        # on, so one config works on any locale host.
+        return urljoin(
+            page.final_url,
+            _render_tpl(self.adapter_name, "next_page_tpl", tpl, context),
+        )
 
 
 class EmbeddedJsonListScraper(AggregatorScraper):
@@ -195,17 +265,13 @@ class EmbeddedJsonListScraper(AggregatorScraper):
         if self._page + 1 > max_pages:
             return None
         self._page += 1
-        # Any other config key is available to the template too (a search term,
-        # a locale, ...), matching how `url_tpl` renders in `_job_from_item`.
-        context = {key: str(value) for key, value in self.config.items()}
-        context["page"] = self._page
-        try:
-            return str(tpl).format(**context)
-        except (KeyError, IndexError, ValueError) as exc:
-            raise ValueError(
-                "embedded_json_list could not render 'next_page_tpl' "
-                f"{str(tpl)!r}: {exc}"
-            ) from exc
+        context = _render_context(self.config, self._page)
+        # Built URLs resolve against the page we are on, so a relative template
+        # (`?page={page}`) works and an absolute one is returned untouched.
+        return urljoin(
+            page.final_url,
+            _render_tpl(self.adapter_name, "next_page_tpl", tpl, context),
+        )
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         payload = self._payload(page)
@@ -273,15 +339,11 @@ class EmbeddedJsonListScraper(AggregatorScraper):
 
         url = as_optional_str(field("url_path"))
         if url and self.config.get("url_tpl"):
-            context = {key: str(value) for key, value in self.config.items()}
+            context = _render_context(self.config, self._page)
             context["url"] = url
-            try:
-                url = str(self.config["url_tpl"]).format(**context)
-            except (KeyError, IndexError, ValueError) as exc:
-                raise ValueError(
-                    "embedded_json_list url_tpl could not be rendered: "
-                    f"{str(self.config['url_tpl'])!r} ({exc})"
-                ) from exc
+            url = _render_tpl(
+                self.adapter_name, "url_tpl", self.config["url_tpl"], context
+            )
 
         location = as_optional_str(field("location_path"))
         tags = as_tag_list(field("tags_path"))
@@ -318,6 +380,8 @@ _ADAPTER_CONFIG_METADATA: dict[str, dict] = {
             "date_selector",
             "description_selector",
             "next_page_selector",
+            "next_page_tpl",
+            "url_tpl",
             "detail",
             "detail_title_selector",
             "detail_company_selector",
