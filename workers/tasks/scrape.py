@@ -72,6 +72,17 @@ def _robots_allowed(source: Source, url: str) -> bool:
     return is_allowed_by_robots(url)
 
 
+def _robots_target(scraper, fetch_url: str) -> str:
+    """The URL whose robots.txt applies to a fetch.
+
+    Providers that fetch through a third-party renderer expose ``robots_url``
+    (e.g. Bright Data renders LinkedIn on our behalf, so LinkedIn's rules — not
+    Bright Data's API endpoint — are the ones that apply).
+    """
+    hook = getattr(scraper, "robots_url", None)
+    return hook(fetch_url) if callable(hook) else fetch_url
+
+
 async def _skip_run(source_id: str, run: ScrapeRun, reason: str) -> dict:
     """Record the run as *skipped* (never trips the circuit breaker)."""
     async with async_session_factory() as session:
@@ -205,12 +216,21 @@ async def _run_scrape(source_id: str) -> dict:
 
         scraper = get_scraper(source, api_key=auth.api_key if auth else None)
 
+        # A keyed provider whose key was never added can only come back as a
+        # vendor 401, so fail fast with an actionable message instead.
+        check_credentials = getattr(scraper, "check_credentials", None)
+        if not (auth and auth.api_key) and callable(check_credentials):
+            try:
+                check_credentials(has_api_key=False)
+            except ValueError as exc:
+                return await _skip_run(source_id, run, str(exc))
+
         # The first fetch may be a provider-built endpoint (discovery sources),
         # not the raw source URL.
         current_url = getattr(scraper, "first_fetch_url", lambda url: url)(source.url)
 
         # Scraping ethics: honour robots.txt before touching the target.
-        if not _robots_allowed(source, current_url):
+        if not _robots_allowed(source, _robots_target(scraper, current_url)):
             return await _skip_run(source_id, run, "robots.txt disallows this source")
 
         wait = rate_limit_wait(current_url, source.rate_limit_seconds)
@@ -219,9 +239,15 @@ async def _run_scrape(source_id: str) -> dict:
         rate_limit_mark(current_url, source.rate_limit_seconds)
 
         # Aggregators/ATS boards can paginate through several listing pages;
-        # discovery sources additionally fetch each discovered detail URL.
+        # discovery sources additionally fetch each discovered detail URL. Paid
+        # per-job providers lower the fallback cap (see `default_max_results`).
         max_pages = _config_int(source, "max_pages", 1)
-        max_results = _config_int(source, "max_results", 20)
+        max_results = _config_int(
+            source, "max_results", int(getattr(scraper, "default_max_results", 20))
+        )
+        # POST-based providers (Jooble) page through the request *body*, so the
+        # URL legitimately repeats; `max_pages` is what stops that loop.
+        pagination_in_body = bool(getattr(scraper, "pagination_in_body", False))
         pages_fetched = 0
         detail_fetched = 0
         raw_jobs: list = []
@@ -234,7 +260,7 @@ async def _run_scrape(source_id: str) -> dict:
                 for detail_url in discovered:
                     if detail_fetched >= max_results:
                         break
-                    if not _robots_allowed(source, detail_url):
+                    if not _robots_allowed(source, _robots_target(scraper, detail_url)):
                         continue
                     wait = rate_limit_wait(detail_url, source.rate_limit_seconds)
                     if wait > 0:
@@ -249,15 +275,15 @@ async def _run_scrape(source_id: str) -> dict:
             if pages_fetched >= max_pages:
                 break
             next_url = getattr(scraper, "next_page_url", lambda _page: None)(page)
-            if not next_url or next_url == current_url:
+            if not next_url or (next_url == current_url and not pagination_in_body):
                 break
             current_url = next_url
-            if not _robots_allowed(source, current_url):
+            if not _robots_allowed(source, _robots_target(scraper, current_url)):
                 logger.info(
                     "scrape_stop_pagination",
                     source_id=source_id,
                     reason="robots.txt",
-                    url=redact_sensitive(current_url),
+                    url=redact_sensitive(current_url, auth.api_key if auth else None),
                 )
                 break
             wait = rate_limit_wait(current_url, source.rate_limit_seconds)
@@ -306,7 +332,7 @@ async def _run_scrape(source_id: str) -> dict:
         error = (
             f"authentication failed (HTTP {exc.response.status_code})"
             if auth_failed
-            else redact_sensitive(str(exc)[:1024])
+            else redact_sensitive(str(exc)[:1024], auth.api_key if auth else None)
         )
         async with async_session_factory() as session:
             source_row = await session.get(Source, source_uuid)

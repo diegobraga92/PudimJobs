@@ -2,7 +2,9 @@
 
 import uuid
 
+import httpx
 import pytest
+from scrapers.types import ScrapedPage
 from scrapers.utils import assert_safe_url
 from sqlalchemy import select
 
@@ -141,6 +143,89 @@ async def test_credentials_stored_encrypted(auth_client, db_session):
     ).scalar_one()
     assert "tok-plaintext-secret" not in record.credentials_encrypted
     assert decrypt_secret(record.credentials_encrypted) == "tok-plaintext-secret"
+
+
+class _StubScraper:
+    """Scraper double: reports a provider endpoint, then fails or answers."""
+
+    def __init__(self, *, endpoint: str = "", error: Exception | None = None):
+        self.endpoint = endpoint or "https://board.example/jobs"
+        self.error = error
+        self.fetched: list[str] = []
+
+    def first_fetch_url(self, url: str) -> str:
+        """A keyed provider builds its own endpoint instead of the board URL."""
+        return self.endpoint
+
+    async def fetch(self, url, *, auth=None):
+        self.fetched.append(url)
+        if self.error is not None:
+            raise self.error
+        return ScrapedPage(html_content="{}", status_code=200, final_url=url)
+
+
+def _stub_auth_scraper(monkeypatch, fake: _StubScraper) -> None:
+    monkeypatch.setattr("scrapers.registry.get_scraper", lambda source, api_key=None: fake)
+
+
+async def test_auth_test_fetches_the_provider_endpoint_and_reports_the_reason(
+    auth_client, monkeypatch
+):
+    """A bad key comes back as the vendor's own explanation, never a 500."""
+    client, source_id = await _make_source(auth_client)
+    await client.put(
+        f"/api/sources/{source_id}/auth",
+        json={"auth_type": "api_key", "api_key": "sk-bad"},
+    )
+
+    request = httpx.Request("GET", "https://api.example/{api_key}/jobs")
+    response = httpx.Response(403, text="invalid api key", request=request)
+    fake = _StubScraper(
+        endpoint="https://api.example/sk-bad/jobs",
+        error=httpx.HTTPStatusError(
+            "HTTP 403 from https://api.example/sk-bad/jobs: invalid api key",
+            request=request,
+            response=response,
+        ),
+    )
+    _stub_auth_scraper(monkeypatch, fake)
+
+    result = await client.post(f"/api/sources/{source_id}/auth/test")
+    body = result.json()
+
+    assert body["ok"] is False
+    assert body["status_code"] == 403
+    assert "invalid api key" in body["error"]
+    # The provider's endpoint is tested, not the source URL, and the key in the
+    # URL path is scrubbed before anything reaches the UI.
+    assert fake.fetched == ["https://api.example/sk-bad/jobs"]
+    assert "sk-bad" not in result.text
+    assert "REDACTED" in result.text
+
+
+async def test_auth_test_requires_stored_credentials(auth_client, monkeypatch):
+    """Without credentials there is nothing to validate."""
+    client, source_id = await _make_source(auth_client)
+    _stub_auth_scraper(monkeypatch, _StubScraper())
+
+    response = await client.post(f"/api/sources/{source_id}/auth/test")
+
+    assert response.status_code == 400
+    assert "No authentication" in response.json()["detail"]
+
+
+async def test_auth_test_reports_success(auth_client, monkeypatch):
+    client, source_id = await _make_source(auth_client)
+    await client.put(
+        f"/api/sources/{source_id}/auth",
+        json={"auth_type": "api_key", "api_key": "sk-ok-1234"},
+    )
+    _stub_auth_scraper(monkeypatch, _StubScraper())
+
+    response = await client.post(f"/api/sources/{source_id}/auth/test")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "status_code": 200}
 
 
 def test_build_fetch_auth_token_and_api_key():

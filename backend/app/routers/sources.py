@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from scrapers.utils import fetch_html, is_allowed_by_robots, redact_sensitive
+from scrapers.utils import is_allowed_by_robots, redact_sensitive
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -428,7 +428,11 @@ async def test_source_auth(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Fetch the source URL with the stored credentials to validate them."""
+    """Fetch the source the way the engine would, to validate the credentials.
+
+    Providers build their own URL/body (and key placement), so testing through
+    the scraper is what actually proves the key works for *this* source.
+    """
     source = await get_owned_source(source_id, user, db)
     record = await _get_auth_record(source_id, db)
     if record is None or not record.credentials_encrypted:
@@ -436,17 +440,30 @@ async def test_source_auth(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No authentication configured for this source",
         )
+    from scrapers.registry import get_scraper
+
+    auth = build_fetch_auth(record)
+    api_key = auth.api_key if auth else None
     try:
-        page = await fetch_html(source.url, timeout=20, auth=build_fetch_auth(record))
+        scraper = get_scraper(
+            SimpleNamespace(type=source.type, config=source.config), api_key
+        )
+        fetch_url = getattr(scraper, "first_fetch_url", lambda value: value)(source.url)
+        page = await asyncio.wait_for(scraper.fetch(fetch_url, auth=auth), timeout=20)
         return {"ok": True, "status_code": page.status_code}
     except httpx.HTTPStatusError as exc:
         return {
             "ok": False,
             "status_code": exc.response.status_code,
-            "error": f"HTTP {exc.response.status_code}",
+            # Keyed APIs explain themselves in the payload ("invalid api key").
+            "error": redact_sensitive(str(exc), api_key)[:300],
         }
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI
-        return {"ok": False, "status_code": None, "error": str(exc)[:300]}
+        return {
+            "ok": False,
+            "status_code": None,
+            "error": redact_sensitive(str(exc), api_key)[:300],
+        }
 
 
 async def _discover_detail_urls(scraper, page) -> list[str]:
@@ -458,6 +475,12 @@ async def _discover_detail_urls(scraper, page) -> list[str]:
     if inspect.isawaitable(result):
         result = await result
     return list(result or [])
+
+
+def _robots_target(scraper, fetch_url: str) -> str:
+    """The URL whose robots.txt applies to a fetch (see the scrape worker)."""
+    hook = getattr(scraper, "robots_url", None)
+    return hook(fetch_url) if callable(hook) else fetch_url
 
 
 async def _run_preview(
@@ -496,7 +519,7 @@ async def _run_preview(
         # (e.g. a missing `tenant`) surfaces here and must be reported, not
         # raised: the preview is how users discover such mistakes.
         fetch_url = getattr(scraper, "first_fetch_url", lambda value: value)(url)
-        if respect_robots and not is_allowed_by_robots(fetch_url):
+        if respect_robots and not is_allowed_by_robots(_robots_target(scraper, fetch_url)):
             return SourcePreviewResponse(
                 fetched_url=fetch_url, error="robots.txt disallows this source"
             )
@@ -505,7 +528,9 @@ async def _run_preview(
         detail_urls = await _discover_detail_urls(scraper, page)
         if detail_urls:
             for detail_url in detail_urls[:max_samples]:
-                if respect_robots and not is_allowed_by_robots(detail_url):
+                if respect_robots and not is_allowed_by_robots(
+                    _robots_target(scraper, detail_url)
+                ):
                     continue
                 detail_page = await asyncio.wait_for(
                     scraper.fetch(detail_url, auth=auth), timeout=timeout
@@ -523,7 +548,7 @@ async def _run_preview(
         return SourcePreviewResponse(
             fetched_url=fetch_url,
             status_code=getattr(getattr(exc, "response", None), "status_code", None),
-            error=redact_sensitive(str(exc))[:300],
+            error=redact_sensitive(str(exc), api_key)[:300],
         )
 
     sample = [

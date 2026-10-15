@@ -85,6 +85,10 @@ def validate_source_config(source_type: SourceType, config: dict | None) -> None
                 f"unknown discovery provider {name!r} (known: {_known(DISCOVERY_PROVIDERS)})"
             )
         _check_contract(scraper_cls.config_metadata(), config, f"provider {name!r}")
+        # The key lives in the source's credentials and is often added right
+        # after creation, so only the *structure* is proven here (`has_api_key`
+        # is unknown): a bad method/body/auth or an unrenderable URL still fails.
+        scraper_cls.validate_config(config, has_api_key=None)
     elif source_type == SourceType.aggregator:
         from scrapers.aggregator import AGGREGATOR_ADAPTERS, GenericHtmlListScraper
 

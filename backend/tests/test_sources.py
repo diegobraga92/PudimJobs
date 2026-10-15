@@ -438,6 +438,39 @@ def test_validator_reports_missing_and_unknown_keys():
         validate_source_config(SourceType.aggregator, {"adapter": "does-not-exist"})
 
 
+def test_validator_checks_the_request_shape_of_keyed_providers():
+    """Keyed APIs build URLs/bodies at save time, so mistakes fail fast."""
+    base = {"provider": "json_list", "url": "https://api.example/jobs"}
+
+    with pytest.raises(ValueError, match="unsupported method"):
+        validate_source_config(SourceType.discovery, {**base, "method": "PUT"})
+    with pytest.raises(ValueError, match="'method: POST' requires a 'body'"):
+        validate_source_config(SourceType.discovery, {**base, "method": "POST"})
+    with pytest.raises(ValueError, match="must be one of"):
+        validate_source_config(
+            SourceType.discovery, {**base, "auth": {"in": "cookie", "name": "k"}}
+        )
+    # A placeholder with no matching config key is reported too.
+    with pytest.raises(ValueError, match="board"):
+        validate_source_config(
+            SourceType.discovery, {"provider": "json_list", "url_tpl": "https://x/{board}"}
+        )
+
+    # A valid POST shape and a *missing key* both save fine: the key is a
+    # credential, added in the Authentication panel right after creation.
+    validate_source_config(
+        SourceType.discovery,
+        {
+            **base,
+            "method": "POST",
+            "body": {"q": "{query}", "page": "{page}"},
+            "auth": {"in": "header", "name": "X-API-Key"},
+            "query": "python",
+        },
+    )
+    validate_source_config(SourceType.discovery, {"provider": "jooble", "query": "python"})
+
+
 def test_manual_metadata_matches_the_validator():
     """What the endpoint publishes is exactly what the validator enforces."""
     meta = manual_metadata()

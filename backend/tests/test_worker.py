@@ -379,6 +379,211 @@ async def test_scrape_passes_api_key_to_discovery_scraper(
     assert captured["api_key"] == "sk-test-123"
 
 
+class KeyedScraper(FakeDiscoveryScraper):
+    """Discovery scraper that records the credential check the worker makes."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.checked: list[bool] = []
+
+    def check_credentials(self, has_api_key: bool) -> None:
+        self.checked.append(has_api_key)
+        if not has_api_key:
+            raise ValueError("jsearch needs an API key — add one in the Authentication panel")
+
+
+async def test_scrape_skips_a_keyed_provider_without_a_key(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """No key on a keyed provider: skip with the reason, never call the vendor."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.config = {"provider": "jsearch", "query": "python"}
+    await db_session.commit()
+
+    fake = KeyedScraper()
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+
+    result = await _run_scrape(str(source.id))
+
+    assert fake.checked == [False]
+    assert result["skipped"] is True
+    assert "API key" in result["reason"]
+    assert fake.fetched == []
+
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert runs[0].status == "skipped"
+    assert "API key" in runs[0].error
+
+
+async def test_scrape_checks_credentials_through_the_real_registry(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A real discovery source (no stored key) is skipped before any fetch."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.type = "discovery"
+    source.config = {"provider": "jsearch", "query": "python"}
+    await db_session.commit()
+
+    fetched: list[str] = []
+    monkeypatch.setattr(
+        scrape_module,
+        "is_allowed_by_robots",
+        lambda url: fetched.append(url) or True,
+    )
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["skipped"] is True
+    assert "API key" in result["reason"]
+    assert fetched == []  # not even the robots check ran
+
+
+async def test_scrape_skips_the_credential_check_when_a_key_is_stored(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A stored key short-circuits the check, so the run proceeds normally."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.config = {"provider": "jsearch", "query": "python", "allow_empty": True}
+    await db_session.commit()
+    db_session.add(
+        SourceAuth(
+            source_id=source.id,
+            auth_type="api_key",
+            credentials_encrypted=encrypt_secret("sk-good-123"),
+        )
+    )
+    await db_session.commit()
+
+    fake = KeyedScraper()
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["new"] == 1  # the results page itself yields one job
+    assert fake.checked == []
+    assert fake.fetched == ["https://engine.example/results"]
+
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert runs[0].status == "success"
+
+
+# --- Pagination (url-based, body-based, and the same-URL guard) ---------------
+
+
+class FakePaginatingScraper(FakeScraper):
+    """Serves listing pages, with or without changing the URL each time."""
+
+    def __init__(self, pages: int, *, repeat_url: bool = False, body_paging: bool = False):
+        super().__init__([])
+        self.pages = pages
+        self.repeat_url = repeat_url
+        self.pagination_in_body = body_paging
+        self.fetched: list[str] = []
+        self.served = 0
+
+    def first_fetch_url(self, url: str) -> str:
+        return "https://board.example/jobs?page=1"
+
+    async def fetch(self, url: str, **kwargs) -> ScrapedPage:
+        self.fetched.append(url)
+        return ScrapedPage(html_content="<html></html>", status_code=200, final_url=url)
+
+    def parse(self, page: ScrapedPage) -> list[RawJob]:
+        return []
+
+    def next_page_url(self, page: ScrapedPage) -> str | None:
+        self.served += 1
+        if self.served >= self.pages:
+            return None
+        if self.repeat_url:
+            return page.final_url
+        return f"https://board.example/jobs?page={self.served + 1}"
+
+
+async def _run_pagination(monkeypatch, db_session, fake, config):
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.config = {"allow_empty": True, **config}
+    await db_session.commit()
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    await _run_scrape(str(source.id))
+    return fake
+
+
+async def test_scrape_paginates_listing_urls_up_to_max_pages(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    fake = await _run_pagination(
+        monkeypatch, db_session, FakePaginatingScraper(5), {"max_pages": 3}
+    )
+    assert fake.fetched == [
+        "https://board.example/jobs?page=1",
+        "https://board.example/jobs?page=2",
+        "https://board.example/jobs?page=3",
+    ]
+
+
+async def test_scrape_follows_repeated_urls_when_the_provider_pages_by_body(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """Jooble-style POST providers keep the URL and move the page in the body."""
+    fake = await _run_pagination(
+        monkeypatch,
+        db_session,
+        FakePaginatingScraper(5, repeat_url=True, body_paging=True),
+        {"max_pages": 2},
+    )
+    assert fake.fetched == ["https://board.example/jobs?page=1"] * 2
+
+
+async def test_scrape_stops_when_a_paginator_keeps_returning_the_same_url(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """An unchanged URL means "no more pages" unless the provider says otherwise."""
+    fake = await _run_pagination(
+        monkeypatch, db_session, FakePaginatingScraper(5, repeat_url=True), {"max_pages": 3}
+    )
+    assert fake.fetched == ["https://board.example/jobs?page=1"]
+
+
+@pytest.mark.parametrize(
+    ("cap", "config", "expected"),
+    (
+        # No `max_results`: the provider's own cap keeps paid fetches short.
+        (5, {}, 5),
+        # An explicit `max_results` always wins over the provider's default.
+        (5, {"max_results": 2}, 2),
+        (5, {"max_results": 9}, 9),
+    ),
+)
+async def test_scrape_caps_detail_fetches_by_the_providers_default(
+    test_engine, db_session, monkeypatch, redis_client, cap, config, expected
+):
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    source.config = {"provider": "serpapi", "allow_empty": True, **config}
+    await db_session.commit()
+
+    links = [f"https://paid.example/j{index}" for index in range(12)]
+    fake = FakeDiscoveryScraper(links)
+    fake.default_max_results = cap
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+
+    await _run_scrape(str(source.id))
+
+    # The results page plus the capped detail fetches, in order.
+    assert fake.fetched == ["https://engine.example/results", *links[:expected]]
+
+
 # --- Manual (watchlist) sources (ADR 018) ------------------------------------
 
 

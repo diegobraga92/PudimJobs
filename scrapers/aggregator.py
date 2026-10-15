@@ -2,7 +2,6 @@
 
 import json
 import re
-from datetime import date
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -10,21 +9,17 @@ from bs4 import BeautifulSoup
 from scrapers.base import AbstractScraper
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
 from scrapers.utils import (
+    as_flag,
     as_optional_str,
     as_tag_list,
     coerce_date,
+    date_from_node,
     fetch_html,
+    parse_html_list,
     parse_job_detail,
     parse_json_ld_jobs,
     resolve_path,
 )
-
-
-def _flag(value: object) -> bool:
-    """Interpret a config flag that may arrive as a bool or a JSON string."""
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
 
 
 def _text(soup: BeautifulSoup, selector: object) -> str | None:
@@ -36,16 +31,6 @@ def _text(soup: BeautifulSoup, selector: object) -> str | None:
         return None
     text = node.get_text(" ", strip=True)
     return text or None
-
-
-def _date_from_node(node: object) -> date | None:
-    """A date from a ``<time datetime=...>`` node, falling back to its text."""
-    if node is None or not hasattr(node, "get_text"):
-        return None
-    raw = None
-    if hasattr(node, "has_attr") and node.has_attr("datetime"):
-        raw = node.get("datetime")
-    return coerce_date(raw) or coerce_date(node.get_text(" ", strip=True))
 
 
 class AggregatorScraper(AbstractScraper):
@@ -100,13 +85,13 @@ class GenericHtmlListScraper(AggregatorScraper):
     adapter_name = "generic_html_list"
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
-        if _flag(self.config.get("detail")):
+        if as_flag(self.config.get("detail")):
             return self._parse_detail(page)
         return self._parse_list(page)
 
     def discover_urls(self, page: ScrapedPage) -> list[str]:
         """Job *detail* URLs for every listing row (only in ``detail`` mode)."""
-        if not _flag(self.config.get("detail")):
+        if not as_flag(self.config.get("detail")):
             return []
         soup = BeautifulSoup(page.html_content, "lxml")
         item_selector = self.config.get("item_selector", "article")
@@ -120,40 +105,8 @@ class GenericHtmlListScraper(AggregatorScraper):
         return links
 
     def _parse_list(self, page: ScrapedPage) -> list[RawJob]:
-        """Parse a listing page into one job per row."""
-        soup = BeautifulSoup(page.html_content, "lxml")
-        items = soup.select(self.config.get("item_selector", "article"))
-        date_selector = self.config.get("date_selector")
-        jobs: list[RawJob] = []
-        for item in items:
-            title_node = item.select_one(self.config.get("title_selector", "h2"))
-            url_node = item.select_one(self.config.get("url_selector", "a"))
-            company_node = item.select_one(
-                self.config.get("company_selector", ".company")
-            )
-            location_node = item.select_one(
-                self.config.get("location_selector", ".location")
-            )
-
-            title = title_node.get_text(" ", strip=True) if title_node else None
-            url = url_node.get("href") if url_node else None
-            if not title or not url:
-                continue
-            full_url = urljoin(page.final_url, url)
-            company = company_node.get_text(" ", strip=True) if company_node else None
-            location = location_node.get_text(" ", strip=True) if location_node else None
-            description = f"Location: {location}" if location else None
-            date_node = item.select_one(date_selector) if date_selector else None
-            jobs.append(
-                RawJob(
-                    title=title,
-                    company=company or "",
-                    url=full_url,
-                    posted_date=_date_from_node(date_node),
-                    description=description,
-                )
-            )
-        return jobs
+        """Parse a listing page into one job per row (shared helper in utils)."""
+        return parse_html_list(page, self.config)
 
     def _parse_detail(self, page: ScrapedPage) -> list[RawJob]:
         """Parse a job *detail* page (JSON-LD first, then ``detail_*`` selectors)."""
@@ -199,7 +152,7 @@ class GenericHtmlListScraper(AggregatorScraper):
                 title=title,
                 company=str(self.config.get("company") or ""),
                 url=page.final_url,
-                posted_date=_date_from_node(
+                posted_date=date_from_node(
                     soup.select_one(date_selector) if date_selector else None
                 ),
                 description=description,
@@ -330,6 +283,7 @@ _ADAPTER_CONFIG_METADATA: dict[str, dict] = {
             "company_selector",
             "location_selector",
             "date_selector",
+            "description_selector",
             "next_page_selector",
             "detail",
             "detail_title_selector",
