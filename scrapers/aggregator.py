@@ -174,6 +174,39 @@ class EmbeddedJsonListScraper(AggregatorScraper):
 
     adapter_name = "embedded_json_list"
 
+    def __init__(self, config: dict | None = None):
+        super().__init__(config)
+        self._page = 1
+
+    def next_page_url(self, page: ScrapedPage) -> str | None:
+        """Pagination for ``next_page_tpl`` configs (``{page}`` starts at 2).
+
+        Boards that render their listing with a JS framework usually page through
+        a query string (``?page=2``) instead of a *link*, so the next URL is
+        **built** from the template rather than read off the page — the opposite
+        of ``generic_html_list``'s ``next_page_selector``. The first page is the
+        source URL itself; ``max_pages`` (read by the worker too, and therefore
+        required for this to do anything) caps the walk.
+        """
+        tpl = self.config.get("next_page_tpl")
+        if not tpl:
+            return None
+        max_pages = int(self.config.get("max_pages") or 1)
+        if self._page + 1 > max_pages:
+            return None
+        self._page += 1
+        # Any other config key is available to the template too (a search term,
+        # a locale, ...), matching how `url_tpl` renders in `_job_from_item`.
+        context = {key: str(value) for key, value in self.config.items()}
+        context["page"] = self._page
+        try:
+            return str(tpl).format(**context)
+        except (KeyError, IndexError, ValueError) as exc:
+            raise ValueError(
+                "embedded_json_list could not render 'next_page_tpl' "
+                f"{str(tpl)!r}: {exc}"
+            ) from exc
+
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         payload = self._payload(page)
         items = resolve_path(payload, self.config.get("items_path")) if payload else None
@@ -320,6 +353,8 @@ _ADAPTER_CONFIG_METADATA: dict[str, dict] = {
             "date_path",
             "tags_path",
             "description_path",
+            "next_page_tpl",
+            "max_pages",
             "max_results",
         ),
         "example": {

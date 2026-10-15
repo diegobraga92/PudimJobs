@@ -9,7 +9,7 @@ ADR 010 (discovery sources) and ADR 018 (manual watchlist sources).
 | Source `type` | Adapter / provider | Consumes | Two-stage? |
 |---|---|---|---|
 | `career_page` | JSON-LD `JobPosting` → CSS fallback | one static HTML page | no |
-| `aggregator` | `generic_html_list`, `embedded_json_list` | one static HTML *listing* page + optional `next_page` | yes, with `"detail": true` |
+| `aggregator` | `generic_html_list`, `embedded_json_list` | one static HTML *listing* page + optional pagination (`next_page_selector` or `next_page_tpl`) | yes, with `"detail": true` |
 | `rss` | `feedparser` | RSS 2.0 / Atom feed (`url` **is** the feed URL) | no |
 | `discovery` (ATS) | `ashby`, `greenhouse`, `lever`, `workable`, `smartrecruiters`, `recruitee`, `personio`, `workday` | public JSON board endpoint | no |
 | `discovery` (JSON) | `json_list`, `adzuna`, `jooble`, `jsearch` | any JSON API (`paths` + `url_tpl`/`url`); the keyed vendors ship their own defaults | no |
@@ -20,7 +20,9 @@ Hard limits of the engine — these decide almost every verdict below:
 
 1. **No JavaScript rendering** (`httpx` + BeautifulSoup). Client-side data
    (Angular, pure SPA) is invisible unless it is embedded as JSON
-   (`embedded_json_list` reads `__NEXT_DATA__` / `window.__NUXT__`).
+   (`embedded_json_list` reads `__NEXT_DATA__` / `window.__NUXT__`) or the page
+   fetches it from a JSON API we can call ourselves (`json_list` — Working
+   Nomads, RemoteOK).
 2. **No cookie/session auth.** `source_auth` supports `none`, `token` (bearer)
    and `api_key` only; cookie auth was removed deliberately
    (`app/models/source_auth.py`) because automating logged-in sessions violates
@@ -51,6 +53,7 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | Key | Meaning | Default |
 |---|---|---|
 | `max_pages` | listing pages to walk via `next_page_url` | `1` |
+| `next_page_tpl` | `embedded_json_list` only: template for pages 2..`max_pages`, rendered with any config key plus `{page}` (`…/search?term={term}&page={page}`). Without it, `generic_html_list` reads the next URL off the page (`next_page_selector`); with it, the URL is **built** — a JSON blob has no `<a>` to follow | — |
 | `max_results` | detail pages fetched / jobs returned | `20` (keyed search APIs lower it to `5`) |
 | `allow_empty` | do not fail when the parse yields 0 jobs | `false` |
 | `parse_listing` | parse the *results page itself* instead of fetching each job (search providers: one paid call per run) | `false` |
@@ -151,7 +154,7 @@ shows the due badge, the next due date with a "due in / overdue by N days"
 hint, the notes field and the *Mark checked* button (the auth panel is hidden:
 manual sources are never fetched, so credentials mean nothing).
 
-## Collectible today (no code changes)
+## Collectible today (config only)
 
 **ATS JSON boards** (`type = discovery`): Solvd (`ashby` `{org}`), Teramind
 (`lever` `{company}`), Janea Systems (`greenhouse` `{board_token}`), any Workable
@@ -159,20 +162,33 @@ board (`workable` `{org}`); providers also accept `company` and `max_results`.
 `smartrecruiters`, `recruitee`, `personio` and `workday` are implemented and
 verified live. Personio's XML feed carries no job URL, so `url_tpl`
 (`https://{company}.jobs.personio.de/job/{id}`) is **required** and must be
-confirmed per tenant with the preview.
+confirmed per tenant with the preview. For these sources the stored `url` is a
+**reference only** — the provider builds the real endpoint from `{org}` /
+`{company}` / `{board_token}` — so a careers page that moves does not break the
+source as long as the ATS key is right (Solvd's `careers.solvd.com` no longer
+resolves, but the `ashby` source keeps working).
 
 **RSS / Atom** (`type = rss`): We Work Remotely
 (`weworkremotely.com/remote-jobs.rss`), NoDesk (`nodesk.co/remote-jobs/index.xml`),
-Jobspresso, RemoteYeah, Dexian Brasil, Rangertech (feed href declared in the
-search page). Remote Habit only feeds interviews/tools → use its HTML listing.
-RemoteOK/Remotive expose JSON (use `json_list`), not job RSS.
+Jobspresso (`jobspresso.co/jobs/feed/` — the bare `/feed/` is the *blog* and
+carries **0** jobs), RemoteYeah, Dexian Brasil, Rangertech (feed href declared in
+the search page). Remote Habit only feeds interviews/tools → use its HTML
+listing. RemoteOK / Remotive / Working Nomads expose JSON (use `json_list`), not
+job RSS.
 
 **Server-rendered HTML** (`type = aggregator` + `generic_html_list`): Programathor,
-GeekHunter, Remote.com, aijobs.ai, dev.pro, HireWithNear, MWDN, Sigma Software,
-JobConvo employer boards, Akvelon (PeopleForce), Remote Habit, Job na Gringa,
-Init-i8, Remotify Europe, JustRemote, remote4me, Toughbyte, WorkingNomads;
-Empregos.com.br needs `embedded_json_list`; InfoJobs must be probed on its **job
-search** route, not `/empregos` (that is a company directory).
+GeekHunter, Remote.com, aijobs.ai, dev.pro, Nerdin
+(`www.nerdin.com.br/vagas.php`, cards `.vaga-card`, next page `?pagina=2`), MWDN
+(`jobs.mwdn.com/careers/` — a **Comeet** embed, 40 cards under
+`.comeet-positions-list li`), SkipTheDrive (its **job-category** pages, e.g.
+`/job-category/remote-part-time-jobs/`, each carry 20 `/job/<slug>/` cards — the
+homepage does not), Sigma Software, JobConvo employer boards, Akvelon
+(PeopleForce), Remote Habit, Job na Gringa, Init-i8, Remotify Europe, JustRemote,
+remote4me, Toughbyte. InfoJobs must be probed on its **job search** route, not
+`/empregos` (that is a company directory). Working Nomads *looks* server-rendered
+but is AngularJS fed by a JSON API → collect it with `json_list` against
+`https://www.workingnomads.com/api/exposed_jobs/`; `jobs.hirewithnear.com/#/` is a
+hash-route SPA, so it stays `manual` (see below).
 
 ```json
 {
@@ -195,6 +211,50 @@ Optional extras: `date_selector` (a `<time>` node, absolute or relative) and
 built from `location_selector`). Both are shared with search providers in
 listing mode (`parse_listing`), so a working card definition can be reused
 verbatim from a paid provider config.
+
+**Embedded JSON** (`type = aggregator` + `embedded_json_list`): boards that render
+their listing with a JS framework but ship the data in the page. `payload_script`
+names the `<script id>` (default `__NEXT_DATA__`) or `payload_global` a
+`window.<name>` assignment (`__NUXT__`); `items_path` points at the array. Boards
+verified live:
+
+| Board | URL | `items_path` | Field notes |
+|---|---|---|---|
+| Gupy | `portal.gupy.io/job-search/term=<term>` | `props.pageProps.initialJobList.data` | `name`, absolute `jobUrl`, `description`, `careerPageName`, `publishedDate`, `workplaceType`; pages via `&page=N` and `pagination.total/limit` says how many |
+| Remote Rocketship | `www.remoterocketship.com/remote-jobs/` | `props.pageProps.initialJobOpenings` | `roleTitle`, `url` (the **original** ATS link), `company.name`, `location`, `created_at`, `jobDescriptionSummary`, `techStack`; pages via `?page=N` |
+| Empregos.com.br | job search route | probe | still to be mapped |
+
+```json
+{
+  "adapter": "embedded_json_list",
+  "payload_script": "__NEXT_DATA__",
+  "items_path": "props.pageProps.initialJobOpenings",
+  "id_path": "id",
+  "title_path": "roleTitle",
+  "url_path": "url",
+  "company_path": "company.name",
+  "location_path": "location",
+  "date_path": "created_at",
+  "description_path": "jobDescriptionSummary",
+  "tags_path": "techStack",
+  "next_page_tpl": "https://www.remoterocketship.com/remote-jobs/?page={page}",
+  "max_pages": 3
+}
+```
+
+Rules of thumb: a JSON blob has no `<a>` to follow, so pagination is **built** from
+`next_page_tpl` (`{page}` starts at 2) and is opt-in — without `max_pages` the
+adapter never pages. `items_path` that resolves to a non-array raises; when the
+blob is missing entirely the adapter falls back to JSON-LD on the same page. A
+localised route can carry a *marketing sample* instead of the listing (Remote
+Rocketship's `/br/` exposes a 5-job `jobsSample`; the real list is
+`/remote-jobs/`), so confirm `items_path` against the page you actually store.
+
+**Root-array JSON APIs.** `json_list`'s contract demands a non-empty
+`items_path`, but `"."` resolves to the payload itself — that is how Working
+Nomads is collected (`/api/exposed_jobs/` is a bare array of
+`{url,title,description,company_name,category_name,tags,location,pub_date}`, so
+`"tags"` is a comma-separated string that `tags_path` already splits).
 
 **Paid search providers** (`type = discovery`, key via `PUT /sources/{id}/auth`
 with `auth_type=api_key`): `brightdata` for LinkedIn (`{"engine": "linkedin",
@@ -229,13 +289,26 @@ board URL (the default, and the only one that works outside a browser session).
   Turing, Upwork, Revelo, Lemon.io, FlexJobs, VanHack, Proxify and similar) —
   need authenticated candidate context (cookies + often 2FA/SSO). Track them as
   `type = manual` sources instead (ADR 018): the user re-checks them by hand and
-  the app reminds them when due.
+  the app reminds them when due. Verified into this bucket: arc.dev, beon.tech,
+  Crossover, Encora (`careers.encora.com`), FullStack Talent, Greenhouse's
+  candidate dashboard, Impulso, Randstad, Remotar, Trampos, Tecla, X-Team
+  (`x-team.com/remote-jobs` is a 404 now), Vagas.com.br's *meu-perfil* — none of
+  them render job rows into the initial HTML.
 - **ToS / anti-bot by direct scraping** — LinkedIn, Indeed, Glassdoor, Dice,
-  Himalayas, Stack Overflow Jobs. Use the paid providers above.
+  Catho, Jobot, Levels.fyi, Landing.jobs, Wellfound, Hays, Michael Page, Robert
+  Half, SimplyHired, Welcome to the Jungle, Himalayas, Stack Overflow Jobs. Use
+  the paid providers above (`serpapi` `google_jobs` covers most of them);
+  Friday Glee, Outscal, VanHack and YellowIpe block the request outright
+  (HTTP 526 / TLS), so they are `manual` until a provider is wired up.
 - **Not listings / dead** — DuckDuckGo *query* URLs (no provider; use
   `google_cse`/`bing`/`brave`), `jobboardsearch.com` and `readytotouch.com`
-  (directories), archived `lerrua/remote-jobs-brazil`, single-job URLs, 404/5xx
-  boards.
+  (directories: no job rows to extract), archived `lerrua/remote-jobs-brazil`,
+  single-job URLs, 404/5xx boards (`careers.solvd.com` no longer resolves,
+  `x-team.com/remote-jobs` is gone).
+- **Hash-route SPAs** — `jobs.hirewithnear.com/#/` renders its list from the URL
+  fragment, so a fetch only ever returns the shell; keep it `manual` (or probe the
+  API it calls) until an opt-in renderer exists.
+
 
 ## Compliance, maintenance
 

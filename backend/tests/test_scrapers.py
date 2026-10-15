@@ -393,6 +393,62 @@ def test_embedded_json_adapter_is_registered():
     assert isinstance(adapter, EmbeddedJsonListScraper)
 
 
+def test_embedded_json_adapter_paginates_with_next_page_tpl():
+    """`{page}` starts at 2 (page 1 is the source URL) and stops at `max_pages`."""
+    scraper = EmbeddedJsonListScraper(
+        {
+            "items_path": "props.pageProps.jobs",
+            "next_page_tpl": "https://board.example/jobs?page={page}",
+            "max_pages": 3,
+        }
+    )
+    page = _aggregator_page(NEXT_DATA_HTML)
+    assert scraper.next_page_url(page) == "https://board.example/jobs?page=2"
+    assert scraper.next_page_url(page) == "https://board.example/jobs?page=3"
+    assert scraper.next_page_url(page) is None
+
+
+def test_embedded_json_adapter_next_page_tpl_can_use_config_keys():
+    """Gupy-style templates carry the search term as well as the page number."""
+    scraper = EmbeddedJsonListScraper(
+        {
+            "items_path": "props.pageProps.initialJobList.data",
+            "term": "python",
+            "next_page_tpl": "https://board.example/search?term={term}&page={page}",
+            "max_pages": 2,
+        }
+    )
+    page = _aggregator_page(NEXT_DATA_HTML)
+    assert (
+        scraper.next_page_url(page)
+        == "https://board.example/search?term=python&page=2"
+    )
+    assert scraper.next_page_url(page) is None
+
+
+def test_embedded_json_adapter_next_page_tpl_without_max_pages_is_inert():
+    """A template alone must not paginate: the worker's `max_pages` gates it."""
+    scraper = EmbeddedJsonListScraper(
+        {
+            "items_path": "props.pageProps.jobs",
+            "next_page_tpl": "https://board.example/jobs?page={page}",
+        }
+    )
+    assert scraper.next_page_url(_aggregator_page(NEXT_DATA_HTML)) is None
+
+
+def test_embedded_json_adapter_reports_a_bad_next_page_tpl():
+    scraper = EmbeddedJsonListScraper(
+        {
+            "items_path": "props.pageProps.jobs",
+            "next_page_tpl": "https://board.example/jobs?page={missing}",
+            "max_pages": 2,
+        }
+    )
+    with pytest.raises(ValueError, match="next_page_tpl"):
+        scraper.next_page_url(_aggregator_page(NEXT_DATA_HTML))
+
+
 class _FakeRobotsResponse:
     def __init__(self, text: str):
         self.status_code = 200
