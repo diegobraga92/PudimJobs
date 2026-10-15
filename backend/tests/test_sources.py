@@ -12,6 +12,7 @@ from app.models.enums import SourceType
 from app.routers.sources import _run_preview
 from app.services.source_config import (
     adapter_metadata,
+    manual_metadata,
     provider_metadata,
     validate_source_config,
 )
@@ -410,6 +411,10 @@ def test_validator_accepts_valid_configs():
     )
     validate_source_config(SourceType.aggregator, {"adapter": "generic_html_list"})
     validate_source_config(SourceType.aggregator, None)
+    # Manual watchlist sources only need a cadence (and free-form notes).
+    validate_source_config(SourceType.manual, None)
+    validate_source_config(SourceType.manual, {"cadence_days": 1, "notes": "watch here"})
+    validate_source_config(SourceType.manual, {"cadence_days": 365})
     # Non-dispatching source types take no config at all.
     validate_source_config(SourceType.rss, None)
     validate_source_config(SourceType.career_page, {"anything": "goes"})
@@ -431,6 +436,23 @@ def test_validator_reports_missing_and_unknown_keys():
         )
     with pytest.raises(ValueError, match="unknown aggregator adapter"):
         validate_source_config(SourceType.aggregator, {"adapter": "does-not-exist"})
+
+
+def test_manual_metadata_matches_the_validator():
+    """What the endpoint publishes is exactly what the validator enforces."""
+    meta = manual_metadata()
+    bounds = meta["cadence_days"]
+
+    assert meta["type"] == "manual"
+    assert bounds == {"default": 7, "min": 1, "max": 365}
+    assert meta["required_config"] == []
+    assert meta["optional_config"] == ["cadence_days", "notes"]
+    assert meta["example_config"]["cadence_days"] == bounds["default"]
+    validate_source_config(SourceType.manual, {"cadence_days": bounds["min"]})
+    validate_source_config(SourceType.manual, {"cadence_days": bounds["max"]})
+    for out_of_range in (bounds["min"] - 1, bounds["max"] + 1):
+        with pytest.raises(ValueError, match="cadence_days"):
+            validate_source_config(SourceType.manual, {"cadence_days": out_of_range})
 
 
 def test_provider_metadata_covers_every_registered_provider():
@@ -518,3 +540,428 @@ async def test_adapters_endpoint_lists_aggregator_adapters(auth_client):
     assert all(item["description"] for item in body)
     assert "item_selector" in body[0]["optional_config"]
     assert body[0]["example_config"]["item_selector"]
+
+
+# --- Manual (watchlist) sources (ADR 018) -------------------------------------
+
+
+async def test_create_manual_source_exposes_its_schedule(auth_client):
+    """A manual source is never fetched; it reports when it is next due."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Login-walled board",
+            "url": "https://protected.example/jobs",
+            "type": "manual",
+            "config": {"cadence_days": 3},
+        },
+    )
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["type"] == "manual"
+    # Nothing was fetched: the board is hand-checked.
+    assert body["last_scraped"] is None
+    assert body["due"] is False
+    assert body["next_check_at"] is not None
+
+    detail = await client.get(f"/api/sources/{body['id']}")
+    assert detail.json()["next_check_at"] == body["next_check_at"]
+    assert detail.json()["due"] is False
+
+
+async def test_manual_source_is_due_once_next_check_passes(auth_client):
+    """A past ``next_check_at`` marks the source due (the override path)."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Stale board",
+            "url": "https://protected.example/jobs",
+            "type": "manual",
+            "config": {"cadence_days": 7, "next_check_at": "2020-01-01T00:00:00+00:00"},
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["due"] is True
+
+
+async def test_non_manual_sources_are_never_due(auth_client):
+    """The watchlist fields stay empty for scraped source types."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Acme", "url": "https://acme.example", "type": "career_page"},
+    )
+    body = created.json()
+    assert body["next_check_at"] is None
+    assert body["due"] is False
+
+
+async def test_create_manual_source_rejects_invalid_cadence(auth_client):
+    client, _, _ = auth_client
+    response = await client.post(
+        "/api/sources",
+        json={
+            "name": "Bad cadence",
+            "url": "https://protected.example/jobs",
+            "type": "manual",
+            "config": {"cadence_days": 0},
+        },
+    )
+    assert response.status_code == 422
+    assert "cadence_days" in response.json()["detail"]
+
+
+async def test_create_manual_source_rejects_cadence_above_the_max(auth_client):
+    """The published bounds are enforced: 366 days is a 422, not a silent clamp."""
+    client, _, _ = auth_client
+    response = await client.post(
+        "/api/sources",
+        json={
+            "name": "Forever cadence",
+            "url": "https://protected.example/jobs",
+            "type": "manual",
+            "config": {"cadence_days": 366},
+        },
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "cadence_days" in detail
+    assert "365" in detail
+
+
+async def test_manual_metadata_publishes_the_cadence_contract(auth_client):
+    """GET /manual-metadata is the single source of truth both UIs read."""
+    client, _, _ = auth_client
+    response = await client.get("/api/sources/manual-metadata")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == "manual"
+    assert body["cadence_days"] == {"default": 7, "min": 1, "max": 365}
+    assert body["required_config"] == []
+    assert set(body["optional_config"]) >= {"cadence_days", "notes"}
+    assert body["example_config"]["cadence_days"] == 7
+
+
+async def test_update_manual_source_keeps_the_config_the_client_sends(auth_client):
+    """PUT round-trips engine-managed keys, so merging in the UI is enough.
+
+    Both clients used to rebuild ``config`` as ``{cadence_days}`` only, which
+    dropped ``next_check_at``/``reminded_at``/``notes`` and made the sweep
+    re-remind an already-checked source. The API must never be the one losing
+    those keys: whatever the client sends is what comes back.
+    """
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Watchlist",
+            "url": "https://protected.example/jobs",
+            "type": "manual",
+            "config": {"cadence_days": 5, "next_check_at": "2030-01-01T00:00:00+00:00"},
+        },
+    )
+    source_id = created.json()["id"]
+
+    response = await client.put(
+        f"/api/sources/{source_id}",
+        json={
+            "config": {
+                "cadence_days": 9,
+                "notes": "check the Slack #hiring channel",
+                "next_check_at": "2030-01-01T00:00:00+00:00",
+                "reminded_at": "2030-01-01T00:00:00+00:00",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["config"] == {
+        "cadence_days": 9,
+        "notes": "check the Slack #hiring channel",
+        "next_check_at": "2030-01-01T00:00:00+00:00",
+        "reminded_at": "2030-01-01T00:00:00+00:00",
+    }
+    # An untouched source is still not due, and the reminder stays recorded.
+    assert response.json()["due"] is False
+
+
+async def test_check_manual_source_reschedules_it(auth_client):
+    """POST /check stamps the hand-check and pushes the next reminder out."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Watchlist",
+            "url": "https://protected.example/jobs",
+            "type": "manual",
+            "config": {
+                "cadence_days": 5,
+                "next_check_at": "2020-01-01T00:00:00+00:00",
+                "reminded_at": "2020-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert created.json()["due"] is True
+    source_id = created.json()["id"]
+
+    checked = await client.post(f"/api/sources/{source_id}/check")
+
+    assert checked.status_code == 200
+    body = checked.json()
+    assert body["due"] is False
+    assert body["last_scraped"] is not None
+    assert body["health"] == "healthy"
+    # The reminder is cleared and a fresh due date scheduled (5 days out).
+    assert "reminded_at" not in (body["config"] or {})
+    assert body["next_check_at"] > "2020-01-01"
+
+
+async def test_check_rejects_non_manual_sources(auth_client):
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Acme", "url": "https://acme.example", "type": "career_page"},
+    )
+    response = await client.post(f"/api/sources/{created.json()['id']}/check")
+    assert response.status_code == 400
+    assert "manual" in response.json()["detail"]
+
+
+async def test_check_is_user_scoped(auth_client, db_client, db_session):
+    """Another user's watchlist source cannot be marked as checked."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Mine", "url": "https://protected.example", "type": "manual"},
+    )
+    source_id = created.json()["id"]
+
+    user_b = await create_user(db_session, email="checker@example.com")
+    login = await db_client.post(
+        "/api/auth/login", json={"email": user_b.email, "password": "password123"}
+    )
+    db_client.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
+    assert (await db_client.post(f"/api/sources/{source_id}/check")).status_code == 404
+
+
+async def test_run_preview_explains_that_manual_sources_are_hand_checked(monkeypatch):
+    """The preview never fetches a manual source — it says why instead."""
+
+    def _never_looked_up(source, api_key=None):  # pragma: no cover - must not run
+        raise AssertionError("manual sources must not reach the scraper registry")
+
+    monkeypatch.setattr("scrapers.registry.get_scraper", _never_looked_up)
+
+    response = await _run_preview(
+        source_type=SourceType.manual, url="https://protected.example/jobs", config={}
+    )
+
+    assert response.status_code is None
+    assert response.jobs_found == 0
+    assert response.error is not None
+    assert "manual" in response.error
+    assert response.fetched_url == "https://protected.example/jobs"
+
+
+# --- Avoid flag (ADR 019) -----------------------------------------------------
+
+
+async def test_new_sources_are_not_avoided(auth_client):
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Acme", "url": "https://acme.example", "type": "career_page"},
+    )
+    body = created.json()
+    assert body["avoided"] is False
+    assert body["avoided_at"] is None
+    assert body["avoid_reason"] is None
+
+
+async def test_avoid_mutes_a_due_source_without_hiding_it(auth_client):
+    """An avoided source stops nagging but stays in the list with its reason."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Sketchy board",
+            "url": "https://sketchy.example/jobs",
+            "type": "manual",
+            "config": {
+                "cadence_days": 7,
+                "next_check_at": "2020-01-01T00:00:00+00:00",
+                "reminded_at": "2020-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert created.json()["due"] is True
+    source_id = created.json()["id"]
+
+    avoided = await client.post(
+        f"/api/sources/{source_id}/avoid",
+        json={"avoided": True, "reason": "  recruiter spam  "},
+    )
+
+    assert avoided.status_code == 200
+    body = avoided.json()
+    assert body["avoided"] is True
+    assert body["avoided_at"] is not None
+    # The reason is trimmed so the badge tooltip never shows stray whitespace.
+    assert body["avoid_reason"] == "recruiter spam"
+    # Never due again while avoided, even though next_check_at is in the past.
+    assert body["due"] is False
+    assert body["next_check_at"].startswith("2020-01-01")
+
+    # Still listed — that is the whole point of the flag.
+    listing = await client.get("/api/sources")
+    assert [item["id"] for item in listing.json()] == [source_id]
+
+    # Idempotent: avoiding twice keeps the original "avoided since" timestamp
+    # and the reason the user already wrote.
+    again = await client.post(f"/api/sources/{source_id}/avoid", json={"avoided": True})
+    assert again.json()["avoided_at"] == body["avoided_at"]
+    assert again.json()["avoid_reason"] == "recruiter spam"
+
+    # An explicit empty reason clears it without un-avoiding the source.
+    cleared = await client.post(
+        f"/api/sources/{source_id}/avoid", json={"avoided": True, "reason": ""}
+    )
+    assert cleared.json()["avoided"] is True
+    assert cleared.json()["avoid_reason"] is None
+
+
+async def test_restore_re_arms_exactly_one_nudge(auth_client):
+    """Restoring clears the flag and the stale reminder, so the sweep nudges once."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Second chance",
+            "url": "https://protected.example/jobs",
+            "type": "manual",
+            "config": {
+                "cadence_days": 7,
+                "next_check_at": "2020-01-01T00:00:00+00:00",
+                "reminded_at": "2020-01-01T00:00:00+00:00",
+                "notes": "check the Slack #hiring channel",
+            },
+        },
+    )
+    source_id = created.json()["id"]
+    assert (
+        await client.post(f"/api/sources/{source_id}/avoid", json={"avoided": True})
+    ).status_code == 200
+
+    restored = await client.post(f"/api/sources/{source_id}/avoid", json={"avoided": False})
+
+    assert restored.status_code == 200
+    body = restored.json()
+    assert body["avoided"] is False
+    assert body["avoided_at"] is None
+    assert body["avoid_reason"] is None
+    # Overdue again, and the stale reminder is gone → one fresh notification.
+    assert body["due"] is True
+    assert "reminded_at" not in (body["config"] or {})
+    # The rest of the watchlist config is untouched.
+    assert body["config"]["notes"] == "check the Slack #hiring channel"
+    assert body["config"]["next_check_at"] == "2020-01-01T00:00:00+00:00"
+
+
+async def test_avoid_applies_to_every_source_type(auth_client):
+    """The flag is not manual-only: a scraped board can be avoided too."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Noisy agg", "url": "https://agg.example", "type": "aggregator"},
+    )
+    source_id = created.json()["id"]
+
+    avoided = await client.post(
+        f"/api/sources/{source_id}/avoid", json={"avoided": True, "reason": "duplicates"}
+    )
+
+    assert avoided.status_code == 200
+    assert avoided.json()["avoided"] is True
+    assert avoided.json()["avoid_reason"] == "duplicates"
+    # Non-manual sources have no due date to begin with.
+    assert avoided.json()["due"] is False
+
+
+async def test_update_source_can_avoid_and_restore(auth_client):
+    """PUT drives the flag too, so the form needs no second call."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Acme", "url": "https://acme.example", "type": "career_page"},
+    )
+    source_id = created.json()["id"]
+
+    avoided = await client.put(
+        f"/api/sources/{source_id}", json={"avoided": True, "avoid_reason": "scammy"}
+    )
+    assert avoided.status_code == 200
+    assert avoided.json()["avoided"] is True
+    assert avoided.json()["avoid_reason"] == "scammy"
+    assert avoided.json()["avoided_at"] is not None
+
+    # Editing the reason alone keeps the source avoided.
+    edited = await client.put(f"/api/sources/{source_id}", json={"avoid_reason": "worse"})
+    assert edited.json()["avoided"] is True
+    assert edited.json()["avoid_reason"] == "worse"
+
+    restored = await client.put(f"/api/sources/{source_id}", json={"avoided": False})
+    assert restored.json()["avoided"] is False
+    assert restored.json()["avoided_at"] is None
+    assert restored.json()["avoid_reason"] is None
+
+
+async def test_avoid_reason_is_ignored_while_active(auth_client):
+    """A reason never sticks to a source the user did not flag."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Acme", "url": "https://acme.example", "type": "career_page"},
+    )
+    source_id = created.json()["id"]
+
+    updated = await client.put(f"/api/sources/{source_id}", json={"avoid_reason": "hmm"})
+
+    assert updated.json()["avoided"] is False
+    assert updated.json()["avoid_reason"] is None
+
+
+async def test_avoid_reason_is_length_capped(auth_client):
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Acme", "url": "https://acme.example", "type": "career_page"},
+    )
+    source_id = created.json()["id"]
+
+    response = await client.post(
+        f"/api/sources/{source_id}/avoid", json={"avoided": True, "reason": "x" * 281}
+    )
+
+    assert response.status_code == 422
+
+
+async def test_avoid_is_user_scoped(auth_client, db_client, db_session):
+    """Another user's source cannot be flagged as avoided."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={"name": "Mine", "url": "https://protected.example", "type": "manual"},
+    )
+    source_id = created.json()["id"]
+
+    user_b = await create_user(db_session, email="avoider@example.com")
+    login = await db_client.post(
+        "/api/auth/login", json={"email": user_b.email, "password": "password123"}
+    )
+    db_client.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
+    response = await db_client.post(f"/api/sources/{source_id}/avoid", json={"avoided": True})
+    assert response.status_code == 404

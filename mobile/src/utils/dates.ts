@@ -86,6 +86,20 @@ export function formatMonthYear(
   );
 }
 
+/**
+ * Whole days from `now` until `value`, rounded up: `0` means "later today", a
+ * positive number is "in N days" and a negative one "N days ago". Returns
+ * `null` for a missing/unparsable value. Mirrors the web `dueText` helper.
+ */
+export function daysUntil(value: string | null | undefined, now: Date = new Date()): number | null {
+  const date = toDate(value);
+  if (!date) {
+    return null;
+  }
+  // `+ 0` turns the `-0` of an already-past due date into `0`.
+  return Math.ceil((date.getTime() - now.getTime()) / 86_400_000) + 0;
+}
+
 /** CV preview "start — end" range formatter. */
 export function formatDateRange(
   start: string | null,

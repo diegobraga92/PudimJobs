@@ -18,9 +18,10 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import async_session_factory
 from app.models import Job, ScrapeRun, Source
-from app.models.enums import SourceHealth
+from app.models.enums import SourceHealth, SourceType
 from app.models.source_auth import SourceAuth
 from app.services.source_auth import build_fetch_auth
+from app.services.source_watchlist import is_avoided
 from workers.celery_app import celery_app
 from workers.metrics import SCRAPE_DURATION, SCRAPES_TOTAL
 from workers.resilience import (
@@ -178,6 +179,19 @@ async def _run_scrape(source_id: str) -> dict:
                 session, run, status="skipped", new_jobs=0, error="circuit breaker open"
             )
             raise CircuitBreakerOpenError(f"Circuit breaker open for source {source_id}")
+
+    # Manual (watchlist) sources are never fetched: the sweeper skips them and
+    # any direct invocation is recorded as a no-op skip (ADR 018).
+    if source.type == SourceType.manual:
+        return await _skip_run(source_id, run, "manual source; check it by hand")
+
+    # Avoided sources are never fetched either, whatever their type (ADR 019):
+    # the user flagged the board as one to stay away from. A direct invocation
+    # (e.g. the admin trigger) is recorded as a skip, with the user's reason.
+    if is_avoided(source):
+        return await _skip_run(
+            source_id, run, source.avoid_reason or "source is avoided; restore it to scrape"
+        )
 
     try:
         # Optional per-source authentication (bearer token / API key).

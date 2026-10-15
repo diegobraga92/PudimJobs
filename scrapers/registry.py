@@ -9,6 +9,7 @@ from scrapers.aggregator import (
 from scrapers.base import AbstractScraper
 from scrapers.career_page import CareerPageScraper
 from scrapers.discovery import DiscoveryScraper
+from scrapers.manual import ManualScraper
 from scrapers.rss import RSSScraper
 
 SCRAPER_REGISTRY: dict[SourceType, type[AbstractScraper]] = {
@@ -16,6 +17,7 @@ SCRAPER_REGISTRY: dict[SourceType, type[AbstractScraper]] = {
     SourceType.aggregator: AggregatorScraper,
     SourceType.rss: RSSScraper,
     SourceType.discovery: DiscoveryScraper,
+    SourceType.manual: ManualScraper,
 }
 
 

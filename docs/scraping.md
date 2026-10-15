@@ -1,8 +1,8 @@
 # Scraping & source coverage
 
 How to onboard a job board, what the engine can collect **today**, what it
-cannot, why, and what would unlock the rest. Companion to ADR 005 (resilience)
-and ADR 010 (discovery sources).
+cannot, why, and what would unlock the rest. Companion to ADR 005 (resilience),
+ADR 010 (discovery sources) and ADR 018 (manual watchlist sources).
 
 ## What a source can consume
 
@@ -14,6 +14,7 @@ and ADR 010 (discovery sources).
 | `discovery` (ATS) | `ashby`, `greenhouse`, `lever`, `workable`, `smartrecruiters`, `recruitee`, `personio`, `workday` | public JSON board endpoint | no |
 | `discovery` (JSON) | `json_list` | any JSON API (`paths` + `url_tpl`) | no |
 | `discovery` (search) | `google_cse`, `bing`, `brave`, `serpapi`, `brightdata` | search results → detail pages | **yes** |
+| `manual` | none — hand-checked | nothing; the user re-checks the board and the app reminds them | no |
 
 Hard limits of the engine — these decide almost every verdict below:
 
@@ -36,9 +37,10 @@ Hard limits of the engine — these decide almost every verdict below:
 |---|---|
 | Name | free text |
 | URL | human page URL (`rss`: **must** be the feed URL; `discovery`: reference only) |
-| Type | `career_page` \| `aggregator` \| `rss` \| `discovery` |
+| Type | `career_page` \| `aggregator` \| `rss` \| `discovery` \| `manual` |
 | Adapter (aggregator) | `generic_html_list`, `embedded_json_list` |
 | Provider (discovery) | from `GET /sources/providers`; required for this type |
+| Cadence + notes (manual) | from `GET /sources/manual-metadata` (`cadence_days` 1–365, plus free-form `notes`); the form merges them into the existing `config` |
 | Config JSON | merged into `config` (required/optional keys come from `/sources/providers` and `/sources/adapters`; create/update return 422 on a broken config) |
 | Rate limit (s) | default `30`, per-domain cooldown before every request |
 | Respect robots.txt | default **on** (checked against the actual fetch URL and each pagination hop) |
@@ -66,6 +68,46 @@ docker compose exec worker python -c \
 Adding many sources at once: `POST /api/sources/import` or
 `scripts/import_sources.py --file <private.json> --token <JWT>` (idempotent,
 never imports credentials — keeps the list out of the repo).
+
+## Manual watchlist sources (`type = manual`)
+
+For a board the engine must not (or cannot) fetch — login-walled candidate
+dashboards, anti-bot boards, directories — create the source with
+`type = manual`. It is never fetched:
+
+- the beat sweep (`workers/tasks/sweep.py`) excludes manual sources from
+  dispatch, so no `scrape_source` task is ever enqueued for them;
+- `POST /api/admin/sources/{id}/scrape` and any direct `scrape_source` call
+  record a `skipped` run (`manual source; check it by hand`) and never trip the
+  circuit breaker;
+- `POST /api/sources/preview` short-circuits with an explanatory `error`
+  instead of fetching anything.
+
+Instead the app schedules a re-check and reminds the user in-app.
+
+| Config key | Meaning | Default |
+|---|---|---|
+| `cadence_days` | days between hand checks; must be 1–365 or the API answers **422** (the read path still clamps junk) | `7` |
+| `notes` | free-form reminder of what to look for by hand (optional) | — |
+| `next_check_at` | ISO due date; rewritten on every check, settable as an override | `last_scraped` (else `created_at`) + cadence |
+| `reminded_at` | internal stamp of the last reminder; cleared by a check | — |
+
+`GET /api/sources/manual-metadata` publishes this contract
+(`cadence_days: {default, min, max}` + `optional_config` + `example_config`) so
+the web and mobile forms read the bounds instead of hard-coding them. Because
+`PUT /api/sources/{id}` replaces `config` wholesale, both clients **merge** the
+form values into the source's existing config — otherwise an edit would drop
+`next_check_at`/`reminded_at` and the sweep would re-remind a source that was
+just checked.
+
+`POST /api/sources/{id}/check` is the *Mark checked* action: it stamps
+`last_scraped`, resets health to `healthy`, clears `reminded_at` and pushes
+`next_check_at` one cadence out. The sweep creates **one** in-app notification
+per due source and stops until that source is checked, so the watchlist nags
+once per period rather than once per sweep. The Sources UI (web and mobile)
+shows the due badge, the next due date with a "due in / overdue by N days"
+hint, the notes field and the *Mark checked* button (the auth panel is hidden:
+manual sources are never fetched, so credentials mean nothing).
 
 ## Collectible today (no code changes)
 
@@ -122,7 +164,9 @@ Two-stage providers parse detail pages with JSON-LD first; without it, set
 
 - **Login-walled dashboards / talent networks** (Outlier, Alignerr, Toptal,
   Turing, Upwork, Revelo, Lemon.io, FlexJobs, VanHack, Proxify and similar) —
-  need authenticated candidate context (cookies + often 2FA/SSO).
+  need authenticated candidate context (cookies + often 2FA/SSO). Track them as
+  `type = manual` sources instead (ADR 018): the user re-checks them by hand and
+  the app reminds them when due.
 - **ToS / anti-bot by direct scraping** — LinkedIn, Indeed, Glassdoor, Dice,
   Himalayas, Stack Overflow Jobs. Use the paid providers above.
 - **Not listings / dead** — DuckDuckGo *query* URLs (no provider; use

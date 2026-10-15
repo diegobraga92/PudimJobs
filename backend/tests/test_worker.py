@@ -3,6 +3,8 @@
 Requires PostgreSQL (test DB) and Redis; skipped when unavailable.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from scrapers.types import RawJob, ScrapedPage
 from sqlalchemy import select
@@ -16,7 +18,7 @@ from workers.resilience import (
 from workers.tasks import scrape as scrape_module
 from workers.tasks.scrape import _run_scrape
 
-from app.models import Job, ScrapeRun, Source, SourceAuth
+from app.models import Job, Notification, ScrapeRun, Source, SourceAuth
 from app.services.secrets import encrypt_secret
 from tests.helpers import create_user
 
@@ -375,3 +377,261 @@ async def test_scrape_passes_api_key_to_discovery_scraper(
     await _run_scrape(str(source.id))
 
     assert captured["api_key"] == "sk-test-123"
+
+
+# --- Manual (watchlist) sources (ADR 018) ------------------------------------
+
+
+async def _make_manual_source(db_session, user, **config) -> Source:
+    """A hand-checked watchlist source (never fetched by the engine)."""
+    source = Source(
+        user_id=user.id,
+        name="Watchlist",
+        url="https://protected.example/jobs",
+        type="manual",
+        config={"cadence_days": 7, **config},
+    )
+    db_session.add(source)
+    await db_session.commit()
+    await db_session.refresh(source)
+    return source
+
+
+async def test_scrape_skips_manual_sources_without_fetching(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A manual source records a skipped run and never reaches a scraper."""
+    user = await create_user(db_session)
+    source = await _make_manual_source(db_session, user)
+
+    def _never_looked_up(source, api_key=None):  # pragma: no cover - must not run
+        raise AssertionError("manual sources must not reach the scraper registry")
+
+    monkeypatch.setattr(scrape_module, "get_scraper", _never_looked_up)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+
+    result = await _run_scrape(str(source.id))
+
+    assert result == {
+        "source_id": str(source.id),
+        "skipped": True,
+        "reason": "manual source; check it by hand",
+    }
+
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert len(runs) == 1
+    assert runs[0].status == "skipped"
+    assert "manual" in runs[0].error
+
+    # Nothing was collected and the hand-check timestamp is untouched.
+    assert (await db_session.execute(select(Job))).scalars().all() == []
+    await db_session.refresh(source)
+    assert source.last_scraped is None
+
+
+async def test_sweep_schedules_scraped_sources_and_reminds_manual_ones(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """The sweeper enqueues scrapeable sources and reminds due watchlist ones."""
+    from workers.tasks import sweep as sweep_module
+
+    user = await create_user(db_session)
+    scrapeable = await _make_source(db_session, user)  # never scraped → due
+    manual = await _make_manual_source(
+        db_session, user, next_check_at="2020-01-01T00:00:00+00:00"
+    )
+
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        scrape_module,
+        "scrape_source",
+        SimpleNamespace(delay=lambda source_id: scheduled.append(source_id)),
+    )
+
+    first = await sweep_module._sweep()
+
+    assert first == {"due": 1, "scheduled": 1, "reminded": 1}
+    # Only the scrapeable source is enqueued: the manual one is hand-checked.
+    assert scheduled == [str(scrapeable.id)]
+
+    notifications = (await db_session.execute(select(Notification))).scalars().all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == user.id
+    assert notifications[0].channel == "in_app"
+    assert manual.name in notifications[0].title
+
+    # A second sweep must not remind the same due period again.
+    second = await sweep_module._sweep()
+    assert second["reminded"] == 0
+    assert len((await db_session.execute(select(Notification))).scalars().all()) == 1
+
+
+async def test_sweep_ignores_manual_sources_that_are_not_due_yet(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A freshly created watchlist source is not reminded before it is due."""
+    from workers.tasks import sweep as sweep_module
+
+    user = await create_user(db_session)
+    manual = await _make_manual_source(db_session, user)  # due in 7 days
+
+    monkeypatch.setattr(
+        scrape_module,
+        "scrape_source",
+        SimpleNamespace(delay=lambda source_id: None),
+    )
+
+    result = await sweep_module._sweep()
+
+    assert result == {"due": 0, "scheduled": 0, "reminded": 0}
+    assert (await db_session.execute(select(Notification))).scalars().all() == []
+    await db_session.refresh(manual)
+    assert manual.config.get("reminded_at") is None
+
+
+async def test_hand_check_clears_the_reminder_and_reschedules(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """Checking a due source by hand clears its reminder state for the period."""
+    from workers.tasks import sweep as sweep_module
+
+    from app.models.enums import SourceType
+    from app.services.source_watchlist import advance_manual_check, is_due, was_reminded
+
+    user = await create_user(db_session)
+    manual = await _make_manual_source(
+        db_session, user, next_check_at="2020-01-01T00:00:00+00:00"
+    )
+
+    monkeypatch.setattr(
+        scrape_module, "scrape_source", SimpleNamespace(delay=lambda source_id: None)
+    )
+    assert (await sweep_module._sweep())["reminded"] == 1
+    await db_session.refresh(manual)
+    assert was_reminded(manual) is True
+
+    # The user opens the board and marks it checked.
+    advance_manual_check(manual)
+    await db_session.commit()
+    await db_session.refresh(manual)
+
+    assert manual.type == SourceType.manual
+    assert manual.last_scraped is not None
+    assert was_reminded(manual) is False
+    assert is_due(manual) is False
+
+    # The next sweep has nothing to remind until the new due date arrives.
+    assert (await sweep_module._sweep())["reminded"] == 0
+
+
+async def test_sweep_never_reminds_an_avoided_source(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """An avoided watchlist source is silent until it is restored (ADR 019)."""
+    from workers.tasks import sweep as sweep_module
+
+    from app.services.source_watchlist import set_avoided
+
+    user = await create_user(db_session)
+    manual = await _make_manual_source(
+        db_session, user, next_check_at="2020-01-01T00:00:00+00:00"
+    )
+    set_avoided(manual, True, "recruiter spam")
+    await db_session.commit()
+
+    monkeypatch.setattr(
+        scrape_module, "scrape_source", SimpleNamespace(delay=lambda source_id: None)
+    )
+
+    avoided_sweep = await sweep_module._sweep()
+
+    assert avoided_sweep == {"due": 0, "scheduled": 0, "reminded": 0}
+    assert (await db_session.execute(select(Notification))).scalars().all() == []
+    await db_session.refresh(manual)
+    # No reminder was recorded either, so nothing is deduplicated away.
+    assert manual.config.get("reminded_at") is None
+
+    # Restoring the source re-arms exactly one nudge for the overdue period.
+    set_avoided(manual, False)
+    await db_session.commit()
+
+    assert (await sweep_module._sweep())["reminded"] == 1
+    notifications = (await db_session.execute(select(Notification))).scalars().all()
+    assert len(notifications) == 1
+    assert manual.name in notifications[0].title
+
+
+async def test_sweep_never_schedules_an_avoided_source(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """Avoided applies to scraped sources too: nothing is enqueued."""
+    from workers.tasks import sweep as sweep_module
+
+    from app.services.source_watchlist import set_avoided
+
+    user = await create_user(db_session)
+    avoided = await _make_source(db_session, user)
+    set_avoided(avoided, True, "duplicates")
+    active = await _make_source(db_session, user)
+    active.name = "Keep me"
+    await db_session.commit()
+
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        scrape_module,
+        "scrape_source",
+        SimpleNamespace(delay=lambda source_id: scheduled.append(source_id)),
+    )
+
+    result = await sweep_module._sweep()
+
+    assert result["due"] == 1
+    assert scheduled == [str(active.id)]
+
+
+async def test_scrape_skips_avoided_sources_without_fetching(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A direct invocation records a skip carrying the user's reason."""
+    from app.services.source_watchlist import set_avoided
+
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    set_avoided(source, True, "scammy postings")
+    await db_session.commit()
+
+    def _never_looked_up(source, api_key=None):  # pragma: no cover - must not run
+        raise AssertionError("avoided sources must not reach the scraper registry")
+
+    monkeypatch.setattr(scrape_module, "get_scraper", _never_looked_up)
+
+    result = await _run_scrape(str(source.id))
+
+    assert result == {
+        "source_id": str(source.id),
+        "skipped": True,
+        "reason": "scammy postings",
+    }
+
+
+async def test_scrape_skip_has_a_default_reason_without_one(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """Avoiding without a reason still explains the skip in the run log."""
+    from app.services.source_watchlist import set_avoided
+
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    set_avoided(source, True)
+    await db_session.commit()
+
+    monkeypatch.setattr(
+        scrape_module,
+        "get_scraper",
+        lambda source, api_key=None: (_ for _ in ()).throw(AssertionError("no fetch")),
+    )
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["skipped"] is True
+    assert "avoided" in result["reason"]

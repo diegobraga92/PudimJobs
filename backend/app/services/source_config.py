@@ -2,6 +2,19 @@
 
 from app.models.enums import SourceType
 
+#: Config contract of ``manual`` (watchlist) sources. ``cadence_days`` and
+#: ``notes`` are optional; ``next_check_at``/``reminded_at`` are engine-managed
+#: (see :mod:`app.services.source_watchlist`) and must survive a client update,
+#: which is why both UIs merge instead of replacing ``config``.
+MANUAL_CONFIG: dict = {
+    "required": (),
+    "optional": ("cadence_days", "notes"),
+    "example": {
+        "cadence_days": 7,
+        "notes": "anti-bot board — try the serpapi provider later",
+    },
+}
+
 
 def provider_metadata() -> list[dict]:
     """Discovery providers with their config contract (drives the form)."""
@@ -32,6 +45,29 @@ def adapter_metadata() -> list[dict]:
     ]
 
 
+def manual_metadata() -> dict:
+    """``manual`` (watchlist) contract: cadence bounds, keys and example.
+
+    Published so neither UI has to hard-code the re-check cadence bounds; the
+    validator below enforces exactly these values.
+    """
+    from app.services.source_watchlist import (
+        DEFAULT_CADENCE_DAYS,
+        MAX_CADENCE_DAYS,
+        MIN_CADENCE_DAYS,
+    )
+
+    return {
+        "cadence_days": {
+            "default": DEFAULT_CADENCE_DAYS,
+            "min": MIN_CADENCE_DAYS,
+            "max": MAX_CADENCE_DAYS,
+        },
+        "type": SourceType.manual.value,
+        **_contract(MANUAL_CONFIG),
+    }
+
+
 def validate_source_config(source_type: SourceType, config: dict | None) -> None:
     """Raise ``ValueError`` when the config cannot drive its scraper."""
     config = config or {}
@@ -59,6 +95,30 @@ def validate_source_config(source_type: SourceType, config: dict | None) -> None
                 f"unknown aggregator adapter {name!r} (known: {_known(AGGREGATOR_ADAPTERS)})"
             )
         _check_contract(scraper_cls.config_metadata(), config, f"adapter {name!r}")
+    elif source_type == SourceType.manual:
+        # Watchlist sources are checked by hand; the only config that drives
+        # behaviour is the re-check cadence, which must be a positive integer
+        # inside the range published by GET /api/sources/manual-metadata.
+        from app.services.source_watchlist import MAX_CADENCE_DAYS, MIN_CADENCE_DAYS
+
+        raw_cadence = config.get("cadence_days")
+        if raw_cadence is not None:
+            try:
+                cadence = int(raw_cadence)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "manual sources require config['cadence_days'] to be an integer"
+                ) from exc
+            if cadence < MIN_CADENCE_DAYS:
+                raise ValueError(
+                    f"manual sources require config['cadence_days'] to be "
+                    f">= {MIN_CADENCE_DAYS}"
+                )
+            if cadence > MAX_CADENCE_DAYS:
+                raise ValueError(
+                    f"manual sources require config['cadence_days'] to be "
+                    f"<= {MAX_CADENCE_DAYS}"
+                )
 
 
 def _contract(metadata: dict) -> dict:

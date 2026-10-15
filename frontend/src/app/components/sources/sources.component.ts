@@ -7,6 +7,7 @@ import {
   AggregatorAdapter,
   AuthTestResult,
   DiscoveryProvider,
+  ManualMetadata,
   Source,
   SourceAuth,
   SourceAuthInput,
@@ -18,6 +19,15 @@ import { AppIconComponent } from '../../shared/icons/icon.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
+
+/** i18n keys for the source-type dropdown and the list's Type column. */
+const SOURCE_TYPE_KEYS: Record<string, string> = {
+  career_page: 'sources.type.careerPage',
+  aggregator: 'sources.type.aggregator',
+  rss: 'sources.type.rss',
+  discovery: 'sources.type.discovery',
+  manual: 'sources.type.manual',
+};
 
 @Component({
   selector: 'app-sources',
@@ -45,6 +55,31 @@ export class SourcesComponent implements OnInit {
   providers: DiscoveryProvider[] = [];
   providersLoading = false;
   discoveryProvider = '';
+
+  /** Manual watchlist contract (cadence bounds + accepted keys), from the API. */
+  manualMetadata: ManualMetadata | null = null;
+  /** Manual watchlist re-check cadence (shown when type === 'manual'). */
+  cadenceDays = 7;
+  /** Free-form note kept with a manual source. */
+  notes = '';
+  /** Avoid-flag form state (edit form only) — never fetched, never reminded (ADR 019). */
+  avoidSource = false;
+  /** Optional "why" the user avoids the source, shown as a reminder in the list. */
+  avoidReason = '';
+  /**
+   * `config` of the source being edited. Manual configs are *merged* with the
+   * form values on save: `next_check_at`/`reminded_at` are engine-managed and
+   * `PUT` replaces `config` wholesale, so rebuilding it from scratch would drop
+   * them (and make the sweep re-remind an already-checked source).
+   */
+  private editingConfig: Record<string, unknown> = {};
+  /** Id of the manual source currently being marked as checked. */
+  checkingId: string | null = null;
+
+  /** Id of the source whose avoid flag is currently being toggled. */
+  avoidingId: string | null = null;
+  /** When on, avoided sources are dropped from the table (they stay in the API). */
+  hideAvoided = false;
 
   /** Dry-run of the current form values (nothing is saved). */
   previewing = false;
@@ -83,6 +118,21 @@ export class SourcesComponent implements OnInit {
     this.refresh();
     this.loadProviders();
     this.loadAdapters();
+    this.loadManualMetadata();
+  }
+
+  /** Cadence bounds are published by the API, so they live in exactly one place. */
+  private loadManualMetadata(): void {
+    this.service.manualMetadata().subscribe({
+      next: (metadata) => {
+        this.manualMetadata = metadata;
+        this.cadenceDays = metadata.cadence_days.default;
+      },
+      // The form still works offline: the input falls back to 1–365 below.
+      error: () => {
+        this.manualMetadata = null;
+      },
+    });
   }
 
   private loadProviders(): void {
@@ -116,6 +166,40 @@ export class SourcesComponent implements OnInit {
     return this.providers.find((provider) => provider.name === this.discoveryProvider);
   }
 
+  /** Human label for a source type (used in the list's Type column). */
+  typeLabel(type: string): string {
+    const key = SOURCE_TYPE_KEYS[type];
+    return key ? this.i18n.t(key) : type;
+  }
+
+  /**
+   * "Due in N days" / "Overdue by N days" for a manual source, or `''` when it
+   * has no schedule yet. Whole days, measured from `next_check_at`.
+   */
+  dueText(source: Source): string {
+    if (source.type !== 'manual' || !source.next_check_at) {
+      return '';
+    }
+    const due = new Date(source.next_check_at).getTime();
+    if (Number.isNaN(due)) {
+      return '';
+    }
+    const days = Math.ceil((due - Date.now()) / 86_400_000) + 0;
+    if (days === 0) {
+      return this.i18n.t('sources.dueToday');
+    }
+    if (days === 1) {
+      return this.i18n.t('sources.dueInOneDay');
+    }
+    if (days > 1) {
+      return this.i18n.t('sources.dueInDays', { days });
+    }
+    if (days === -1) {
+      return this.i18n.t('sources.overdueByOneDay');
+    }
+    return this.i18n.t('sources.overdueByDays', { days: Math.abs(days) });
+  }
+
   /** The adapter currently selected in the form. */
   get selectedAdapter(): AggregatorAdapter | undefined {
     return this.adapters.find((adapter) => adapter.name === this.adapter);
@@ -145,6 +229,15 @@ export class SourcesComponent implements OnInit {
   get hasExampleConfig(): boolean {
     const example = this.selectedContract?.example_config;
     return !!example && Object.keys(example).length > 0;
+  }
+
+  /** Cadence bounds for the manual input, from the API (sane fallback when it is unreachable). */
+  get cadenceMin(): number {
+    return this.manualMetadata?.cadence_days.min ?? 1;
+  }
+
+  get cadenceMax(): number {
+    return this.manualMetadata?.cadence_days.max ?? 365;
   }
 
   /** Prefill the config textarea with the backend's example for this choice. */
@@ -215,6 +308,54 @@ export class SourcesComponent implements OnInit {
     });
   }
 
+  /**
+   * The rows to render. Avoided sources are listed *last* — they are a reminder
+   * of what to stay away from, not work to do — and are dropped entirely while
+   * "Hide avoided" is on. The API keeps returning them either way (ADR 019).
+   */
+  get visibleSources(): Source[] {
+    const rows = this.hideAvoided
+      ? this.sources.filter((source) => !source.avoided)
+      : [...this.sources];
+    return rows.sort((a, b) => Number(!!a.avoided) - Number(!!b.avoided));
+  }
+
+  /** How many sources are flagged as avoided (0 hides the toggle's counter). */
+  get avoidedCount(): number {
+    return this.sources.filter((source) => source.avoided).length;
+  }
+
+  toggleHideAvoided(): void {
+    this.hideAvoided = !this.hideAvoided;
+  }
+
+  /**
+   * Flags a source as avoided (never fetched, never reminded about) or restores
+   * it. One click, no reason: "why" is edited in the form where there is room
+   * for it — and the API keeps an existing reason when none is sent.
+   */
+  toggleAvoided(source: Source): void {
+    if (this.avoidingId) {
+      return;
+    }
+    this.avoidingId = source.id;
+    const avoided = !source.avoided;
+    this.service.setSourceAvoided(source.id, avoided).subscribe({
+      next: (updated) => {
+        this.avoidingId = null;
+        this.sources = this.sources.map((item) => (item.id === updated.id ? updated : item));
+        this.toast.success(
+          this.i18n.t(avoided ? 'sources.sourceAvoided' : 'sources.sourceRestored')
+        );
+      },
+      error: () => {
+        this.avoidingId = null;
+        this.error = this.i18n.t('errors.failedAvoidSource');
+        this.toast.error(this.i18n.t('errors.failedAvoidSource'));
+      },
+    });
+  }
+
   openCreate(): void {
     this.editingId = null;
     this.sourceForm.reset({
@@ -227,6 +368,12 @@ export class SourcesComponent implements OnInit {
     this.adapter = 'generic_html_list';
     this.configJson = '';
     this.discoveryProvider = '';
+    this.cadenceDays = this.manualMetadata?.cadence_days.default ?? 7;
+    this.notes = '';
+    // A brand-new source cannot be avoided yet: `POST /sources` has no such field.
+    this.avoidSource = false;
+    this.avoidReason = '';
+    this.editingConfig = {};
     this.previewResult = null;
     this.showForm = true;
   }
@@ -242,6 +389,14 @@ export class SourcesComponent implements OnInit {
     });
     this.adapter = (source.config?.['adapter'] as string) ?? 'generic_html_list';
     this.discoveryProvider = (source.config?.['provider'] as string) ?? '';
+    this.cadenceDays = Number(
+      source.config?.['cadence_days'] ?? this.manualMetadata?.cadence_days.default ?? 7
+    );
+    // Kept so a manual save can merge instead of replacing the whole config.
+    this.editingConfig = { ...(source.config ?? {}) };
+    this.notes = String(source.config?.['notes'] ?? '');
+    this.avoidSource = source.avoided ?? false;
+    this.avoidReason = source.avoid_reason ?? '';
     if (source.type === 'discovery') {
       const rest = { ...(source.config ?? {}) };
       delete rest['provider'];
@@ -256,11 +411,32 @@ export class SourcesComponent implements OnInit {
   cancelForm(): void {
     this.showForm = false;
     this.editingId = null;
+    this.editingConfig = {};
+    this.notes = '';
+    this.avoidSource = false;
+    this.avoidReason = '';
     this.previewResult = null;
   }
 
   /** The `config` to send for the current form state, or null when the JSON is invalid (an error toast is shown). */
   private buildConfig(type: string): Record<string, unknown> | null {
+    if (type === 'manual') {
+      // Merge with what the source already carries: `next_check_at` and
+      // `reminded_at` are engine-managed and PUT replaces config wholesale, so
+      // dropping them would make the sweep re-remind a fresh source.
+      const config: Record<string, unknown> = {
+        ...this.editingConfig,
+        cadence_days: this.cadenceDays,
+      };
+      const notes = this.notes.trim();
+      if (notes) {
+        config['notes'] = notes;
+      } else {
+        // Clearing the field removes the note rather than storing an empty one.
+        delete config['notes'];
+      }
+      return config;
+    }
     const parsed = this.parseConfigJson(type);
     if (parsed === null) {
       return null;
@@ -319,12 +495,19 @@ export class SourcesComponent implements OnInit {
       this.toast.error(this.i18n.t('errors.chooseProvider'));
       return;
     }
-    if (raw.type === 'aggregator' || raw.type === 'discovery') {
+    if (raw.type === 'aggregator' || raw.type === 'discovery' || raw.type === 'manual') {
       const config = this.buildConfig(raw.type);
       if (!config) {
         return;
       }
       payload.config = config;
+    }
+    if (this.editingId) {
+      // The avoid flag is a statement, not a partial patch: sending the form's
+      // value is what restores a source the user un-checks. Only edits can flip
+      // it — a brand-new source has nothing to avoid yet.
+      payload.avoided = this.avoidSource;
+      payload.avoid_reason = this.avoidReason.trim();
     }
     const request = this.editingId
       ? this.service.update(this.editingId, payload)
@@ -364,6 +547,26 @@ export class SourcesComponent implements OnInit {
       error: () => {
         this.error = this.i18n.t('errors.failedDeleteSource');
         this.toast.error(this.i18n.t('errors.failedDeleteSource'));
+      },
+    });
+  }
+
+  /** Marks a manual watchlist source as checked by hand and schedules the next reminder. */
+  markChecked(source: Source): void {
+    if (this.checkingId) {
+      return;
+    }
+    this.checkingId = source.id;
+    this.service.checkSource(source.id).subscribe({
+      next: (updated) => {
+        this.checkingId = null;
+        this.sources = this.sources.map((item) => (item.id === updated.id ? updated : item));
+        this.toast.success(this.i18n.t('sources.checked'));
+      },
+      error: () => {
+        this.checkingId = null;
+        this.error = this.i18n.t('errors.failedCheckSource');
+        this.toast.error(this.i18n.t('errors.failedCheckSource'));
       },
     });
   }

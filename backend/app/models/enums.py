@@ -13,6 +13,10 @@ class SourceType(enum.StrEnum):
     aggregator = "aggregator"
     rss = "rss"
     discovery = "discovery"
+    # A board the engine cannot scrape automatically (login-walled SPA, anti-bot
+    # or a directory). It is never fetched by the sweeper; the user re-checks it
+    # by hand and the app reminds them when it is due (ADR 018).
+    manual = "manual"
 
 
 class SourceAuthType(enum.StrEnum):

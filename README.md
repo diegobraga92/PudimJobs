@@ -290,6 +290,18 @@ SerpApi, Bright Data — the paid route to LinkedIn/Indeed). Reprocessing is
 backed by the durable `scrape_runs` failed-run log with admin DLQ list + replay.
 Versioned `job.new` events live in `api/events/` (JSON on a topic exchange).
 
+**Manual (watchlist) sources** — `type = manual` (ADR 018) tracks a board the
+engine cannot fetch (login-walled candidate dashboards, anti-bot boards,
+directories): the beat sweep never dispatches it, the scrape task records a
+`skipped` run instead of failing and the preview explains why. A cadence
+(`config.cadence_days`, default 7, validated 1–365 against the contract published
+by `GET /api/sources/manual-metadata`) schedules the hand check instead, and the
+sweep raises **one** in-app reminder per due source until
+`POST /api/sources/{id}/check` marks it checked (stamps `last_scraped`, clears
+the reminder and pushes `next_check_at` out); the Sources UI on web and mobile
+shows the due badge, the next due date with a "due in / overdue by N days" hint
+and the *Mark checked* button, and keeps a free-form `config.notes` per board.
+
 **JD parsing & CV tailoring** — a spaCy worker extracts skills, years of
 experience, education level and keywords into `jobs.parsed_jd` (JSONB), backed
 by a curated taxonomy (`app/data/skills_taxonomy.json`) with word-boundary

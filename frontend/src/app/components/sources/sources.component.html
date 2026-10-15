@@ -39,8 +39,45 @@
         <option value="aggregator">{{ i18n.t('sources.type.aggregator') }}</option>
         <option value="rss">{{ i18n.t('sources.type.rss') }}</option>
         <option value="discovery">{{ i18n.t('sources.type.discovery') }}</option>
+        <option value="manual">{{ i18n.t('sources.type.manual') }}</option>
       </select>
     </div>
+
+    @if (sourceForm.get('type')?.value === 'manual') {
+      <p class="muted xs">
+        {{ i18n.t('sources.manualHint') }}
+      </p>
+
+      <div class="form-field">
+        <label for="source-cadence">{{ i18n.t('sources.cadence') }}</label>
+        <input
+          id="source-cadence"
+          class="input"
+          type="number"
+          [min]="cadenceMin"
+          [max]="cadenceMax"
+          [(ngModel)]="cadenceDays"
+          [ngModelOptions]="{ standalone: true }"
+        />
+        <p class="muted xs">
+          {{ i18n.t('sources.cadenceHint') }}
+        </p>
+      </div>
+
+      <div class="form-field">
+        <label for="source-notes">{{ i18n.t('sources.notes') }}</label>
+        <textarea
+          id="source-notes"
+          class="input"
+          rows="2"
+          [(ngModel)]="notes"
+          [ngModelOptions]="{ standalone: true }"
+        ></textarea>
+        <p class="muted xs">
+          {{ i18n.t('sources.notesHint') }}
+        </p>
+      </div>
+    }
 
     @if (sourceForm.get('type')?.value === 'aggregator') {
       <div class="form-field">
@@ -194,48 +231,82 @@
       </div>
     </div>
 
-    <div class="preview-section">
-      <div class="preview-actions">
-        <button type="button" class="btn btn-ghost" [disabled]="previewing" (click)="preview()">
-          <app-icon name="list-filter" [size]="14" />
-          {{ previewing ? i18n.t('sources.previewing') : i18n.t('sources.preview') }}
-        </button>
-        <span class="muted xs">{{ i18n.t('sources.previewHint') }}</span>
-      </div>
+    @if (editingId) {
+      <div class="avoid-section">
+        <label class="checkbox-row">
+          <input
+            type="checkbox"
+            [(ngModel)]="avoidSource"
+            [ngModelOptions]="{ standalone: true }"
+          />
+          {{ i18n.t('sources.avoidSource') }}
+        </label>
+        <p class="muted xs">
+          {{ i18n.t('sources.avoidSourceHint') }}
+        </p>
 
-      @if (previewResult) {
-        @if (previewResult.error) {
-          <p class="muted xs">
-            {{ i18n.t('sources.previewError', { error: previewResult.error }) }}
-          </p>
-        } @else {
-          <p class="muted xs">
-            {{
-              i18n.t('sources.previewSummary', {
-                status: previewResult.status_code ?? '—',
-                count: previewResult.jobs_found
-              })
-            }}
-            @if (previewResult.truncated) {
-              · {{ i18n.t('sources.previewTruncated') }}
-            }
-          </p>
-          @if (previewResult.sample_jobs.length) {
-            <ul class="preview-jobs">
-              @for (job of previewResult.sample_jobs; track $index) {
-                <li>
-                  <strong>{{ job.title }}</strong>
-                  <span class="muted"> · {{ job.company }}</span>
-                  @if (job.posted_date) {
-                    <span class="muted"> · {{ job.posted_date }}</span>
-                  }
-                </li>
+        @if (avoidSource) {
+          <div class="form-field">
+            <label for="source-avoid-reason">{{ i18n.t('sources.avoidReason') }}</label>
+            <input
+              id="source-avoid-reason"
+              class="input"
+              maxlength="280"
+              [(ngModel)]="avoidReason"
+              [ngModelOptions]="{ standalone: true }"
+            />
+            <p class="muted xs">
+              {{ i18n.t('sources.avoidReasonHint') }}
+            </p>
+          </div>
+        }
+      </div>
+    }
+
+    @if (sourceForm.get('type')?.value !== 'manual') {
+      <div class="preview-section">
+        <div class="preview-actions">
+          <button type="button" class="btn btn-ghost" [disabled]="previewing" (click)="preview()">
+            <app-icon name="list-filter" [size]="14" />
+            {{ previewing ? i18n.t('sources.previewing') : i18n.t('sources.preview') }}
+          </button>
+          <span class="muted xs">{{ i18n.t('sources.previewHint') }}</span>
+        </div>
+
+        @if (previewResult) {
+          @if (previewResult.error) {
+            <p class="muted xs">
+              {{ i18n.t('sources.previewError', { error: previewResult.error }) }}
+            </p>
+          } @else {
+            <p class="muted xs">
+              {{
+                i18n.t('sources.previewSummary', {
+                  status: previewResult.status_code ?? '—',
+                  count: previewResult.jobs_found
+                })
+              }}
+              @if (previewResult.truncated) {
+                · {{ i18n.t('sources.previewTruncated') }}
               }
-            </ul>
+            </p>
+            @if (previewResult.sample_jobs.length) {
+              <ul class="preview-jobs">
+                @for (job of previewResult.sample_jobs; track $index) {
+                  <li>
+                    <strong>{{ job.title }}</strong>
+                    <span class="muted"> · {{ job.company }}</span>
+                    @if (job.posted_date) {
+                      <span class="muted"> · {{ job.posted_date }}</span>
+                    }
+                  </li>
+                }
+              </ul>
+            }
           }
         }
-      }
-    </div>
+      </div>
+    }
 
     <div class="form-actions">
       <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
@@ -368,7 +439,33 @@
     </button>
   </div>
 } @else {
-  <div class="table-scroll">
+  @if (avoidedCount) {
+    <label class="checkbox-row list-toggle">
+      <input
+        type="checkbox"
+        [checked]="hideAvoided"
+        (change)="toggleHideAvoided()"
+        [attr.aria-label]="i18n.t('sources.hideAvoided')"
+      />
+      {{ i18n.t('sources.hideAvoided') }}
+      <span class="muted xs">{{ i18n.t('sources.avoidedCount', { count: avoidedCount }) }}</span>
+    </label>
+  }
+
+  @if (visibleSources.length === 0) {
+    <div class="empty-state panel">
+      <span class="empty-icon">
+        <app-icon name="eye-off" [size]="26" />
+      </span>
+      <h3>{{ i18n.t('sources.allAvoidedHidden') }}</h3>
+      <p>{{ i18n.t('sources.allAvoidedHiddenHint') }}</p>
+      <button type="button" class="btn btn-ghost" (click)="toggleHideAvoided()">
+        <app-icon name="eye" [size]="16" />
+        {{ i18n.t('sources.showAvoided') }}
+      </button>
+    </div>
+  } @else {
+    <div class="table-scroll">
     <table class="table">
       <thead>
         <tr>
@@ -381,14 +478,29 @@
         </tr>
       </thead>
       <tbody>
-        @for (source of sources; track source.id) {
-          <tr>
+        @for (source of visibleSources; track source.id) {
+          <tr [class.is-avoided]="source.avoided">
             <td>
               <a [href]="source.url" target="_blank" rel="noopener noreferrer">
                 {{ source.name }}
               </a>
+              @if (source.avoided) {
+                <span class="badge source-avoided-badge" [attr.title]="source.avoid_reason">
+                  <app-icon name="eye-off" [size]="12" />
+                  {{ i18n.t('sources.avoidedBadge') }}
+                </span>
+                @if (source.avoid_reason) {
+                  <span class="muted xs avoid-reason">· {{ source.avoid_reason }}</span>
+                }
+              }
+              @if (source.type === 'manual' && source.due) {
+                <span class="badge badge-warning">
+                  <app-icon name="bell-ring" [size]="12" />
+                  {{ i18n.t('sources.due') }}
+                </span>
+              }
             </td>
-            <td>{{ source.type }}</td>
+            <td>{{ typeLabel(source.type) }}</td>
             <td>
               <span class="source-count">{{ source.jobs_count ?? '—' }}</span>
             </td>
@@ -402,11 +514,59 @@
                 {{ source.health }}
               </span>
             </td>
-            <td>{{ source.last_scraped ? (source.last_scraped | date: 'short') : '—' }}</td>
+            <td>
+              {{ source.last_scraped ? (source.last_scraped | date: 'short') : '—' }}
+              @if (source.type === 'manual' && source.next_check_at) {
+                <span class="muted xs">
+                  · {{ i18n.t('sources.nextCheck') }}: {{ source.next_check_at | date: 'short' }}
+                  @if (dueText(source)) {
+                    — {{ dueText(source) }}
+                  }
+                </span>
+              }
+            </td>
             <td class="row-actions">
-              <button type="button" class="btn btn-ghost btn-sm" (click)="openAuth(source)">
-                <app-icon name="settings" [size]="14" />
-                {{ i18n.t('common.auth') }}
+              @if (source.type === 'manual') {
+                <a
+                  class="btn btn-ghost btn-sm"
+                  [href]="source.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <app-icon name="external-link" [size]="14" />
+                  {{ i18n.t('sources.openBoard') }}
+                </a>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  [disabled]="checkingId === source.id"
+                  (click)="markChecked(source)"
+                >
+                  <app-icon name="circle-check" [size]="14" />
+                  {{ i18n.t('sources.markChecked') }}
+                </button>
+              }
+              @if (source.type !== 'manual') {
+                <!-- Manual sources are never fetched, so credentials mean nothing here. -->
+                <button type="button" class="btn btn-ghost btn-sm" (click)="openAuth(source)">
+                  <app-icon name="settings" [size]="14" />
+                  {{ i18n.t('common.auth') }}
+                </button>
+              }
+              <!-- Avoid/restore works for every type: an avoided source is never
+                   fetched and never reminded about, but stays listed (ADR 019). -->
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                [disabled]="avoidingId === source.id"
+                [attr.aria-pressed]="source.avoided ? 'true' : 'false'"
+                [attr.title]="
+                  source.avoided ? i18n.t('sources.restoreSourceHint') : i18n.t('sources.avoidSourceHint')
+                "
+                (click)="toggleAvoided(source)"
+              >
+                <app-icon [name]="source.avoided ? 'eye' : 'eye-off'" [size]="14" />
+                {{ source.avoided ? i18n.t('sources.restoreSource') : i18n.t('sources.avoidOnly') }}
               </button>
               <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(source)">
                 <app-icon name="pencil" [size]="14" />
@@ -421,6 +581,7 @@
         }
       </tbody>
     </table>
-  </div>
+    </div>
+  }
 }
 

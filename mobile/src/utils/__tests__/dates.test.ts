@@ -1,4 +1,4 @@
-import { formatDateRange, formatMonthYear, mediumDate, shortDate } from '@/utils/dates';
+import { daysUntil, formatDateRange, formatMonthYear, mediumDate, shortDate } from '@/utils/dates';
 
 describe('formatMonthYear', () => {
   it('renders year-only values', () => {
@@ -35,6 +35,31 @@ describe('formatDateRange', () => {
 
   it('returns an em dash when both ends are empty', () => {
     expect(formatDateRange(null, null)).toBe('—');
+  });
+});
+
+describe('daysUntil', () => {
+  const now = new Date('2026-08-16T09:00:00Z');
+
+  it('rounds a future due date up to whole days', () => {
+    expect(daysUntil('2026-08-23T09:00:00Z', now)).toBe(7);
+  });
+
+  it('returns 1 for a due date within the next 24 hours', () => {
+    expect(daysUntil('2026-08-17T08:00:00Z', now)).toBe(1);
+  });
+
+  it('returns 0 for a due date that just passed', () => {
+    expect(daysUntil('2026-08-16T08:00:00Z', now)).toBe(0);
+  });
+
+  it('returns a negative count for an overdue source', () => {
+    expect(daysUntil('2026-08-10T09:00:00Z', now)).toBe(-6);
+  });
+
+  it('returns null for missing or unparsable values', () => {
+    expect(daysUntil(null, now)).toBeNull();
+    expect(daysUntil('not-a-date', now)).toBeNull();
   });
 });
 

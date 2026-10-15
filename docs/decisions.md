@@ -22,6 +22,7 @@ over, and why. Dates and full context live in git history.
 | 015 | Per-application CV workspace | tailoring from `/cv` or the job page | The CV is sent *with* an application; the artifact and its ATS check belong next to the job, and tailoring happens once so the artifact is always linked |
 | 016 | Tailored CVs as self-contained `generated_cvs` artifacts | non-current `master_cv` versions | Master CV history stays clean, each artifact carries its own content, and `rule`/`llm` variants are scored by the same scorer |
 | 017 | On-demand DOCX export via `python-docx` | storing a second artifact, HTML→DOCX conversion, new dependencies (pandoc/LibreOffice), ODT | `python-docx` is already a dependency for CV *import*; rendering from the stored `structured_json` at download time means one canonical stored PDF, no migration, an editable copy that tracks the latest edit, and real Word styles (single column, `List Bullet`) that ATS parsers read |
+| 018 | `manual` source type (watchlist) + in-app re-check reminders | pretending to scrape login-walled boards, cookie auth, dropping those boards entirely | The engine cannot reach authenticated/anti-bot boards by design (see `scraping.md`); a hand-checked source keeps them tracked with cadence in `config` (no migration) and the sweep only reminds — it never fetches. The cadence contract is published once (`GET /api/sources/manual-metadata`) and validated (1–365 → 422); clients must **merge** `config` on update so engine-managed `next_check_at`/`reminded_at` survive |
 
 ## Notes
 

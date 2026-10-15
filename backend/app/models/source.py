@@ -35,6 +35,12 @@ class Source(Base):
         nullable=False,
         default=SourceHealth.healthy,
     )
+    # User intent: "stop fetching this board and stop reminding me about it, but
+    # keep it listed so I remember why I avoid it" (ADR 019). A NULL
+    # ``avoided_at`` means the source is active; the timestamp doubles as the
+    # flag and as *avoided since*.
+    avoided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    avoid_reason: Mapped[str | None] = mapped_column(String(280), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

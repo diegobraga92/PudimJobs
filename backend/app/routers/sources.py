@@ -13,13 +13,14 @@ from app.audit import log_audit
 from app.auth import get_current_user
 from app.config import settings
 from app.database import get_db
-from app.models.enums import SourceAuthType
+from app.models.enums import SourceAuthType, SourceType
 from app.models.job import Job
 from app.models.source import Source
 from app.models.source_auth import SourceAuth
 from app.models.user import User
 from app.ratelimit import auth_key, limiter
 from app.schemas.source import (
+    SourceAvoidRequest,
     SourceCreate,
     SourceImportRequest,
     SourceImportResponse,
@@ -35,8 +36,16 @@ from app.services.secrets import encrypt_secret
 from app.services.source_auth import build_fetch_auth
 from app.services.source_config import (
     adapter_metadata,
+    manual_metadata,
     provider_metadata,
     validate_source_config,
+)
+from app.services.source_watchlist import (
+    advance_manual_check,
+    is_avoided,
+    is_due,
+    next_check_at,
+    set_avoided,
 )
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
@@ -64,12 +73,19 @@ async def _job_counts(db: AsyncSession, user: User) -> dict[uuid.UUID, int]:
 
 
 def _attach_counts(sources: list[Source], counts: dict[uuid.UUID, int]) -> list[SourceResponse]:
-    return [
-        SourceResponse.model_validate(source).model_copy(
-            update={"jobs_count": counts.get(source.id, 0)}
-        )
-        for source in sources
-    ]
+    return [_source_response(source, counts.get(source.id, 0)) for source in sources]
+
+
+def _source_response(source: Source, jobs_count: int) -> SourceResponse:
+    """Serialize a source, filling the derived manual-watchlist fields."""
+    return SourceResponse.model_validate(source).model_copy(
+        update={
+            "jobs_count": jobs_count,
+            "next_check_at": next_check_at(source),
+            "due": is_due(source),
+            "avoided": is_avoided(source),
+        }
+    )
 
 
 def _validate_config(source_type, config: dict | None) -> None:
@@ -109,6 +125,17 @@ async def list_adapters(
 ):
     """Aggregator adapter metadata, driving the form's adapter dropdown."""
     return adapter_metadata()
+
+
+@router.get("/manual-metadata")
+async def list_manual_metadata(
+    user: User = Depends(get_current_user),
+):
+    """``manual`` (watchlist) contract: cadence bounds, accepted keys, example.
+
+    Declared before ``/{source_id}`` so the literal path is not parsed as a UUID.
+    """
+    return manual_metadata()
 
 
 @router.post("/import", response_model=SourceImportResponse)
@@ -196,7 +223,7 @@ async def create_source(
     db.add(source)
     await db.commit()
     await db.refresh(source)
-    return source
+    return _source_response(source, 0)
 
 
 @router.get("/{source_id}", response_model=SourceResponse)
@@ -205,7 +232,9 @@ async def get_source(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return await get_owned_source(source_id, user, db)
+    source = await get_owned_source(source_id, user, db)
+    counts = await _job_counts(db, user)
+    return _source_response(source, counts.get(source.id, 0))
 
 
 @router.put("/{source_id}", response_model=SourceResponse)
@@ -222,11 +251,67 @@ async def update_source(
         effective_type = updates.get("type") or source.type
         effective_config = updates.get("config", source.config)
         _validate_config(effective_type, effective_config)
+    # The avoid flag is not a plain column write: it has semantics (ADR 019).
+    avoided = updates.pop("avoided", None)
+    avoid_reason_sent = "avoid_reason" in updates
+    avoid_reason = updates.pop("avoid_reason", None)
     for field, value in updates.items():
         setattr(source, field, value)
+    if avoided is not None:
+        set_avoided(source, avoided, avoid_reason)
+    elif avoid_reason_sent and is_avoided(source):
+        # Editing the reason of an already-avoided source.
+        set_avoided(source, True, avoid_reason)
     await db.commit()
     await db.refresh(source)
-    return source
+    counts = await _job_counts(db, user)
+    return _source_response(source, counts.get(source.id, 0))
+
+
+@router.post("/{source_id}/avoid", response_model=SourceResponse)
+async def set_source_avoided(
+    source_id: uuid.UUID,
+    payload: SourceAvoidRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Flag a source as *avoid*, or restore it (ADR 019).
+
+    An avoided source is never fetched and never reminded about, but it stays in
+    the list as a visible reminder with the optional reason attached. Works for
+    every source type and is idempotent: avoiding twice keeps the original
+    ``avoided_at``.
+    """
+    source = await get_owned_source(source_id, user, db)
+    set_avoided(source, payload.avoided, payload.reason)
+    await db.commit()
+    await db.refresh(source)
+    counts = await _job_counts(db, user)
+    return _source_response(source, counts.get(source.id, 0))
+
+
+@router.post("/{source_id}/check", response_model=SourceResponse)
+async def check_manual_source(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark a manual (watchlist) source as checked *by hand*.
+
+    Stamps ``last_scraped`` and schedules the next reminder; never fetches the
+    board. Only meaningful for ``manual`` sources.
+    """
+    source = await get_owned_source(source_id, user, db)
+    if source.type != SourceType.manual:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only manual sources can be marked as checked by hand",
+        )
+    advance_manual_check(source)
+    await db.commit()
+    await db.refresh(source)
+    counts = await _job_counts(db, user)
+    return _source_response(source, counts.get(source.id, 0))
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -386,6 +471,17 @@ async def _run_preview(
 ) -> SourcePreviewResponse:
     """Fetch + parse once and return a sample — without persisting anything."""
     from scrapers.registry import get_scraper
+
+    if str(source_type) == SourceType.manual.value:
+        # Manual sources are hand-checked: there is nothing to fetch, and the
+        # ManualScraper's fetch would raise. Report that clearly instead.
+        return SourcePreviewResponse(
+            fetched_url=url,
+            error=(
+                "manual source — the engine never fetches it; "
+                "open the board yourself to check it by hand"
+            ),
+        )
 
     try:
         scraper = get_scraper(SimpleNamespace(type=source_type, config=config), api_key)

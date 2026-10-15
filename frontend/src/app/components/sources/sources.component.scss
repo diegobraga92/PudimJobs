@@ -11,7 +11,8 @@
   }
 }
 
-.ethics-section {
+.ethics-section,
+.avoid-section {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -29,6 +30,25 @@
     font-weight: var(--font-weight-semibold);
     color: var(--color-text-secondary);
   }
+}
+
+/* Avoided rows stay legible on purpose: they are a reminder, not hidden data. */
+.table tbody tr.is-avoided {
+  opacity: 0.72;
+  background: var(--color-surface-muted);
+}
+
+.source-avoided-badge {
+  background: var(--color-border-strong);
+  color: var(--color-text-muted);
+}
+
+.avoid-reason {
+  margin-left: var(--space-1);
+}
+
+.list-toggle {
+  margin-bottom: var(--space-3);
 }
 
 .contract-hints {

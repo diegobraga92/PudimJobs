@@ -28,6 +28,16 @@ class SourceUpdate(BaseModel):
     config: dict | None = None
     rate_limit_seconds: int | None = Field(default=None, ge=0, le=86400)
     respect_robots_txt: bool | None = None
+    # Soft-avoid flag (ADR 019): stops fetching/reminders, keeps the source listed.
+    avoided: bool | None = None
+    avoid_reason: str | None = Field(default=None, max_length=280)
+
+
+class SourceAvoidRequest(BaseModel):
+    """Body of ``POST /api/sources/{id}/avoid`` (ADR 019)."""
+
+    avoided: bool
+    reason: str | None = Field(default=None, max_length=280)
 
 
 class SourceResponse(SourceBase):
@@ -38,6 +48,16 @@ class SourceResponse(SourceBase):
     last_scraped: datetime | None
     created_at: datetime
     jobs_count: int = 0
+    # Manual (watchlist) sources only: when the board is next due for a
+    # hand-check, and whether it is due right now. ``None``/``False`` for
+    # every other source type.
+    next_check_at: datetime | None = None
+    due: bool = False
+    # User intent (any source type): an avoided source is skipped by the sweeper
+    # and never reminded about, but stays visible as a reminder (ADR 019).
+    avoided: bool = False
+    avoided_at: datetime | None = None
+    avoid_reason: str | None = None
 
 
 class SourcePreviewJob(BaseModel):

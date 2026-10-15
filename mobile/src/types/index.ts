@@ -140,12 +140,27 @@ export interface Source {
   jobs_count?: number;
   rate_limit_seconds: number;
   respect_robots_txt: boolean;
+  /** Manual (watchlist) sources: when the board is next due for a hand-check. */
+  next_check_at?: string | null;
+  /** Manual (watchlist) sources: true when the board is due for a hand-check. */
+  due?: boolean;
+  /**
+   * Soft-avoid flag (any source type): an avoided source is never fetched and
+   * never reminded about, but stays listed as a visible reminder (ADR 019).
+   */
+  avoided?: boolean;
+  /** When the source was flagged as avoided (`null` while active). */
+  avoided_at?: string | null;
+  /** Optional "why" the user wrote when avoiding the source (max 280). */
+  avoid_reason?: string | null;
 }
 
 export type SourceInput = Pick<
   Source,
   'name' | 'url' | 'type' | 'rate_limit_seconds' | 'respect_robots_txt'
-> & { config?: Record<string, unknown> | null } & Partial<Pick<Source, 'id' | 'health'>>;
+> & { config?: Record<string, unknown> | null } & Partial<
+    Pick<Source, 'id' | 'health' | 'avoided' | 'avoided_at' | 'avoid_reason'>
+  >;
 
 export type SourceAuthType = 'none' | 'token' | 'api_key';
 
@@ -165,6 +180,19 @@ export interface DiscoveryProvider {
   name: string;
   family: string;
   requires_key: boolean;
+}
+
+/**
+ * Contract of `manual` (watchlist) sources, published by the API so the app does
+ * not hard-code the re-check cadence bounds; the API rejects anything outside
+ * them with a 422.
+ */
+export interface ManualMetadata {
+  type: string;
+  cadence_days: { default: number; min: number; max: number };
+  required_config: string[];
+  optional_config: string[];
+  example_config: Record<string, unknown>;
 }
 
 export interface AuthTestResult {

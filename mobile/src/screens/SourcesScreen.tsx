@@ -14,11 +14,14 @@ import { TextArea } from '@/components/ui/TextArea';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { useToast } from '@/components/toast/ToastProvider';
 import {
+  useCheckSource,
   useClearSourceAuth,
   useDeleteSource,
+  useManualMetadata,
   useProviders,
   useSaveSource,
   useSaveSourceAuth,
+  useSetSourceAvoided,
   useSourceAuth,
   useSources,
   useTestSourceAuth,
@@ -26,9 +29,18 @@ import {
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 import { Source, SourceInput } from '@/types';
-import { dateLocale, shortDate } from '@/utils/dates';
+import { dateLocale, daysUntil, shortDate } from '@/utils/dates';
 
-const SOURCE_TYPES = ['career_page', 'aggregator', 'rss', 'discovery'] as const;
+const SOURCE_TYPES = ['career_page', 'aggregator', 'rss', 'discovery', 'manual'] as const;
+
+/** i18n keys for the source-type dropdown (the values are snake_case). */
+const SOURCE_TYPE_KEYS: Record<string, string> = {
+  career_page: 'sources.type.careerPage',
+  aggregator: 'sources.type.aggregator',
+  rss: 'sources.type.rss',
+  discovery: 'sources.type.discovery',
+  manual: 'sources.type.manual',
+};
 
 interface SourceFormState {
   name: string;
@@ -36,6 +48,11 @@ interface SourceFormState {
   type: string;
   rate_limit_seconds: string;
   respect_robots_txt: boolean;
+  cadence_days: string;
+  notes: string;
+  /** Avoid flag (edits only): never scraped, never reminded — see ADR 019. */
+  avoided: boolean;
+  avoid_reason: string;
 }
 
 const EMPTY_FORM: SourceFormState = {
@@ -44,7 +61,14 @@ const EMPTY_FORM: SourceFormState = {
   type: 'career_page',
   rate_limit_seconds: '30',
   respect_robots_txt: true,
+  cadence_days: '7',
+  notes: '',
+  avoided: false,
+  avoid_reason: '',
 };
+
+/** Cadence bounds used until the API publishes them (see `manualMetadata`). */
+const FALLBACK_CADENCE = { default: 7, min: 1, max: 365 };
 
 /** Sources management — mirrors the web sources page (form, list, auth panel). */
 export function SourcesScreen() {
@@ -54,8 +78,13 @@ export function SourcesScreen() {
   const confirm = useConfirm();
   const { data: sources = [], isPending, error } = useSources();
   const { data: providers = [] } = useProviders();
+  const { data: manualMetadata } = useManualMetadata();
+  /** Cadence bounds come from the API so they are not duplicated here. */
+  const cadenceBounds = manualMetadata?.cadence_days ?? FALLBACK_CADENCE;
   const saveSource = useSaveSource();
   const deleteSource = useDeleteSource();
+  const checkSource = useCheckSource();
+  const setSourceAvoided = useSetSourceAvoided();
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -64,16 +93,24 @@ export function SourcesScreen() {
   const [configJson, setConfigJson] = useState('');
   const [discoveryProvider, setDiscoveryProvider] = useState('');
   const [authSource, setAuthSource] = useState<Source | null>(null);
+  /**
+   * `config` of the source being edited. Manual configs are merged with the form
+   * values on save because `PUT` replaces `config` wholesale and
+   * `next_check_at`/`reminded_at` are engine-managed — dropping them would make
+   * the sweep re-remind an already-checked source.
+   */
+  const [editingConfig, setEditingConfig] = useState<Record<string, unknown>>({});
 
   const update = <K extends keyof SourceFormState>(key: K, value: SourceFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
 
   const openCreate = () => {
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, cadence_days: String(cadenceBounds.default) });
     setAdapter('generic_html_list');
     setConfigJson('');
     setDiscoveryProvider('');
+    setEditingConfig({});
     setShowForm(true);
   };
 
@@ -85,7 +122,13 @@ export function SourcesScreen() {
       type: source.type,
       rate_limit_seconds: String(source.rate_limit_seconds ?? 30),
       respect_robots_txt: source.respect_robots_txt ?? true,
+      cadence_days: String(source.config?.['cadence_days'] ?? cadenceBounds.default),
+      notes: String(source.config?.['notes'] ?? ''),
+      avoided: source.avoided ?? false,
+      avoid_reason: source.avoid_reason ?? '',
     });
+    // Kept so a manual save can merge instead of replacing the whole config.
+    setEditingConfig({ ...(source.config ?? {}) });
     setAdapter((source.config?.['adapter'] as string) ?? 'generic_html_list');
     setDiscoveryProvider((source.config?.['provider'] as string) ?? '');
     const rest = { ...(source.config ?? {}) };
@@ -98,6 +141,7 @@ export function SourcesScreen() {
   const cancelForm = () => {
     setShowForm(false);
     setEditingId(null);
+    setEditingConfig({});
   };
 
   const save = () => {
@@ -111,6 +155,14 @@ export function SourcesScreen() {
     }
     const rate = Number(form.rate_limit_seconds);
     if (!Number.isFinite(rate) || rate < 0 || rate > 86400) {
+      toast.error(i18n.t('errors.failedSaveSource'));
+      return;
+    }
+    const cadence = Number(form.cadence_days);
+    if (
+      form.type === 'manual' &&
+      (!Number.isFinite(cadence) || cadence < cadenceBounds.min || cadence > cadenceBounds.max)
+    ) {
       toast.error(i18n.t('errors.failedSaveSource'));
       return;
     }
@@ -151,6 +203,27 @@ export function SourcesScreen() {
       config['provider'] = discoveryProvider;
       payload.config = config;
     }
+    if (form.type === 'manual') {
+      // Merge with what the source already carries: `next_check_at` and
+      // `reminded_at` are engine-managed and PUT replaces config wholesale, so
+      // dropping them would make the sweep re-remind a fresh source.
+      const config: Record<string, unknown> = { ...editingConfig, cadence_days: cadence };
+      const notes = form.notes.trim();
+      if (notes) {
+        config.notes = notes;
+      } else {
+        // Clearing the field removes the note rather than storing an empty one.
+        delete config.notes;
+      }
+      payload.config = config;
+    }
+    if (editingId) {
+      // The avoid flag is a statement, not a patch: sending the form's value is
+      // what restores an un-checked source. A brand-new source has nothing to
+      // avoid yet, and `POST /sources` has no such fields.
+      payload.avoided = form.avoided;
+      payload.avoid_reason = form.avoid_reason.trim();
+    }
     saveSource.mutate(
       { id: editingId ?? undefined, payload },
       {
@@ -182,6 +255,61 @@ export function SourcesScreen() {
       onSuccess: () => toast.success(i18n.t('sources.sourceDeleted')),
       onError: () => toast.error(i18n.t('errors.failedDeleteSource')),
     });
+  };
+
+  /** Marks a manual watchlist source as checked by hand; schedules the next reminder. */
+  const markChecked = (source: Source) => {
+    checkSource.mutate(source.id, {
+      onSuccess: () => toast.success(i18n.t('sources.checked')),
+      onError: () => toast.error(i18n.t('errors.failedCheckSource')),
+    });
+  };
+
+  /**
+   * Flags a source as avoided (never scraped, never reminded about) or restores
+   * it. One tap and no reason: "why" is edited in the form, and the API keeps an
+   * existing reason when none is sent.
+   */
+  const toggleAvoided = (source: Source) => {
+    const avoided = !source.avoided;
+    setSourceAvoided.mutate(
+      { id: source.id, avoided },
+      {
+        onSuccess: () =>
+          toast.success(i18n.t(avoided ? 'sources.sourceAvoided' : 'sources.sourceRestored')),
+        onError: () => toast.error(i18n.t('errors.failedAvoidSource')),
+      },
+    );
+  };
+
+  /**
+   * Avoided sources are listed last: they are a reminder of what to stay away
+   * from, not work to do. The API keeps returning them either way (ADR 019).
+   */
+  const sortedSources = [...sources].sort((a, b) => Number(!!a.avoided) - Number(!!b.avoided));
+
+  /**
+   * "Due in N days" / "Overdue by N days" for a manual source, or `''` when it
+   * has no schedule yet. Whole days, measured from `next_check_at`.
+   */
+  const dueText = (source: Source): string => {
+    const days = daysUntil(source.next_check_at);
+    if (days === null) {
+      return '';
+    }
+    if (days === 0) {
+      return i18n.t('sources.dueToday');
+    }
+    if (days === 1) {
+      return i18n.t('sources.dueInOneDay');
+    }
+    if (days > 1) {
+      return i18n.t('sources.dueInDays', { days });
+    }
+    if (days === -1) {
+      return i18n.t('sources.overdueByOneDay');
+    }
+    return i18n.t('sources.overdueByDays', { days: Math.abs(days) });
   };
 
   return (
@@ -231,7 +359,7 @@ export function SourcesScreen() {
             <Select
               value={form.type}
               options={SOURCE_TYPES.map((type) => ({
-                label: i18n.t(`sources.type.${type}`),
+                label: i18n.t(SOURCE_TYPE_KEYS[type] ?? type),
                 value: type,
               }))}
               onValueChange={(value) => update('type', value)}
@@ -285,6 +413,34 @@ export function SourcesScreen() {
             </FormField>
           ) : null}
 
+          {form.type === 'manual' ? (
+            <>
+              <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
+                {i18n.t('sources.manualHint')}
+              </Text>
+              <FormField label={i18n.t('sources.cadence')}>
+                <Input
+                  value={form.cadence_days}
+                  onChangeText={(value) => update('cadence_days', value)}
+                  keyboardType="number-pad"
+                />
+              </FormField>
+              <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
+                {i18n.t('sources.cadenceHint')}
+              </Text>
+              <FormField label={i18n.t('sources.notes')}>
+                <TextArea
+                  value={form.notes}
+                  onChangeText={(value) => update('notes', value)}
+                  minHeight={60}
+                />
+              </FormField>
+              <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
+                {i18n.t('sources.notesHint')}
+              </Text>
+            </>
+          ) : null}
+
           <View style={styles.row}>
             <FormField label={i18n.t('sources.rateLimit')} style={styles.rowField}>
               <Input
@@ -302,6 +458,37 @@ export function SourcesScreen() {
               </View>
             </FormField>
           </View>
+
+          {/* Only an existing source can be avoided: `POST /sources` has no flag. */}
+          {editingId ? (
+            <>
+              <FormField label={i18n.t('sources.avoidSource')}>
+                <View style={styles.switchWrap}>
+                  <Switch
+                    value={form.avoided}
+                    onValueChange={(value) => update('avoided', value)}
+                  />
+                </View>
+              </FormField>
+              <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
+                {i18n.t('sources.avoidSourceHint')}
+              </Text>
+              {form.avoided ? (
+                <>
+                  <FormField label={i18n.t('sources.avoidReason')}>
+                    <Input
+                      value={form.avoid_reason}
+                      onChangeText={(value) => update('avoid_reason', value)}
+                      maxLength={280}
+                    />
+                  </FormField>
+                  <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
+                    {i18n.t('sources.avoidReasonHint')}
+                  </Text>
+                </>
+              ) : null}
+            </>
+          ) : null}
 
           <View style={styles.formActions}>
             <Button variant="ghost" onPress={cancelForm}>
@@ -332,12 +519,14 @@ export function SourcesScreen() {
         />
       ) : null}
 
-      {sources.map((source) => (
+      {sortedSources.map((source) => (
         <View
           key={source.id}
           style={[
             styles.sourceCard,
             { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+            // Dimmed, still readable on purpose: avoided is a reminder, not a deletion.
+            source.avoided ? styles.avoidedCard : null,
           ]}
         >
           <View style={styles.sourceHead}>
@@ -350,25 +539,76 @@ export function SourcesScreen() {
                 {source.name}
               </Text>
             </Pressable>
-            <Badge variant={source.health === 'healthy' ? 'success' : 'danger'}>
-              {source.health}
-            </Badge>
+            <View style={styles.sourceBadges}>
+              {source.avoided ? (
+                <Badge variant="neutral">{i18n.t('sources.avoidedBadge')}</Badge>
+              ) : null}
+              {source.type === 'manual' && source.due ? (
+                <Badge variant="warning">{i18n.t('sources.due')}</Badge>
+              ) : null}
+              <Badge variant={source.health === 'healthy' ? 'success' : 'danger'}>
+                {source.health}
+              </Badge>
+            </View>
           </View>
 
           <Text style={[styles.metaText, { color: theme.colors.textMuted }]}>
-            {source.type} · {i18n.t('common.jobs')}: {source.jobs_count ?? '—'} ·{' '}
-            {i18n.t('sources.lastScraped')}:{' '}
+            {i18n.t(SOURCE_TYPE_KEYS[source.type] ?? source.type)} · {i18n.t('common.jobs')}:{' '}
+            {source.jobs_count ?? '—'} · {i18n.t('sources.lastScraped')}:{' '}
             {source.last_scraped ? shortDate(source.last_scraped, dateLocale(i18n.lang)) : '—'}
           </Text>
 
+          {source.avoided && source.avoid_reason ? (
+            <Text style={[styles.metaText, { color: theme.colors.textMuted }]} numberOfLines={2}>
+              {i18n.t('sources.avoidReasonLabel')}: {source.avoid_reason}
+            </Text>
+          ) : null}
+
+          {source.type === 'manual' && source.next_check_at ? (
+            <Text style={[styles.metaText, { color: theme.colors.textMuted }]}>
+              {i18n.t('sources.nextCheck')}:{' '}
+              {shortDate(source.next_check_at, dateLocale(i18n.lang))}
+              {dueText(source) ? ` — ${dueText(source)}` : ''}
+            </Text>
+          ) : null}
+
           <View style={styles.sourceActions}>
-            <Button variant="ghost" size="sm" onPress={() => setAuthSource(source)}>
-              <Icon name="settings" size={14} />
-              {i18n.t('common.auth')}
-            </Button>
+            {source.type === 'manual' ? (
+              <>
+                <Button variant="ghost" size="sm" onPress={() => void Linking.openURL(source.url)}>
+                  <Icon name="external-link" size={14} />
+                  {i18n.t('sources.openBoard')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => markChecked(source)}
+                  loading={checkSource.isPending}
+                >
+                  <Icon name="circle-check" size={14} />
+                  {i18n.t('sources.markChecked')}
+                </Button>
+              </>
+            ) : null}
+            {source.type !== 'manual' ? (
+              <Button variant="ghost" size="sm" onPress={() => setAuthSource(source)}>
+                <Icon name="settings" size={14} />
+                {i18n.t('common.auth')}
+              </Button>
+            ) : null}
             <Button variant="ghost" size="sm" onPress={() => openEdit(source)}>
               <Icon name="pencil" size={14} />
               {i18n.t('common.edit')}
+            </Button>
+            {/* Quick toggle; the reason itself is edited in the form. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => toggleAvoided(source)}
+              loading={setSourceAvoided.isPending}
+            >
+              <Icon name={source.avoided ? 'eye' : 'eye-off'} size={14} />
+              {i18n.t(source.avoided ? 'sources.restoreSource' : 'sources.avoidOnly')}
             </Button>
             <Button variant="danger" size="sm" onPress={() => void remove(source)}>
               <Icon name="trash" size={14} />
@@ -591,6 +831,10 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
+  /** Mirrors the web `.is-avoided` dimming — kept legible, just visually demoted. */
+  avoidedCard: {
+    opacity: 0.6,
+  },
   sourceHead: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -599,6 +843,11 @@ const styles = StyleSheet.create({
   },
   sourceNameWrap: {
     flex: 1,
+  },
+  sourceBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   sourceName: {
     fontSize: 15,

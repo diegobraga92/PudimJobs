@@ -19,8 +19,10 @@ the API's source model::
     ]
 
 Service ``type`` reasoning: ``discovery`` for ATS/JSON/search providers,
-``aggregator`` for selector-driven HTML boards, ``rss`` for feeds and
-``career_page`` for a single listing.
+``aggregator`` for selector-driven HTML boards, ``rss`` for feeds,
+``career_page`` for a single listing and ``manual`` for watchlist boards the
+engine cannot scrape (login-walled or JS-only), where ``config`` takes
+``cadence_days`` and free-form ``notes``.
 
 Credentials are never imported — set them per source afterwards with
 ``PUT /api/sources/{id}/auth``. Imports are idempotent (matched on ``url`` +
