@@ -13,6 +13,7 @@ import {
   PrepTasksService,
 } from '../../services/prep-tasks.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
+import { AppModalComponent } from '../../shared/modal/modal.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
@@ -23,7 +24,7 @@ const STATUSES: PrepStatus[] = ['pending', 'in_progress', 'done'];
 @Component({
   selector: 'app-prep-tasks',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, AppIconComponent],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, AppIconComponent, AppModalComponent],
   templateUrl: './prep-tasks.component.html',
   styleUrl: './prep-tasks.component.scss',
 })

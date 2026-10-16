@@ -14,405 +14,407 @@
 }
 
 @if (showForm) {
-  <form class="panel form" [formGroup]="sourceForm" (ngSubmit)="save()">
-    <h3>{{ editingId ? i18n.t('sources.editSource') : i18n.t('sources.addSource') }}</h3>
-
-    <div class="form-field">
-      <label for="source-name">{{ i18n.t('common.name') }}</label>
-      <input id="source-name" class="input" formControlName="name" placeholder="Acme Careers" />
-    </div>
-
-    <div class="form-field">
-      <label for="source-url">{{ i18n.t('common.url') }}</label>
-      <input
-        id="source-url"
-        class="input"
-        formControlName="url"
-        placeholder="https://acme.example/careers"
-      />
-    </div>
-
-    <div class="form-field">
-      <label for="source-type">{{ i18n.t('common.type') }}</label>
-      <select id="source-type" class="select" formControlName="type">
-        <option value="career_page">{{ i18n.t('sources.type.careerPage') }}</option>
-        <option value="aggregator">{{ i18n.t('sources.type.aggregator') }}</option>
-        <option value="rss">{{ i18n.t('sources.type.rss') }}</option>
-        <option value="discovery">{{ i18n.t('sources.type.discovery') }}</option>
-        <option value="manual">{{ i18n.t('sources.type.manual') }}</option>
-      </select>
-    </div>
-
-    @if (sourceForm.get('type')?.value === 'manual') {
-      <p class="muted xs">
-        {{ i18n.t('sources.manualHint') }}
-      </p>
-
+  <app-modal
+    [title]="editingId ? i18n.t('sources.editSource') : i18n.t('sources.addSource')"
+    size="lg"
+    (closed)="cancelForm()"
+  >
+    <form class="form" [formGroup]="sourceForm" (ngSubmit)="save()">
       <div class="form-field">
-        <label for="source-cadence">{{ i18n.t('sources.cadence') }}</label>
+        <label for="source-name">{{ i18n.t('common.name') }}</label>
+        <input id="source-name" class="input" formControlName="name" placeholder="Acme Careers" />
+      </div>
+  
+      <div class="form-field">
+        <label for="source-url">{{ i18n.t('common.url') }}</label>
         <input
-          id="source-cadence"
+          id="source-url"
           class="input"
-          type="number"
-          [min]="cadenceMin"
-          [max]="cadenceMax"
-          [(ngModel)]="cadenceDays"
-          [ngModelOptions]="{ standalone: true }"
+          formControlName="url"
+          placeholder="https://acme.example/careers"
         />
-        <p class="muted xs">
-          {{ i18n.t('sources.cadenceHint') }}
-        </p>
       </div>
-
+  
       <div class="form-field">
-        <label for="source-notes">{{ i18n.t('sources.notes') }}</label>
-        <textarea
-          id="source-notes"
-          class="input"
-          rows="2"
-          [(ngModel)]="notes"
-          [ngModelOptions]="{ standalone: true }"
-        ></textarea>
+        <label for="source-type">{{ i18n.t('common.type') }}</label>
+        <select id="source-type" class="select" formControlName="type">
+          <option value="career_page">{{ i18n.t('sources.type.careerPage') }}</option>
+          <option value="aggregator">{{ i18n.t('sources.type.aggregator') }}</option>
+          <option value="rss">{{ i18n.t('sources.type.rss') }}</option>
+          <option value="discovery">{{ i18n.t('sources.type.discovery') }}</option>
+          <option value="manual">{{ i18n.t('sources.type.manual') }}</option>
+        </select>
+      </div>
+  
+      @if (sourceForm.get('type')?.value === 'manual') {
         <p class="muted xs">
-          {{ i18n.t('sources.notesHint') }}
+          {{ i18n.t('sources.manualHint') }}
         </p>
-      </div>
-    }
-
-    @if (sourceForm.get('type')?.value === 'aggregator') {
-      <div class="form-field">
-        <label for="source-adapter">{{ i18n.t('sources.adapter') }}</label>
-        @if (adaptersLoading) {
-          <span class="muted">{{ i18n.t('sources.loadingAdapters') }}</span>
-        } @else {
-          <select
-            id="source-adapter"
-            class="select"
-            [(ngModel)]="adapter"
-            [ngModelOptions]="{ standalone: true }"
-          >
-            @for (item of adapters; track item.name) {
-              <option [value]="item.name">{{ item.name }}</option>
-            }
-          </select>
-        }
-        @if (selectedAdapter?.description) {
-          <p class="muted xs">{{ selectedAdapter?.description }}</p>
-        }
-      </div>
-
-      <div class="form-field">
-        <label for="source-config">{{ i18n.t('sources.adapterConfig') }}</label>
-        <textarea
-          id="source-config"
-          class="textarea"
-          [(ngModel)]="configJson"
-          [ngModelOptions]="{ standalone: true }"
-          rows="6"
-          placeholder='{ "item_selector": "li.job", "title_selector": "h2", "url_selector": "a", "next_page_selector": "a.next", "max_pages": 3 }'
-        ></textarea>
-        <p class="muted xs">
-          {{ i18n.t('sources.adapterHintPrefix') }}
-          <code>max_pages</code> {{ i18n.t('sources.adapterHintSuffix') }}
-          <code>next_page_tpl</code> {{ i18n.t('sources.adapterHintTpl') }}
-          <code>url_tpl</code> {{ i18n.t('sources.adapterHintUrlTpl') }}
-        </p>
-      </div>
-    }
-
-    @if (sourceForm.get('type')?.value === 'discovery') {
-      <div class="form-field">
-        <label for="source-provider">{{ i18n.t('sources.provider') }}</label>
-        @if (providersLoading) {
-          <span class="muted">{{ i18n.t('sources.loadingProviders') }}</span>
-        } @else {
-          <select
-            id="source-provider"
-            class="select"
-            [(ngModel)]="discoveryProvider"
-            [ngModelOptions]="{ standalone: true }"
-          >
-            <option value="" disabled>{{ i18n.t('sources.chooseProviderOption') }}</option>
-            @for (provider of providers; track provider.name) {
-              <option [value]="provider.name">
-                {{ provider.name }}@if (provider.requires_key) { · {{ i18n.t('sources.apiKeyBadge') }} }
-              </option>
-            }
-          </select>
-        }
-        <p class="muted xs">
-          {{ i18n.t('sources.discoveryHint') }}
-        </p>
-      </div>
-
-      @if (selectedProvider?.requires_key) {
-        <p class="muted xs">
-          {{ i18n.t('sources.needsApiKeyPrefix') }}
-          <strong>{{ i18n.t('common.auth') }}</strong> {{ i18n.t('sources.needsApiKeyMiddle') }}
-          <em>{{ i18n.t('common.apiKey') }}</em> {{ i18n.t('sources.needsApiKeySuffix') }}
-        </p>
-      }
-
-      <div class="form-field">
-        <label for="source-discovery-config">{{ i18n.t('sources.providerConfig') }}</label>
-        <textarea
-          id="source-discovery-config"
-          class="textarea"
-          [(ngModel)]="configJson"
-          [ngModelOptions]="{ standalone: true }"
-          rows="6"
-          placeholder='{ "query": "site:ashby.com Python Remote Brazil", "cx": "your-cse-id", "max_results": 20 }'
-        ></textarea>
-        <p class="muted xs">
-          {{ i18n.t('sources.providerConfigHint') }}
-        </p>
-      </div>
-    }
-
-    @if (
-      sourceForm.get('type')?.value === 'aggregator' ||
-      sourceForm.get('type')?.value === 'discovery'
-    ) {
-      <div class="contract-hints">
-        @if (requiredKeys.length) {
-          <p class="muted xs">
-            {{ i18n.t('sources.requiredConfig') }}:
-            <code>{{ requiredKeys.join(', ') }}</code>
-          </p>
-        }
-        @for (group of requiredAnyKeys; track $index) {
-          <p class="muted xs">
-            {{ i18n.t('sources.requiredConfig') }}:
-            <code>{{ group.join(' or ') }}</code>
-          </p>
-        }
-        @if (optionalKeys.length) {
-          <p class="muted xs">
-            {{ i18n.t('sources.optionalConfig') }}:
-            <code>{{ optionalKeys.join(', ') }}</code>
-          </p>
-        }
-        @if (hasExampleConfig) {
-          <button type="button" class="btn btn-ghost btn-sm" (click)="applyExampleConfig()">
-            <app-icon name="file-text" [size]="14" />
-            {{ i18n.t('sources.useExampleConfig') }}
-          </button>
-        }
-      </div>
-    }
-
-    <div class="ethics-section">
-      <h4>
-        <app-icon name="shield-check" [size]="14" />
-        {{ i18n.t('sources.scrapingEthics') }}
-      </h4>
-
-      <div class="form-field">
-        <label for="source-rate-limit">{{ i18n.t('sources.rateLimit') }}</label>
-        <input
-          id="source-rate-limit"
-          class="input"
-          type="number"
-          min="0"
-          max="86400"
-          formControlName="rate_limit_seconds"
-        />
-        <p class="muted xs">
-          {{ i18n.t('sources.rateLimitHint') }}
-        </p>
-      </div>
-
-      <div class="form-field">
-        <label class="checkbox-row">
-          <input type="checkbox" formControlName="respect_robots_txt" />
-          {{ i18n.t('sources.respectRobots') }}
-        </label>
-        <p class="muted xs">
-          {{ i18n.t('sources.respectRobotsHint') }}
-        </p>
-      </div>
-    </div>
-
-    @if (editingId) {
-      <div class="avoid-section">
-        <label class="checkbox-row">
+  
+        <div class="form-field">
+          <label for="source-cadence">{{ i18n.t('sources.cadence') }}</label>
           <input
-            type="checkbox"
-            [(ngModel)]="avoidSource"
+            id="source-cadence"
+            class="input"
+            type="number"
+            [min]="cadenceMin"
+            [max]="cadenceMax"
+            [(ngModel)]="cadenceDays"
             [ngModelOptions]="{ standalone: true }"
           />
-          {{ i18n.t('sources.avoidSource') }}
-        </label>
-        <p class="muted xs">
-          {{ i18n.t('sources.avoidSourceHint') }}
-        </p>
-
-        @if (avoidSource) {
-          <div class="form-field">
-            <label for="source-avoid-reason">{{ i18n.t('sources.avoidReason') }}</label>
+          <p class="muted xs">
+            {{ i18n.t('sources.cadenceHint') }}
+          </p>
+        </div>
+  
+        <div class="form-field">
+          <label for="source-notes">{{ i18n.t('sources.notes') }}</label>
+          <textarea
+            id="source-notes"
+            class="input"
+            rows="2"
+            [(ngModel)]="notes"
+            [ngModelOptions]="{ standalone: true }"
+          ></textarea>
+          <p class="muted xs">
+            {{ i18n.t('sources.notesHint') }}
+          </p>
+        </div>
+      }
+  
+      @if (sourceForm.get('type')?.value === 'aggregator') {
+        <div class="form-field">
+          <label for="source-adapter">{{ i18n.t('sources.adapter') }}</label>
+          @if (adaptersLoading) {
+            <span class="muted">{{ i18n.t('sources.loadingAdapters') }}</span>
+          } @else {
+            <select
+              id="source-adapter"
+              class="select"
+              [(ngModel)]="adapter"
+              [ngModelOptions]="{ standalone: true }"
+            >
+              @for (item of adapters; track item.name) {
+                <option [value]="item.name">{{ item.name }}</option>
+              }
+            </select>
+          }
+          @if (selectedAdapter?.description) {
+            <p class="muted xs">{{ selectedAdapter?.description }}</p>
+          }
+        </div>
+  
+        <div class="form-field">
+          <label for="source-config">{{ i18n.t('sources.adapterConfig') }}</label>
+          <textarea
+            id="source-config"
+            class="textarea"
+            [(ngModel)]="configJson"
+            [ngModelOptions]="{ standalone: true }"
+            rows="6"
+            placeholder='{ "item_selector": "li.job", "title_selector": "h2", "url_selector": "a", "next_page_selector": "a.next", "max_pages": 3 }'
+          ></textarea>
+          <p class="muted xs">
+            {{ i18n.t('sources.adapterHintPrefix') }}
+            <code>max_pages</code> {{ i18n.t('sources.adapterHintSuffix') }}
+            <code>next_page_tpl</code> {{ i18n.t('sources.adapterHintTpl') }}
+            <code>url_tpl</code> {{ i18n.t('sources.adapterHintUrlTpl') }}
+          </p>
+        </div>
+      }
+  
+      @if (sourceForm.get('type')?.value === 'discovery') {
+        <div class="form-field">
+          <label for="source-provider">{{ i18n.t('sources.provider') }}</label>
+          @if (providersLoading) {
+            <span class="muted">{{ i18n.t('sources.loadingProviders') }}</span>
+          } @else {
+            <select
+              id="source-provider"
+              class="select"
+              [(ngModel)]="discoveryProvider"
+              [ngModelOptions]="{ standalone: true }"
+            >
+              <option value="" disabled>{{ i18n.t('sources.chooseProviderOption') }}</option>
+              @for (provider of providers; track provider.name) {
+                <option [value]="provider.name">
+                  {{ provider.name }}@if (provider.requires_key) { · {{ i18n.t('sources.apiKeyBadge') }} }
+                </option>
+              }
+            </select>
+          }
+          <p class="muted xs">
+            {{ i18n.t('sources.discoveryHint') }}
+          </p>
+        </div>
+  
+        @if (selectedProvider?.requires_key) {
+          <p class="muted xs">
+            {{ i18n.t('sources.needsApiKeyPrefix') }}
+            <strong>{{ i18n.t('common.auth') }}</strong> {{ i18n.t('sources.needsApiKeyMiddle') }}
+            <em>{{ i18n.t('common.apiKey') }}</em> {{ i18n.t('sources.needsApiKeySuffix') }}
+          </p>
+        }
+  
+        <div class="form-field">
+          <label for="source-discovery-config">{{ i18n.t('sources.providerConfig') }}</label>
+          <textarea
+            id="source-discovery-config"
+            class="textarea"
+            [(ngModel)]="configJson"
+            [ngModelOptions]="{ standalone: true }"
+            rows="6"
+            placeholder='{ "query": "site:ashby.com Python Remote Brazil", "cx": "your-cse-id", "max_results": 20 }'
+          ></textarea>
+          <p class="muted xs">
+            {{ i18n.t('sources.providerConfigHint') }}
+          </p>
+        </div>
+      }
+  
+      @if (
+        sourceForm.get('type')?.value === 'aggregator' ||
+        sourceForm.get('type')?.value === 'discovery'
+      ) {
+        <div class="contract-hints">
+          @if (requiredKeys.length) {
+            <p class="muted xs">
+              {{ i18n.t('sources.requiredConfig') }}:
+              <code>{{ requiredKeys.join(', ') }}</code>
+            </p>
+          }
+          @for (group of requiredAnyKeys; track $index) {
+            <p class="muted xs">
+              {{ i18n.t('sources.requiredConfig') }}:
+              <code>{{ group.join(' or ') }}</code>
+            </p>
+          }
+          @if (optionalKeys.length) {
+            <p class="muted xs">
+              {{ i18n.t('sources.optionalConfig') }}:
+              <code>{{ optionalKeys.join(', ') }}</code>
+            </p>
+          }
+          @if (hasExampleConfig) {
+            <button type="button" class="btn btn-ghost btn-sm" (click)="applyExampleConfig()">
+              <app-icon name="file-text" [size]="14" />
+              {{ i18n.t('sources.useExampleConfig') }}
+            </button>
+          }
+        </div>
+      }
+  
+      <div class="ethics-section">
+        <h4>
+          <app-icon name="shield-check" [size]="14" />
+          {{ i18n.t('sources.scrapingEthics') }}
+        </h4>
+  
+        <div class="form-field">
+          <label for="source-rate-limit">{{ i18n.t('sources.rateLimit') }}</label>
+          <input
+            id="source-rate-limit"
+            class="input"
+            type="number"
+            min="0"
+            max="86400"
+            formControlName="rate_limit_seconds"
+          />
+          <p class="muted xs">
+            {{ i18n.t('sources.rateLimitHint') }}
+          </p>
+        </div>
+  
+        <div class="form-field">
+          <label class="checkbox-row">
+            <input type="checkbox" formControlName="respect_robots_txt" />
+            {{ i18n.t('sources.respectRobots') }}
+          </label>
+          <p class="muted xs">
+            {{ i18n.t('sources.respectRobotsHint') }}
+          </p>
+        </div>
+      </div>
+  
+      @if (editingId) {
+        <div class="avoid-section">
+          <label class="checkbox-row">
             <input
-              id="source-avoid-reason"
-              class="input"
-              maxlength="280"
-              [(ngModel)]="avoidReason"
+              type="checkbox"
+              [(ngModel)]="avoidSource"
               [ngModelOptions]="{ standalone: true }"
             />
-            <p class="muted xs">
-              {{ i18n.t('sources.avoidReasonHint') }}
-            </p>
-          </div>
-        }
-      </div>
-    }
-
-    @if (sourceForm.get('type')?.value !== 'manual') {
-      <div class="preview-section">
-        <div class="preview-actions">
-          <button type="button" class="btn btn-ghost" [disabled]="previewing" (click)="preview()">
-            <app-icon name="list-filter" [size]="14" />
-            {{ previewing ? i18n.t('sources.previewing') : i18n.t('sources.preview') }}
-          </button>
-          <span class="muted xs">{{ i18n.t('sources.previewHint') }}</span>
+            {{ i18n.t('sources.avoidSource') }}
+          </label>
+          <p class="muted xs">
+            {{ i18n.t('sources.avoidSourceHint') }}
+          </p>
+  
+          @if (avoidSource) {
+            <div class="form-field">
+              <label for="source-avoid-reason">{{ i18n.t('sources.avoidReason') }}</label>
+              <input
+                id="source-avoid-reason"
+                class="input"
+                maxlength="280"
+                [(ngModel)]="avoidReason"
+                [ngModelOptions]="{ standalone: true }"
+              />
+              <p class="muted xs">
+                {{ i18n.t('sources.avoidReasonHint') }}
+              </p>
+            </div>
+          }
         </div>
-
-        @if (previewResult) {
-          @if (previewResult.error) {
-            <p class="muted xs">
-              {{ i18n.t('sources.previewError', { error: previewResult.error }) }}
-            </p>
-          } @else {
-            <p class="muted xs">
-              {{
-                i18n.t('sources.previewSummary', {
-                  status: previewResult.status_code ?? '—',
-                  count: previewResult.jobs_found
-                })
-              }}
-              @if (previewResult.truncated) {
-                · {{ i18n.t('sources.previewTruncated') }}
-              }
-            </p>
-            @if (previewResult.sample_jobs.length) {
-              <ul class="preview-jobs">
-                @for (job of previewResult.sample_jobs; track $index) {
-                  <li>
-                    <strong>{{ job.title }}</strong>
-                    <span class="muted"> · {{ job.company }}</span>
-                    @if (job.posted_date) {
-                      <span class="muted"> · {{ job.posted_date }}</span>
-                    }
-                  </li>
+      }
+  
+      @if (sourceForm.get('type')?.value !== 'manual') {
+        <div class="preview-section">
+          <div class="preview-actions">
+            <button type="button" class="btn btn-ghost" [disabled]="previewing" (click)="preview()">
+              <app-icon name="list-filter" [size]="14" />
+              {{ previewing ? i18n.t('sources.previewing') : i18n.t('sources.preview') }}
+            </button>
+            <span class="muted xs">{{ i18n.t('sources.previewHint') }}</span>
+          </div>
+  
+          @if (previewResult) {
+            @if (previewResult.error) {
+              <p class="muted xs">
+                {{ i18n.t('sources.previewError', { error: previewResult.error }) }}
+              </p>
+            } @else {
+              <p class="muted xs">
+                {{
+                  i18n.t('sources.previewSummary', {
+                    status: previewResult.status_code ?? '—',
+                    count: previewResult.jobs_found
+                  })
+                }}
+                @if (previewResult.truncated) {
+                  · {{ i18n.t('sources.previewTruncated') }}
                 }
-              </ul>
+              </p>
+              @if (previewResult.sample_jobs.length) {
+                <ul class="preview-jobs">
+                  @for (job of previewResult.sample_jobs; track $index) {
+                    <li>
+                      <strong>{{ job.title }}</strong>
+                      <span class="muted"> · {{ job.company }}</span>
+                      @if (job.posted_date) {
+                        <span class="muted"> · {{ job.posted_date }}</span>
+                      }
+                    </li>
+                  }
+                </ul>
+              }
             }
           }
-        }
+        </div>
+      }
+  
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
+        <button type="submit" class="btn btn-primary" [disabled]="sourceForm.invalid">
+          {{ editingId ? i18n.t('sources.saveChanges') : i18n.t('sources.addSource') }}
+        </button>
       </div>
-    }
-
-    <div class="form-actions">
-      <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
-      <button type="submit" class="btn btn-primary" [disabled]="sourceForm.invalid">
-        {{ editingId ? i18n.t('sources.saveChanges') : i18n.t('sources.addSource') }}
-      </button>
-    </div>
-  </form>
+    </form>
+  </app-modal>
 }
 
 @if (authSource) {
-  <form class="panel form" (ngSubmit)="saveAuth()">
-    <div style="display: flex; justify-content: space-between; align-items: center">
-      <h3>{{ i18n.t('sources.authenticationTitle', { name: authSource.name }) }}</h3>
-      <button type="button" class="btn btn-ghost btn-sm" (click)="closeAuth()">
-        <app-icon name="x" [size]="14" />
-        {{ i18n.t('common.close') }}
-      </button>
-    </div>
-
-    <p class="muted">
-      {{ i18n.t('sources.authIntro') }}
-    </p>
-
-    <div class="form-field">
-      <label for="auth-type">{{ i18n.t('sources.authType') }}</label>
-      <select id="auth-type" class="select" [(ngModel)]="authType" name="authType">
-        <option value="none">{{ i18n.t('sources.authNone') }}</option>
-        <option value="token">{{ i18n.t('sources.authToken') }}</option>
-        <option value="api_key">{{ i18n.t('sources.authApiKey') }}</option>
-      </select>
-    </div>
-
-    @if (authType === 'token') {
-      <div class="form-field">
-        <label for="auth-token">{{ i18n.t('sources.authToken') }}</label>
-        <input
-          id="auth-token"
-          class="input"
-          type="password"
-          [(ngModel)]="authToken"
-          name="authToken"
-          autocomplete="off"
-          [placeholder]="i18n.t('sources.authTokenPlaceholder')"
-        />
-      </div>
-    }
-
-    @if (authType === 'api_key') {
-      <div class="form-field">
-        <label for="auth-api-key">{{ i18n.t('sources.authApiKey') }}</label>
-        <input
-          id="auth-api-key"
-          class="input"
-          type="password"
-          [(ngModel)]="authApiKey"
-          name="authApiKey"
-          autocomplete="off"
-          [placeholder]="i18n.t('sources.authApiKeyPlaceholder')"
-        />
-        <p class="muted xs">
-          {{ i18n.t('sources.authApiKeyHint') }}
-        </p>
-      </div>
-    }
-
-    @if (authCurrent?.has_auth && authType !== 'none') {
-      <p class="muted xs">
-        {{ i18n.t('sources.storedCredentialsPrefix', { type: authCurrent?.auth_type ?? '' }) }}{{ authCurrent?.updated_at | date: 'short' }}{{ i18n.t('sources.storedCredentialsSuffix') }}
+  <app-modal
+    [title]="i18n.t('sources.authenticationTitle', { name: authSource.name })"
+    size="lg"
+    (closed)="closeAuth()"
+  >
+    <form class="form" (ngSubmit)="saveAuth()">
+      <p class="muted">
+        {{ i18n.t('sources.authIntro') }}
       </p>
-    }
-
-    @if (authTestResult) {
-      <div
-        class="alert"
-        [class.alert-success]="authTestResult.ok"
-        [class.alert-error]="!authTestResult.ok"
-      >
-        @if (authTestResult.ok) {
-          {{ i18n.t('sources.connectionOk', { status: authTestResult.status_code }) }}
-        } @else {
-          {{ authTestResult.error || i18n.t('sources.connectionFailed') }}
-        }
+  
+      <div class="form-field">
+        <label for="auth-type">{{ i18n.t('sources.authType') }}</label>
+        <select id="auth-type" class="select" [(ngModel)]="authType" name="authType">
+          <option value="none">{{ i18n.t('sources.authNone') }}</option>
+          <option value="token">{{ i18n.t('sources.authToken') }}</option>
+          <option value="api_key">{{ i18n.t('sources.authApiKey') }}</option>
+        </select>
       </div>
-    }
-
-    <div class="form-actions">
-      @if (authCurrent?.has_auth) {
-        <button type="button" class="btn btn-danger" (click)="clearAuth()">{{ i18n.t('sources.clearAuth') }}</button>
+  
+      @if (authType === 'token') {
+        <div class="form-field">
+          <label for="auth-token">{{ i18n.t('sources.authToken') }}</label>
+          <input
+            id="auth-token"
+            class="input"
+            type="password"
+            [(ngModel)]="authToken"
+            name="authToken"
+            autocomplete="off"
+            [placeholder]="i18n.t('sources.authTokenPlaceholder')"
+          />
+        </div>
       }
-      <button
-        type="button"
-        class="btn btn-ghost"
-        (click)="testAuth()"
-        [disabled]="authTesting || !authCurrent?.has_auth"
-      >
-        <app-icon name="activity" [size]="14" />
-        {{ authTesting ? i18n.t('sources.testing') : i18n.t('sources.testConnection') }}
-      </button>
-      <button type="submit" class="btn btn-primary" [disabled]="authSaving">
-        {{ authSaving ? i18n.t('sources.saving') : i18n.t('common.save') }}
-      </button>
-    </div>
-  </form>
+  
+      @if (authType === 'api_key') {
+        <div class="form-field">
+          <label for="auth-api-key">{{ i18n.t('sources.authApiKey') }}</label>
+          <input
+            id="auth-api-key"
+            class="input"
+            type="password"
+            [(ngModel)]="authApiKey"
+            name="authApiKey"
+            autocomplete="off"
+            [placeholder]="i18n.t('sources.authApiKeyPlaceholder')"
+          />
+          <p class="muted xs">
+            {{ i18n.t('sources.authApiKeyHint') }}
+          </p>
+        </div>
+      }
+  
+      @if (authCurrent?.has_auth && authType !== 'none') {
+        <p class="muted xs">
+          {{ i18n.t('sources.storedCredentialsPrefix', { type: authCurrent?.auth_type ?? '' }) }}{{ authCurrent?.updated_at | date: 'short' }}{{ i18n.t('sources.storedCredentialsSuffix') }}
+        </p>
+      }
+  
+      @if (authTestResult) {
+        <div
+          class="alert"
+          [class.alert-success]="authTestResult.ok"
+          [class.alert-error]="!authTestResult.ok"
+        >
+          @if (authTestResult.ok) {
+            {{ i18n.t('sources.connectionOk', { status: authTestResult.status_code }) }}
+          } @else {
+            {{ authTestResult.error || i18n.t('sources.connectionFailed') }}
+          }
+        </div>
+      }
+  
+      <div class="form-actions">
+        @if (authCurrent?.has_auth) {
+          <button type="button" class="btn btn-danger" (click)="clearAuth()">{{ i18n.t('sources.clearAuth') }}</button>
+        }
+        <button
+          type="button"
+          class="btn btn-ghost"
+          (click)="testAuth()"
+          [disabled]="authTesting || !authCurrent?.has_auth"
+        >
+          <app-icon name="activity" [size]="14" />
+          {{ authTesting ? i18n.t('sources.testing') : i18n.t('sources.testConnection') }}
+        </button>
+        <button type="submit" class="btn btn-primary" [disabled]="authSaving">
+          {{ authSaving ? i18n.t('sources.saving') : i18n.t('common.save') }}
+        </button>
+      </div>
+    </form>
+  </app-modal>
 }
 
 @if (loading) {

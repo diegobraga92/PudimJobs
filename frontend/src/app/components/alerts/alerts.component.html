@@ -14,87 +14,91 @@
 }
 
 @if (showForm) {
-  <form class="panel form" [formGroup]="alertForm" (ngSubmit)="save()">
-    <h3>{{ editingId ? i18n.t('alerts.editAlert') : i18n.t('alerts.newAlert') }}</h3>
-
-    <div class="form-field">
-      <label for="alert-name">{{ i18n.t('common.name') }}</label>
-      <input id="alert-name" class="input" formControlName="name" placeholder="Senior Python jobs" />
-    </div>
-
-    <div class="grid-2">
+  <app-modal
+    [title]="editingId ? i18n.t('alerts.editAlert') : i18n.t('alerts.newAlert')"
+    size="lg"
+    (closed)="cancelForm()"
+  >
+    <form class="form" [formGroup]="alertForm" (ngSubmit)="save()">
       <div class="form-field">
-        <label for="alert-keywords">{{ i18n.t('alerts.keywords') }}</label>
+        <label for="alert-name">{{ i18n.t('common.name') }}</label>
+        <input id="alert-name" class="input" formControlName="name" placeholder="Senior Python jobs" />
+      </div>
+  
+      <div class="grid-2">
+        <div class="form-field">
+          <label for="alert-keywords">{{ i18n.t('alerts.keywords') }}</label>
+          <input
+            id="alert-keywords"
+            class="input"
+            formControlName="keywordsText"
+            placeholder="python, fastapi"
+          />
+        </div>
+        <div class="form-field">
+          <label for="alert-companies">{{ i18n.t('alerts.companies') }}</label>
+          <input
+            id="alert-companies"
+            class="input"
+            formControlName="companiesText"
+            placeholder="Acme, Globex"
+          />
+        </div>
+      </div>
+  
+      <div class="grid-2">
+        <div class="form-field">
+          <label for="alert-tags">{{ i18n.t('alerts.tags') }}</label>
+          <input
+            id="alert-tags"
+            class="input"
+            formControlName="tagsText"
+            placeholder="backend, remote"
+          />
+        </div>
+        <div class="form-field">
+          <label for="alert-min-years">{{ i18n.t('alerts.minYears') }}</label>
+          <input
+            id="alert-min-years"
+            class="input"
+            formControlName="min_years_experience"
+            type="number"
+            min="0"
+            max="50"
+          />
+        </div>
+      </div>
+  
+      <div class="form-field">
+        <label for="alert-channels">{{ i18n.t('alerts.channels') }}</label>
         <input
-          id="alert-keywords"
+          id="alert-channels"
           class="input"
-          formControlName="keywordsText"
-          placeholder="python, fastapi"
+          [value]="channelsText"
+          (input)="channelsText = $any($event.target).value"
+          placeholder="in_app, email"
         />
       </div>
+  
       <div class="form-field">
-        <label for="alert-companies">{{ i18n.t('alerts.companies') }}</label>
-        <input
-          id="alert-companies"
-          class="input"
-          formControlName="companiesText"
-          placeholder="Acme, Globex"
-        />
+        <label class="checkbox-row">
+          <input formControlName="remote_only" type="checkbox" />
+          {{ i18n.t('alerts.remoteOnly') }}
+        </label>
+        <label class="checkbox-row">
+          <input formControlName="active" type="checkbox" />
+          {{ i18n.t('alerts.active') }}
+        </label>
       </div>
-    </div>
-
-    <div class="grid-2">
-      <div class="form-field">
-        <label for="alert-tags">{{ i18n.t('alerts.tags') }}</label>
-        <input
-          id="alert-tags"
-          class="input"
-          formControlName="tagsText"
-          placeholder="backend, remote"
-        />
+  
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
+        <button type="submit" class="btn btn-primary" [disabled]="alertForm.invalid">
+          {{ editingId ? i18n.t('alerts.saveChanges') : i18n.t('alerts.createAlert') }}
+        </button>
       </div>
-      <div class="form-field">
-        <label for="alert-min-years">{{ i18n.t('alerts.minYears') }}</label>
-        <input
-          id="alert-min-years"
-          class="input"
-          formControlName="min_years_experience"
-          type="number"
-          min="0"
-          max="50"
-        />
-      </div>
-    </div>
-
-    <div class="form-field">
-      <label for="alert-channels">{{ i18n.t('alerts.channels') }}</label>
-      <input
-        id="alert-channels"
-        class="input"
-        [value]="channelsText"
-        (input)="channelsText = $any($event.target).value"
-        placeholder="in_app, email"
-      />
-    </div>
-
-    <div class="form-field">
-      <label class="checkbox-row">
-        <input formControlName="remote_only" type="checkbox" />
-        {{ i18n.t('alerts.remoteOnly') }}
-      </label>
-      <label class="checkbox-row">
-        <input formControlName="active" type="checkbox" />
-        {{ i18n.t('alerts.active') }}
-      </label>
-    </div>
-
-    <div class="form-actions">
-      <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
-      <button type="submit" class="btn btn-primary" [disabled]="alertForm.invalid">
-        {{ editingId ? i18n.t('alerts.saveChanges') : i18n.t('alerts.createAlert') }}
-      </button>
-    </div>
-  </form>
+    </form>
+  </app-modal>
 }
 
 @if (loading) {

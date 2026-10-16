@@ -92,69 +92,73 @@
 </form>
 
 @if (showForm) {
-  <form
-    class="panel form"
-    [formGroup]="jobForm"
-    (ngSubmit)="save()"
-    [attr.aria-label]="i18n.t('jobs.addJobManually')"
+  <app-modal
+    [title]="i18n.t('jobs.addJobManually')"
+    size="lg"
+    (closed)="cancelForm()"
   >
-    <h3>{{ i18n.t('jobs.addJobManually') }}</h3>
-
-    <div class="form-field">
-      <label for="job-title">{{ i18n.t('common.title') }}</label>
-      <input
-        id="job-title"
-        class="input"
-        formControlName="title"
-        [placeholder]="i18n.t('jobs.titlePlaceholder')"
-      />
-    </div>
-
-    <div class="form-field">
-      <label for="job-company">{{ i18n.t('common.company') }}</label>
-      <input id="job-company" class="input" formControlName="company" placeholder="Acme" />
-    </div>
-
-    <div class="form-field">
-      <label for="job-url">{{ i18n.t('common.url') }}</label>
-      <input
-        id="job-url"
-        class="input"
-        formControlName="url"
-        placeholder="https://acme.example/jobs/1"
-      />
-    </div>
-
-    <div class="grid-2">
+    <form
+      class="form"
+      [formGroup]="jobForm"
+      (ngSubmit)="save()"
+      [attr.aria-label]="i18n.t('jobs.addJobManually')"
+    >
       <div class="form-field">
-        <label for="job-posted-date">{{ i18n.t('jobs.postedDate') }}</label>
-        <input id="job-posted-date" class="input" formControlName="posted_date" type="date" />
+        <label for="job-title">{{ i18n.t('common.title') }}</label>
+        <input
+          id="job-title"
+          class="input"
+          formControlName="title"
+          [placeholder]="i18n.t('jobs.titlePlaceholder')"
+        />
       </div>
-
+  
       <div class="form-field">
-        <label for="job-tags">{{ i18n.t('common.tags') }}</label>
-        <input id="job-tags" class="input" formControlName="tags" placeholder="python, fastapi" />
+        <label for="job-company">{{ i18n.t('common.company') }}</label>
+        <input id="job-company" class="input" formControlName="company" placeholder="Acme" />
       </div>
-    </div>
-
-    <div class="form-field">
-      <label for="job-description">{{ i18n.t('common.description') }}</label>
-      <textarea
-        id="job-description"
-        class="textarea"
-        formControlName="description"
-        rows="4"
-        [placeholder]="i18n.t('jobs.descriptionPlaceholder')"
-      ></textarea>
-    </div>
-
-    <div class="form-actions">
-      <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
-      <button type="submit" class="btn btn-primary" [disabled]="jobForm.invalid">
-        {{ i18n.t('jobs.addJob') }}
-      </button>
-    </div>
-  </form>
+  
+      <div class="form-field">
+        <label for="job-url">{{ i18n.t('common.url') }}</label>
+        <input
+          id="job-url"
+          class="input"
+          formControlName="url"
+          placeholder="https://acme.example/jobs/1"
+        />
+      </div>
+  
+      <div class="grid-2">
+        <div class="form-field">
+          <label for="job-posted-date">{{ i18n.t('jobs.postedDate') }}</label>
+          <input id="job-posted-date" class="input" formControlName="posted_date" type="date" />
+        </div>
+  
+        <div class="form-field">
+          <label for="job-tags">{{ i18n.t('common.tags') }}</label>
+          <input id="job-tags" class="input" formControlName="tags" placeholder="python, fastapi" />
+        </div>
+      </div>
+  
+      <div class="form-field">
+        <label for="job-description">{{ i18n.t('common.description') }}</label>
+        <textarea
+          id="job-description"
+          class="textarea"
+          formControlName="description"
+          rows="4"
+          [placeholder]="i18n.t('jobs.descriptionPlaceholder')"
+        ></textarea>
+      </div>
+  
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
+        <button type="submit" class="btn btn-primary" [disabled]="jobForm.invalid">
+          {{ i18n.t('jobs.addJob') }}
+        </button>
+      </div>
+    </form>
+  </app-modal>
 }
 
 @if (!onboardingDismissed && !loading && jobs.length === 0) {

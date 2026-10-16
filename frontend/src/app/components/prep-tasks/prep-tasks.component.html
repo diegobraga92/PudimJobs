@@ -17,80 +17,84 @@
 }
 
 @if (showForm) {
-  <form class="panel form" [formGroup]="taskForm" (ngSubmit)="save()">
-    <h3>{{ editingId ? i18n.t('prepTasks.editTask') : i18n.t('prepTasks.newTask') }}</h3>
-
-    <div class="form-field">
-      <label for="prep-title">{{ i18n.t('prepTasks.taskTitle') }}</label>
-      <input
-        id="prep-title"
-        class="input"
-        formControlName="title"
-        [placeholder]="i18n.t('prepTasks.titlePlaceholder')"
-      />
-    </div>
-
-    <div class="grid-2">
+  <app-modal
+    [title]="editingId ? i18n.t('prepTasks.editTask') : i18n.t('prepTasks.newTask')"
+    size="lg"
+    (closed)="cancelForm()"
+  >
+    <form class="form" [formGroup]="taskForm" (ngSubmit)="save()">
       <div class="form-field">
-        <label for="prep-category">{{ i18n.t('prepTasks.categoryLabel') }}</label>
-        <select id="prep-category" class="select" formControlName="category">
-          @for (category of categories; track category) {
-            <option [value]="category">{{ categoryLabel(category) }}</option>
+        <label for="prep-title">{{ i18n.t('prepTasks.taskTitle') }}</label>
+        <input
+          id="prep-title"
+          class="input"
+          formControlName="title"
+          [placeholder]="i18n.t('prepTasks.titlePlaceholder')"
+        />
+      </div>
+  
+      <div class="grid-2">
+        <div class="form-field">
+          <label for="prep-category">{{ i18n.t('prepTasks.categoryLabel') }}</label>
+          <select id="prep-category" class="select" formControlName="category">
+            @for (category of categories; track category) {
+              <option [value]="category">{{ categoryLabel(category) }}</option>
+            }
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="prep-status">{{ i18n.t('prepTasks.statusLabel') }}</label>
+          <select id="prep-status" class="select" formControlName="status">
+            @for (status of statuses; track status) {
+              <option [value]="status">{{ statusLabel(status) }}</option>
+            }
+          </select>
+        </div>
+      </div>
+  
+      <div class="grid-2">
+        <div class="form-field">
+          <label for="prep-due">{{ i18n.t('prepTasks.dueDate') }}</label>
+          <input id="prep-due" class="input" type="date" formControlName="due_date" />
+        </div>
+        <div class="form-field">
+          <label for="prep-job">{{ i18n.t('prepTasks.job') }}</label>
+          <select id="prep-job" class="select" formControlName="job_id">
+            <option value="">{{ i18n.t('prepTasks.noJob') }}</option>
+            @for (job of jobs; track job.id) {
+              <option [value]="job.id">{{ job.title }} — {{ job.company }}</option>
+            }
+          </select>
+        </div>
+      </div>
+  
+      <div class="form-field">
+        <label for="prep-application">{{ i18n.t('prepTasks.application') }}</label>
+        <select id="prep-application" class="select" formControlName="application_id">
+          <option value="">{{ i18n.t('prepTasks.noApplication') }}</option>
+          @for (application of applications; track application.id) {
+            <option [value]="application.id">
+              {{ application.job_title }} — {{ application.job_company }}
+            </option>
           }
         </select>
       </div>
+  
       <div class="form-field">
-        <label for="prep-status">{{ i18n.t('prepTasks.statusLabel') }}</label>
-        <select id="prep-status" class="select" formControlName="status">
-          @for (status of statuses; track status) {
-            <option [value]="status">{{ statusLabel(status) }}</option>
-          }
-        </select>
+        <label for="prep-notes">{{ i18n.t('prepTasks.notes') }}</label>
+        <textarea id="prep-notes" class="textarea" rows="3" formControlName="notes"></textarea>
       </div>
-    </div>
-
-    <div class="grid-2">
-      <div class="form-field">
-        <label for="prep-due">{{ i18n.t('prepTasks.dueDate') }}</label>
-        <input id="prep-due" class="input" type="date" formControlName="due_date" />
+  
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" (click)="cancelForm()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button type="submit" class="btn btn-primary" [disabled]="taskForm.invalid">
+          {{ editingId ? i18n.t('prepTasks.saveChanges') : i18n.t('prepTasks.createTask') }}
+        </button>
       </div>
-      <div class="form-field">
-        <label for="prep-job">{{ i18n.t('prepTasks.job') }}</label>
-        <select id="prep-job" class="select" formControlName="job_id">
-          <option value="">{{ i18n.t('prepTasks.noJob') }}</option>
-          @for (job of jobs; track job.id) {
-            <option [value]="job.id">{{ job.title }} — {{ job.company }}</option>
-          }
-        </select>
-      </div>
-    </div>
-
-    <div class="form-field">
-      <label for="prep-application">{{ i18n.t('prepTasks.application') }}</label>
-      <select id="prep-application" class="select" formControlName="application_id">
-        <option value="">{{ i18n.t('prepTasks.noApplication') }}</option>
-        @for (application of applications; track application.id) {
-          <option [value]="application.id">
-            {{ application.job_title }} — {{ application.job_company }}
-          </option>
-        }
-      </select>
-    </div>
-
-    <div class="form-field">
-      <label for="prep-notes">{{ i18n.t('prepTasks.notes') }}</label>
-      <textarea id="prep-notes" class="textarea" rows="3" formControlName="notes"></textarea>
-    </div>
-
-    <div class="form-actions">
-      <button type="button" class="btn btn-ghost" (click)="cancelForm()">
-        {{ i18n.t('common.cancel') }}
-      </button>
-      <button type="submit" class="btn btn-primary" [disabled]="taskForm.invalid">
-        {{ editingId ? i18n.t('prepTasks.saveChanges') : i18n.t('prepTasks.createTask') }}
-      </button>
-    </div>
-  </form>
+    </form>
+  </app-modal>
 }
 
 <div class="filters panel">

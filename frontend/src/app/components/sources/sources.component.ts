@@ -16,6 +16,7 @@ import {
   SourcesService,
 } from '../../services/sources.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
+import { AppModalComponent } from '../../shared/modal/modal.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
@@ -38,7 +39,7 @@ export type SourceQuickFilter = '' | 'manual' | 'unhealthy' | 'due' | 'avoided';
 @Component({
   selector: 'app-sources',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, FormsModule, AppIconComponent],
+  imports: [CommonModule, ReactiveFormsModule, FormsModule, AppIconComponent, AppModalComponent],
   templateUrl: './sources.component.html',
   styleUrl: './sources.component.scss',
 })

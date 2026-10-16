@@ -6,6 +6,7 @@ import { Router } from '@angular/router';
 import { JobFilters, JobInput, JobSummary, JobsService } from '../../services/jobs.service';
 import { ApplicationsService } from '../../services/applications.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
+import { AppModalComponent } from '../../shared/modal/modal.component';
 import { OnboardingComponent } from '../../shared/onboarding/onboarding.component';
 import { pipelineBadgeClass, pipelineLabelFor } from '../../shared/pipeline';
 import { ToastService } from '../../shared/toast/toast.service';
@@ -16,7 +17,7 @@ const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
 @Component({
   selector: 'app-jobs',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, AppIconComponent, OnboardingComponent],
+  imports: [CommonModule, ReactiveFormsModule, AppIconComponent, OnboardingComponent, AppModalComponent],
   templateUrl: './jobs.component.html',
   styleUrl: './jobs.component.scss',
 })

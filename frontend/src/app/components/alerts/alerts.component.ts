@@ -4,6 +4,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { AlertRule, AlertRuleInput, AlertsService } from '../../services/alerts.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
+import { AppModalComponent } from '../../shared/modal/modal.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
@@ -11,7 +12,7 @@ import { I18nService } from '../../services/i18n.service';
 @Component({
   selector: 'app-alerts',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, AppIconComponent],
+  imports: [CommonModule, ReactiveFormsModule, AppIconComponent, AppModalComponent],
   templateUrl: './alerts.component.html',
   styleUrl: './alerts.component.scss',
 })

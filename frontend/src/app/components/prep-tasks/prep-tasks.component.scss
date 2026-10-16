@@ -5,17 +5,11 @@
   flex-wrap: wrap;
 }
 
+/* Hosted inside <app-modal>, which already constrains the width and spacing. */
 .form {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
-
-  h3 {
-    margin: 0;
-    font-size: var(--text-lg);
-    color: var(--color-primary);
-  }
 }
 
 .filters {
