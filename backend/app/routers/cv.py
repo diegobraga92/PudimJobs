@@ -27,17 +27,25 @@ from app.ratelimit import auth_key, limiter
 from app.schemas.ats import AtsScoreRequest, AtsScoreResponse
 from app.schemas.generated_cv import GeneratedCVResponse, GeneratedCVUpdate
 from app.schemas.master_cv import (
+    CVExportCapabilities,
     CVStructure,
     MasterCVCreate,
     MasterCVResponse,
     MasterCVUpdate,
 )
 from app.services.ats_scorer import derive_keywords, score_ats
+from app.services.cv_labels import (
+    DEFAULT_LANGUAGE,
+    EXPORT_LANGUAGES,
+    is_export_language,
+    labels_for,
+)
 from app.services.cv_parser import CVParsingError, parse_cv_file
 from app.services.cv_tailor import TailoredCV
+from app.services.cv_translator import translate_cv_structure
 from app.services.docx_generator import generate_docx
 from app.services.jd_parser import parse_jd
-from app.services.llm_config import get_llm_config
+from app.services.llm_config import get_llm_config, llm_variant_wanted
 from app.services.pdf_generator import DEFAULT_TEMPLATE, TEMPLATES, generate_pdf
 
 logger = structlog.get_logger(__name__)
@@ -71,25 +79,75 @@ def _validate_export_format(fmt: str) -> str:
     return fmt
 
 
+def _validate_export_language(language: str) -> str:
+    """Reject an unknown export language the same way an unknown template is."""
+    if not is_export_language(language):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown language {language!r}; use one of {list(EXPORT_LANGUAGES)}",
+        )
+    return language
+
+
+async def _localized_structure(
+    structure: dict, *, language: str, db: AsyncSession
+) -> dict:
+    """Return ``structure`` ready to render in ``language`` (ADR 024).
+
+    English is the stored language, so it is passed straight through. Any other
+    language is translated on demand by the LLM; when the LLM is not usable the
+    request fails with 409 rather than shipping a half-translated CV, and a failed
+    translation is a 502 because the cause is upstream.
+    """
+    if language == DEFAULT_LANGUAGE:
+        return structure
+    config = await get_llm_config(db)
+    if not llm_variant_wanted(config):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"A CV can only be exported in {language} with the LLM enabled "
+                "(Admin -> LLM, with an API key)"
+            ),
+        )
+    translated = await translate_cv_structure(
+        structure, target_language=language, config=config
+    )
+    if translated is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"The CV could not be translated into {language}; try again in a moment",
+        )
+    return translated
+
+
 def _render_export(
     tailored: TailoredCV,
     *,
     fmt: str,
     template: str,
+    language: str,
     name: str,
     email: str,
 ) -> bytes:
-    """Render one CV structure in the requested download format."""
+    """Render one CV structure in the requested download format and language."""
+    labels = labels_for(language)
     if fmt == "docx":
         # A single plain layout: the classic/ATS split is a PDF-styling concern.
-        return generate_docx(tailored, name=name, email=email)
-    return generate_pdf(tailored, name=name, email=email, template=template)
+        return generate_docx(tailored, name=name, email=email, labels=labels)
+    return generate_pdf(tailored, name=name, email=email, template=template, labels=labels)
 
 
-def _export_filename(fmt: str, template: str) -> str:
+def _language_suffix(language: str) -> str:
+    """``""`` for the default language, ``-pt-br`` otherwise (never clobber a file)."""
+    return "" if language == DEFAULT_LANGUAGE else f"-{language.lower()}"
+
+
+def _export_filename(fmt: str, template: str, language: str = DEFAULT_LANGUAGE) -> str:
+    suffix = _language_suffix(language)
     if fmt == "docx":
-        return "cv.docx"
-    return "cv-ats.pdf" if template == "ats" else "cv.pdf"
+        return f"cv{suffix}.docx"
+    return ("cv-ats" if template == "ats" else "cv") + f"{suffix}.pdf"
 
 
 async def get_owned_cv(cv_id: uuid.UUID, user: User, db: AsyncSession) -> MasterCV:
@@ -158,6 +216,25 @@ async def get_current(
             status_code=status.HTTP_404_NOT_FOUND, detail="No CV version exists yet"
         )
     return cv
+
+
+@router.get("/capabilities", response_model=CVExportCapabilities)
+async def get_capabilities(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """What the export endpoints can produce right now (ADR 024).
+
+    The client has no other way to know whether the LLM is on: the only settings
+    endpoint is admin-only, and offering a language the server will refuse with
+    409 is a worse experience than not offering it.
+    """
+    config = await get_llm_config(db)
+    return CVExportCapabilities(
+        llm_enabled=llm_variant_wanted(config),
+        export_languages=list(EXPORT_LANGUAGES),
+        default_language=DEFAULT_LANGUAGE,
+    )
 
 
 @router.post("/parse", response_model=CVStructure)
@@ -318,17 +395,22 @@ async def update_generated_cv(
 async def get_generated_pdf(
     generated_id: uuid.UUID,
     format: str = "pdf",
+    language: str = DEFAULT_LANGUAGE,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Download a generated tailored CV as PDF (default) or DOCX.
+    """Download a generated tailored CV as PDF (default) or DOCX, in `language`.
 
     The stored PDF is served as bytes; DOCX is rendered on demand from the
     artifact's own ``structured_json``, so the editable copy always reflects the
     latest edit without a second stored binary (ADR 017). The path keeps its
     ``/pdf`` name for the clients that already call it — ``format`` is additive.
+
+    A non-default ``language`` is translated on demand from that same structure
+    and always rendered fresh, since the stored PDF is English (ADR 024).
     """
     _validate_export_format(format)
+    _validate_export_language(language)
     result = await db.execute(
         select(GeneratedCV).where(GeneratedCV.id == generated_id, GeneratedCV.user_id == user.id)
     )
@@ -336,28 +418,34 @@ async def get_generated_pdf(
     if generated is None:
         raise HTTPException(status_code=404, detail="Generated CV not found")
 
-    if format == "pdf":
+    if format == "pdf" and language == DEFAULT_LANGUAGE:
         content = generated.pdf
     else:
         if not generated.structured_json:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="This tailored CV has no stored structure to export as DOCX",
+                detail=(
+                    "This tailored CV has no stored structure to export as "
+                    f"{format.upper()}"
+                ),
             )
-        content = generate_docx(
-            TailoredCV.from_structure(generated.structured_json),
-            name=_account_name(user.email),
-            email=user.email,
-        )
+        structure = await _localized_structure(generated.structured_json, language=language, db=db)
+        tailored = TailoredCV.from_structure(structure)
+        labels = labels_for(language)
+        if format == "docx":
+            content = generate_docx(
+                tailored, name=_account_name(user.email), email=user.email, labels=labels
+            )
+        else:
+            content = generate_pdf(
+                tailored, name=_account_name(user.email), email=user.email, labels=labels
+            )
 
+    filename = f"tailored-cv-{generated.id}{_language_suffix(language)}.{format}"
     return Response(
         content=content,
         media_type=EXPORT_FORMATS[format],
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="tailored-cv-{generated.id}.{format}"'
-            )
-        },
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -385,12 +473,16 @@ async def export_cv(
     payload: CVStructure,
     template: str = DEFAULT_TEMPLATE,
     format: str = "pdf",
+    language: str = DEFAULT_LANGUAGE,
+    db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Render an (optionally edited) CV structure to a downloadable PDF or DOCX.
 
     The path keeps its ``/pdf`` name for the clients that already call it; the
-    ``format`` query parameter (``pdf``, the default, or ``docx``) is additive.
+    ``format`` (``pdf``, the default, or ``docx``) and ``language`` (``en``, the
+    default, or ``pt-BR``, translated on demand — ADR 024) query parameters are
+    additive.
     """
     if template not in TEMPLATES:
         raise HTTPException(
@@ -398,13 +490,16 @@ async def export_cv(
             detail=f"Unknown template {template!r}; use one of {sorted(TEMPLATES)}",
         )
     _validate_export_format(format)
+    _validate_export_language(language)
+    structure = await _localized_structure(payload.model_dump(), language=language, db=db)
     # `from_structure` rather than copying fields one by one: the hand-rolled
     # version dropped the LLM variant's labelled `skill_groups`, so an export
     # disagreed with the stored artifact it was made from.
     content = _render_export(
-        TailoredCV.from_structure(payload.model_dump()),
+        TailoredCV.from_structure(structure),
         fmt=format,
         template=template,
+        language=language,
         name=_account_name(user.email),
         email=user.email,
     )
@@ -412,7 +507,9 @@ async def export_cv(
         content=content,
         media_type=EXPORT_FORMATS[format],
         headers={
-            "Content-Disposition": f'attachment; filename="{_export_filename(format, template)}"'
+            "Content-Disposition": (
+                f'attachment; filename="{_export_filename(format, template, language)}"'
+            )
         },
     )
 

@@ -3,8 +3,16 @@ import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 
-import { JobFilters, JobInput, JobSummary, JobsService } from '../../services/jobs.service';
+import {
+  JobCleanupRequest,
+  JobCleanupResult,
+  JobFilters,
+  JobInput,
+  JobSummary,
+  JobsService,
+} from '../../services/jobs.service';
 import { ApplicationsService } from '../../services/applications.service';
+import { Source, SourcesService } from '../../services/sources.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { AppModalComponent } from '../../shared/modal/modal.component';
 import { OnboardingComponent } from '../../shared/onboarding/onboarding.component';
@@ -45,10 +53,18 @@ export class JobsComponent implements OnInit {
   /** When on, soft-hidden (dismissed) jobs are included so they can be restored. */
   showHidden = false;
 
+  /** Bulk cleanup dialog (ADR 023): the form, the last preview and its sources. */
+  showCleanup = false;
+  cleanupForm;
+  cleanupPreview: JobCleanupResult | null = null;
+  cleanupRunning = false;
+  cleanupSources: Source[] = [];
+
   constructor(
     private fb: FormBuilder,
     private service: JobsService,
     private applications: ApplicationsService,
+    private sourcesService: SourcesService,
     private router: Router,
     private toast: ToastService,
     readonly i18n: I18nService
@@ -67,6 +83,11 @@ export class JobsComponent implements OnInit {
       posted_date: [''],
       tags: [''],
       description: [''],
+    });
+    this.cleanupForm = this.fb.group({
+      older_than_days: [90],
+      source_id: [''],
+      include_with_applications: [false],
     });
   }
 
@@ -246,6 +267,101 @@ export class JobsComponent implements OnInit {
 
   open(id: string): void {
     this.router.navigate(['/jobs', id]);
+  }
+
+  /**
+   * Open the bulk cleanup dialog. Nothing is deleted until the user previews
+   * (`dry_run`) and then confirms; see ADR 023.
+   */
+  openCleanup(): void {
+    this.cleanupForm.reset({
+      older_than_days: 90,
+      source_id: '',
+      include_with_applications: false,
+    });
+    this.cleanupPreview = null;
+    this.showCleanup = true;
+    if (this.cleanupSources.length === 0) {
+      this.sourcesService.list().subscribe({
+        next: (sources) => (this.cleanupSources = sources),
+        error: () => undefined,
+      });
+    }
+  }
+
+  closeCleanup(): void {
+    this.showCleanup = false;
+    this.cleanupPreview = null;
+  }
+
+  /** True only when the last preview would actually remove something. */
+  get cleanupHasDeletions(): boolean {
+    return (
+      !!this.cleanupPreview && this.cleanupPreview.matched > this.cleanupPreview.protected
+    );
+  }
+
+  /** Ask the API what a real run would delete, without deleting anything. */
+  previewCleanup(): void {
+    const payload = this.cleanupPayload(true);
+    if (!payload) {
+      return;
+    }
+    this.cleanupRunning = true;
+    this.service.cleanup(payload).subscribe({
+      next: (result) => {
+        this.cleanupPreview = result;
+        this.cleanupRunning = false;
+      },
+      error: () => {
+        this.cleanupRunning = false;
+        this.toast.error(this.i18n.t('errors.failedCleanupJobs'));
+      },
+    });
+  }
+
+  /** Delete the jobs the preview matched. */
+  runCleanup(): void {
+    const payload = this.cleanupPayload(false);
+    if (!payload) {
+      return;
+    }
+    this.cleanupRunning = true;
+    this.service.cleanup(payload).subscribe({
+      next: (result) => {
+        this.cleanupRunning = false;
+        this.showCleanup = false;
+        this.cleanupPreview = null;
+        this.toast.success(this.i18n.t('jobs.cleanup.done', { count: result.deleted }));
+        this.search();
+        this.loadPipeline();
+      },
+      error: () => {
+        this.cleanupRunning = false;
+        this.toast.error(this.i18n.t('errors.failedCleanupJobs'));
+      },
+    });
+  }
+
+  /** The two criteria are optional individually but an empty pair is refused. */
+  private cleanupPayload(dryRun: boolean): JobCleanupRequest | null {
+    const value = this.cleanupForm.value as {
+      older_than_days: number | string | null;
+      source_id: string;
+      include_with_applications: boolean;
+    };
+    const days = value.older_than_days ? Number(value.older_than_days) : null;
+    const sourceId = value.source_id || null;
+    if (!days && !sourceId) {
+      this.toast.error(this.i18n.t('jobs.cleanup.needCriteria'));
+      return null;
+    }
+    return {
+      older_than_days: days,
+      source_id: sourceId,
+      include_with_applications: value.include_with_applications ?? false,
+      dry_run: dryRun,
+    };
   }
 
   private parseTags(input: string): string[] {

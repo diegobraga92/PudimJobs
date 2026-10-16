@@ -1,11 +1,13 @@
 import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Subscription, interval } from 'rxjs';
 
 import {
   AtsReport,
   CVStructure,
   CvExportFormat,
+  CvLanguage,
   CvService,
   CvVariant,
   GeneratedCV,
@@ -380,21 +382,27 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
 
   /**
    * Download a tailored CV. The default is the stored PDF; `docx` asks the API
-   * for an editable Word copy rendered from the same content (ADR 017).
+   * for an editable Word copy rendered from the same content (ADR 017), and a
+   * non-default `language` asks for a fresh, LLM-translated render (ADR 024).
    */
-  downloadCv(item: GeneratedCV, format: CvExportFormat = 'pdf'): void {
-    this.service.downloadCv(item.id, format).subscribe({
+  downloadCv(item: GeneratedCV, format: CvExportFormat = 'pdf', language: CvLanguage = 'en'): void {
+    this.service.downloadCv(item.id, format, language).subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `tailored-cv-${item.id}.${format}`;
+        const suffix = language === 'en' ? '' : `-${language.toLowerCase()}`;
+        anchor.download = `tailored-cv-${item.id}${suffix}.${format}`;
         anchor.click();
         URL.revokeObjectURL(url);
       },
-      error: () =>
+      error: (response: HttpErrorResponse) =>
         (this.error = this.i18n.t(
-          format === 'docx' ? 'errors.failedDownloadDocx' : 'errors.failedDownloadPdf'
+          language !== 'en' && (response.status === 409 || response.status === 502)
+            ? 'errors.failedTranslateCv'
+            : format === 'docx'
+              ? 'errors.failedDownloadDocx'
+              : 'errors.failedDownloadPdf',
         )),
     });
   }

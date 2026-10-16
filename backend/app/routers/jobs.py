@@ -1,11 +1,12 @@
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import ARRAY, String, cast, func, select
+from sqlalchemy import ARRAY, String, cast, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audit import log_audit
 from app.auth import get_current_user
 from app.broker import enqueue_parse_jd, enqueue_tailor
 from app.config import settings
@@ -18,7 +19,14 @@ from app.models.user import User
 from app.ratelimit import auth_key, limiter
 from app.schemas.generated_cv import TailorRequest, TailorResponse
 from app.schemas.jd import ParsedJDResponse
-from app.schemas.job import JobCreate, JobResponse, JobSummary, JobUpdate
+from app.schemas.job import (
+    JobCleanupRequest,
+    JobCleanupResponse,
+    JobCreate,
+    JobResponse,
+    JobSummary,
+    JobUpdate,
+)
 from app.services.llm_config import get_llm_config, llm_variant_wanted
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -53,6 +61,7 @@ async def list_jobs(
     date_from: date | None = None,
     date_to: date | None = None,
     tags: str | None = None,
+    source_id: uuid.UUID | None = None,
     include_hidden: bool = False,
     hide_applied: bool = False,
     db: AsyncSession = Depends(get_db),
@@ -101,6 +110,8 @@ async def list_jobs(
         if tag_list:
             # JSONB `?|` requires a text[] operand; cast the Python list explicitly.
             stmt = stmt.where(Job.tags.op("?|")(cast(tag_list, ARRAY(String))))
+    if source_id is not None:
+        stmt = stmt.where(Job.source_id == source_id)
 
     if has_keyword:
         stmt = stmt.order_by(func.ts_rank(Job.search_vector, query).desc(), Job.created_at.desc())
@@ -115,6 +126,79 @@ async def list_jobs(
             for job, score in result.all()
         ]
     return result.scalars().all()
+
+
+@router.post("/cleanup", response_model=JobCleanupResponse)
+@limiter.limit(settings.rate_limit_api, key_func=auth_key)
+async def cleanup_jobs(
+    request: Request,
+    payload: JobCleanupRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Bulk-delete jobs older than N days and/or belonging to one source (ADR 023).
+
+    ``dry_run`` (the default) only counts, so the client can show what a real run
+    would remove before committing to it. Jobs that are already in the pipeline
+    are spared unless ``include_with_applications`` is set, because deleting a job
+    cascades its application away (``applications.job_id`` is ON DELETE CASCADE).
+    """
+    if payload.older_than_days is None and payload.source_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide older_than_days and/or source_id to select jobs",
+        )
+    # The source must belong to the caller; this also blocks an arbitrary UUID.
+    await validate_source(payload.source_id, user, db)
+
+    criteria = [Job.user_id == user.id]
+    if payload.older_than_days is not None:
+        cutoff = datetime.now(UTC) - timedelta(days=payload.older_than_days)
+        criteria.append(Job.created_at < cutoff)
+    if payload.source_id is not None:
+        criteria.append(Job.source_id == payload.source_id)
+
+    in_pipeline = (
+        select(Application.id)
+        .where(Application.job_id == Job.id, Application.user_id == user.id)
+        .exists()
+    )
+
+    matched = await db.scalar(select(func.count(Job.id)).where(*criteria)) or 0
+    protected = 0
+    if not payload.include_with_applications:
+        protected = await db.scalar(select(func.count(Job.id)).where(*criteria, in_pipeline)) or 0
+
+    if payload.dry_run:
+        return JobCleanupResponse(
+            matched=matched, deleted=0, protected=protected, dry_run=True
+        )
+
+    statement = delete(Job).where(*criteria)
+    if not payload.include_with_applications:
+        statement = statement.where(~in_pipeline)
+    result = await db.execute(statement)
+    deleted = result.rowcount or 0
+    await db.commit()
+
+    await log_audit(
+        db,
+        user_id=user.id,
+        action="bulk_deleted",
+        entity_type="job",
+        changes={
+            "older_than_days": payload.older_than_days,
+            "source_id": str(payload.source_id) if payload.source_id else None,
+            "include_with_applications": payload.include_with_applications,
+            "matched": matched,
+            "deleted": deleted,
+            "protected": protected,
+        },
+    )
+    await db.commit()
+    return JobCleanupResponse(
+        matched=matched, deleted=deleted, protected=protected, dry_run=False
+    )
 
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)

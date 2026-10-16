@@ -114,6 +114,16 @@
           <app-icon name="download" [size]="14" />
           {{ i18n.t('cv.docx') }}
         </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          [attr.title]="i18n.t('cv.exportPtBrHint')"
+          [attr.aria-label]="i18n.t('cv.exportPtBrHint')"
+          (click)="downloadCv(selected, 'pdf', 'pt-BR')"
+        >
+          <app-icon name="download" [size]="14" />
+          {{ i18n.t('cv.exportPtBr') }}
+        </button>
         @if (applicationId) {
           <button
             type="button"

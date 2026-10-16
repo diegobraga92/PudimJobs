@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ labels.locale }}">
 <head>
 <meta charset="utf-8">
 <style>
@@ -39,16 +39,16 @@
   {% if contact_bits %}<div class="contact">{% for bit in contact_bits %}<span class="ci">{{ bit }}</span>{% if not loop.last %} | {% endif %}{% endfor %}</div>{% endif %}
 
   {% if summary %}
-    <h2>Summary</h2>
+    <h2>{{ labels.summary }}</h2>
     <p>{{ summary }}</p>
   {% endif %}
 
   {% if experience %}
-    <h2>Experience</h2>
+    <h2>{{ labels.experience }}</h2>
     {% for exp in experience %}
       <div class="entry">
         <div class="entry-title">{{ exp.title }}</div>
-        <div class="entry-meta">{{ exp.company }}{% if exp.start_date or exp.end_date %} | {{ exp.start_date or '' }} - {{ exp.end_date or 'Present' }}{% endif %}</div>
+        <div class="entry-meta">{{ exp.company }}{% if exp.start_date or exp.end_date %} | {{ exp.start_date or '' }} - {{ exp.end_date or labels.present }}{% endif %}</div>
         {% if exp.bullets %}
           <ul>
             {% for bullet in exp.bullets %}<li>{{ bullet }}</li>{% endfor %}
@@ -59,7 +59,7 @@
   {% endif %}
 
   {% if education %}
-    <h2>Education</h2>
+    <h2>{{ labels.education }}</h2>
     {% for edu in education %}
       <div class="entry">
         <div class="entry-title">{{ edu.degree }}</div>
@@ -69,21 +69,21 @@
   {% endif %}
 
   {% if skill_groups %}
-    <h2>Skills</h2>
+    <h2>{{ labels.skills }}</h2>
     {% for label, items in skill_groups %}
       <p><strong>{{ label }}:</strong> {{ items | join(', ') }}</p>
     {% endfor %}
   {% endif %}
 
   {% if certifications %}
-    <h2>Certifications</h2>
+    <h2>{{ labels.certifications }}</h2>
     <ul>
       {% for cert in certifications %}<li>{{ cert }}</li>{% endfor %}
     </ul>
   {% endif %}
 
   {% if projects %}
-    <h2>Projects</h2>
+    <h2>{{ labels.projects }}</h2>
     {% for proj in projects %}
       <div class="entry">
         <div class="entry-title">{{ proj.name }}</div>
@@ -94,7 +94,7 @@
   {% endif %}
 
   {% if languages %}
-    <h2>Languages</h2>
+    <h2>{{ labels.languages }}</h2>
     <p>{{ languages | join(', ') }}</p>
   {% endif %}
 </body>

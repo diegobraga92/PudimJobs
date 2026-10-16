@@ -118,6 +118,7 @@ describe('CvPanelComponent', () => {
     component.downloadCv(tailored());
     const pdf = http.expectOne((c) => c.url === '/api/cv/generated/gen-1/pdf');
     expect(pdf.request.params.get('format')).toBe('pdf');
+    expect(pdf.request.params.get('language')).toBe('en');
     pdf.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
 
     component.downloadCv(tailored(), 'docx');
@@ -126,6 +127,35 @@ describe('CvPanelComponent', () => {
     docx.flush(new Blob(['PK'], { type: 'application/zip' }));
 
     expect(component.error).toBeNull();
+  });
+
+  it('downloads a PT-BR copy by asking the API to translate it (ADR 024)', () => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+
+    component.downloadCv(tailored(), 'pdf', 'pt-BR');
+
+    const request = http.expectOne((c) => c.url === '/api/cv/generated/gen-1/pdf');
+    expect(request.request.params.get('format')).toBe('pdf');
+    expect(request.request.params.get('language')).toBe('pt-BR');
+    request.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+
+    expect(component.error).toBeNull();
+  });
+
+  it('maps a refused PT-BR download to a translation error', () => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+
+    component.downloadCv(tailored(), 'pdf', 'pt-BR');
+    http
+      .expectOne((c) => c.url === '/api/cv/generated/gen-1/pdf')
+      .flush(new Blob([JSON.stringify({ detail: 'LLM off' })], { type: 'application/json' }), {
+        status: 409,
+        statusText: 'Conflict',
+      });
+
+    expect(component.error).toBe(component.i18n.t('errors.failedTranslateCv'));
   });
 
   it('labels each variant and leaves the other one unlinked', () => {

@@ -1,7 +1,33 @@
 """Tests for the jobs API (manual CRUD + search/filter)."""
 
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import select, update
+
+from app.models.audit_log import AuditLog
+from app.models.job import Job
 from app.routers import jobs as jobs_router
 from app.services.llm_config import LlmRuntimeConfig
+from tests.helpers import create_user
+
+
+async def _create_job(client, **overrides) -> dict:
+    payload = {"title": "Backend Engineer", "company": "Acme", "description": "Python API"}
+    payload.update(overrides)
+    response = await client.post("/api/jobs", json=payload)
+    assert response.status_code == 201
+    return response.json()
+
+
+async def _backdate(db_session, job_id: str, days: int) -> None:
+    """Move a job's ``created_at`` into the past (scrapers do this over time)."""
+    await db_session.execute(
+        update(Job)
+        .where(Job.id == uuid.UUID(job_id))
+        .values(created_at=datetime.now(UTC) - timedelta(days=days))
+    )
+    await db_session.commit()
 
 
 async def test_create_job_manual(auth_client):
@@ -205,3 +231,198 @@ async def test_tailor_enqueue_announces_the_ai_variant_when_the_llm_is_enabled(
 
     assert accepted.status_code == 202
     assert accepted.json()["variants"] == ["rule", "llm"]
+
+
+# --- Bulk cleanup (ADR 023) -------------------------------------------------
+
+
+async def test_cleanup_dry_run_previews_without_deleting(auth_client, db_session):
+    """`dry_run` is the default: the client shows the count before committing."""
+    client, _, _ = auth_client
+    old_one = await _create_job(client, title="Old one")
+    old_two = await _create_job(client, title="Old two")
+    recent = await _create_job(client, title="Recent")
+    await _backdate(db_session, old_one["id"], days=120)
+    await _backdate(db_session, old_two["id"], days=90)
+
+    preview = await client.post("/api/jobs/cleanup", json={"older_than_days": 60})
+
+    assert preview.status_code == 200
+    assert preview.json() == {"matched": 2, "deleted": 0, "protected": 0, "dry_run": True}
+
+    listed = await client.get("/api/jobs")
+    assert len(listed.json()) == 3
+    assert recent["id"] in {job["id"] for job in listed.json()}
+
+
+async def test_cleanup_deletes_jobs_older_than_the_cutoff(auth_client, db_session):
+    client, _, _ = auth_client
+    old = await _create_job(client, title="Old")
+    recent = await _create_job(client, title="Recent")
+    await _backdate(db_session, old["id"], days=120)
+
+    response = await client.post(
+        "/api/jobs/cleanup", json={"older_than_days": 60, "dry_run": False}
+    )
+
+    assert response.json() == {"matched": 1, "deleted": 1, "protected": 0, "dry_run": False}
+    remaining = [job["id"] for job in (await client.get("/api/jobs")).json()]
+    assert remaining == [recent["id"]]
+
+
+async def test_cleanup_protects_jobs_with_applications_by_default(auth_client, db_session):
+    """A tracked job survives: deleting it would cascade its application away."""
+    client, _, _ = auth_client
+    job = await _create_job(client)
+    await _backdate(db_session, job["id"], days=120)
+    await client.post("/api/applications", json={"job_id": job["id"], "status": "interview"})
+
+    response = await client.post(
+        "/api/jobs/cleanup", json={"older_than_days": 60, "dry_run": False}
+    )
+
+    assert response.json() == {"matched": 1, "deleted": 0, "protected": 1, "dry_run": False}
+    assert (await client.get(f"/api/jobs/{job['id']}")).status_code == 200
+    assert len((await client.get("/api/applications")).json()) == 1
+
+
+async def test_cleanup_include_with_applications_deletes_them_too(auth_client, db_session):
+    """The opt-in checkbox is the only way a tracked job is removed."""
+    client, _, _ = auth_client
+    job = await _create_job(client)
+    await _backdate(db_session, job["id"], days=120)
+    await client.post("/api/applications", json={"job_id": job["id"], "status": "saved"})
+
+    response = await client.post(
+        "/api/jobs/cleanup",
+        json={"older_than_days": 60, "include_with_applications": True, "dry_run": False},
+    )
+
+    assert response.json() == {"matched": 1, "deleted": 1, "protected": 0, "dry_run": False}
+    assert (await client.get("/api/jobs")).json() == []
+    assert (await client.get("/api/applications")).json() == []
+
+
+
+async def test_cleanup_by_source_ignores_job_age(auth_client):
+    """A source-only run deletes every job from it, however recent."""
+    client, _, _ = auth_client
+    source_id = (
+        await client.post(
+            "/api/sources",
+            json={
+                "name": "Acme Careers",
+                "url": "https://acme.example/careers",
+                "type": "career_page",
+            },
+        )
+    ).json()["id"]
+    from_source = await _create_job(client, title="From source", source_id=source_id)
+    await _create_job(client, title="Manual")
+
+    response = await client.post(
+        "/api/jobs/cleanup", json={"source_id": source_id, "dry_run": False}
+    )
+
+    assert response.json() == {"matched": 1, "deleted": 1, "protected": 0, "dry_run": False}
+    remaining = (await client.get("/api/jobs")).json()
+    assert [job["title"] for job in remaining] == ["Manual"]
+    assert from_source["id"] not in {job["id"] for job in remaining}
+
+
+async def test_cleanup_combines_age_and_source_as_an_and(auth_client, db_session):
+    """Both filters narrow: a recent job from the source is spared."""
+    client, _, _ = auth_client
+    source_id = (
+        await client.post(
+            "/api/sources",
+            json={
+                "name": "Acme Careers",
+                "url": "https://acme.example/careers",
+                "type": "career_page",
+            },
+        )
+    ).json()["id"]
+    old_from_source = await _create_job(client, title="Old from source", source_id=source_id)
+    recent_from_source = await _create_job(client, title="Recent from source", source_id=source_id)
+    old_manual = await _create_job(client, title="Old manual")
+    # Only the two *old* jobs are backdated: the recent one from the same source
+    # must survive, which is what makes the two filters an AND rather than an OR.
+    for job in (old_from_source, old_manual):
+        await _backdate(db_session, job["id"], days=120)
+
+    response = await client.post(
+        "/api/jobs/cleanup",
+        json={"older_than_days": 60, "source_id": source_id, "dry_run": False},
+    )
+
+    assert response.json()["matched"] == 1
+    assert response.json()["deleted"] == 1
+    survivors = {job["id"] for job in (await client.get("/api/jobs")).json()}
+    assert survivors == {recent_from_source["id"], old_manual["id"]}
+
+
+
+async def test_cleanup_requires_a_criterion(auth_client):
+    """An empty body would mean "delete everything" — refuse it loudly."""
+    client, _, _ = auth_client
+    response = await client.post("/api/jobs/cleanup", json={})
+
+    assert response.status_code == 400
+    assert "older_than_days" in response.json()["detail"]
+
+
+async def test_cleanup_rejects_an_unknown_source(auth_client):
+    client, _, _ = auth_client
+    await _create_job(client)
+
+    response = await client.post(
+        "/api/jobs/cleanup", json={"source_id": str(uuid.uuid4()), "dry_run": False}
+    )
+
+    assert response.status_code == 404
+    assert len((await client.get("/api/jobs")).json()) == 1
+
+
+async def test_cleanup_never_touches_another_users_old_jobs(auth_client, db_session):
+    client, user, _ = auth_client
+    mine = await _create_job(client)
+    await _backdate(db_session, mine["id"], days=120)
+
+    other = await create_user(db_session, email="other-owner@example.com")
+    theirs = Job(user_id=other.id, title="Theirs", company="Beta")
+    db_session.add(theirs)
+    await db_session.commit()
+    await db_session.refresh(theirs)
+    await db_session.execute(
+        update(Job)
+        .where(Job.id == theirs.id)
+        .values(created_at=datetime.now(UTC) - timedelta(days=120))
+    )
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/jobs/cleanup", json={"older_than_days": 60, "dry_run": False}
+    )
+
+    assert response.json() == {"matched": 1, "deleted": 1, "protected": 0, "dry_run": False}
+    assert user.id != other.id
+    survivors = (await db_session.execute(select(Job.id).where(Job.id == theirs.id))).all()
+    assert survivors == [(theirs.id,)]
+
+
+async def test_cleanup_writes_an_audit_log(auth_client, db_session):
+    client, user, _ = auth_client
+    job = await _create_job(client)
+    await _backdate(db_session, job["id"], days=120)
+
+    await client.post("/api/jobs/cleanup", json={"older_than_days": 60, "dry_run": False})
+
+    result = await db_session.execute(
+        select(AuditLog).where(AuditLog.user_id == user.id, AuditLog.action == "bulk_deleted")
+    )
+    entry = result.scalar_one()
+    assert entry.entity_type == "job"
+    assert entry.changes["deleted"] == 1
+    assert entry.changes["older_than_days"] == 60
+

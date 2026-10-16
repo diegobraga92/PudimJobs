@@ -121,9 +121,32 @@ export type CvTemplate = 'classic' | 'ats';
  */
 export type CvExportFormat = 'pdf' | 'docx';
 
+/**
+ * Language a CV is exported in (see ADR 024). `en` is the stored language and
+ * needs no LLM; any other language is translated on demand at export time.
+ */
+export type CvLanguage = 'en' | 'pt-BR';
+
+/** What the export endpoints can produce right now (mirrors `app/schemas/master_cv.py`). */
+export interface CvCapabilities {
+  /** Only the non-default export languages need the LLM; `false` greys them out. */
+  llm_enabled: boolean;
+  export_languages: CvLanguage[];
+  default_language: CvLanguage;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CvService {
   constructor(private http: HttpClient) {}
+
+  /**
+   * Whether translation is available and which languages the API offers. The
+   * client cannot read admin settings, so this is the only way to know before
+   * asking for a PT-BR export the server would refuse with a 409.
+   */
+  capabilities(): Observable<CvCapabilities> {
+    return this.http.get<CvCapabilities>('/api/cv/capabilities');
+  }
 
   list(): Observable<MasterCV[]> {
     return this.http.get<MasterCV[]>('/api/cv');
@@ -167,10 +190,16 @@ export class CvService {
 
   /**
    * Download a tailored CV artifact. `format` picks the stored PDF (default) or
-   * an editable DOCX rendered on demand from the artifact's own content.
+   * an editable DOCX rendered on demand from the artifact's own content;
+   * `language` (ADR 024) downloads a fresh, LLM-translated copy — the stored PDF
+   * is English, so a non-default language is always re-rendered.
    */
-  downloadCv(id: string, format: CvExportFormat = 'pdf'): Observable<Blob> {
-    const params = new HttpParams().set('format', format);
+  downloadCv(
+    id: string,
+    format: CvExportFormat = 'pdf',
+    language: CvLanguage = 'en',
+  ): Observable<Blob> {
+    const params = new HttpParams().set('format', format).set('language', language);
     return this.http.get(`/api/cv/generated/${id}/pdf`, { params, responseType: 'blob' });
   }
 
@@ -182,14 +211,18 @@ export class CvService {
    * Render an (optionally edited) CV structure for download. `template` selects
    * `classic` (styled, default) or `ats` (plain, ATS-safe); `format` selects PDF
    * (default) or DOCX. The template is a PDF-only concern — DOCX always uses one
-   * plain layout.
+   * plain layout. `language` (ADR 024) translates the content on demand first.
    */
   exportCv(
     structure: CVStructure,
     template: CvTemplate = 'classic',
     format: CvExportFormat = 'pdf',
+    language: CvLanguage = 'en',
   ): Observable<Blob> {
-    const params = new HttpParams().set('template', template).set('format', format);
+    const params = new HttpParams()
+      .set('template', template)
+      .set('format', format)
+      .set('language', language);
     return this.http.post('/api/cv/pdf', structure, { params, responseType: 'blob' });
   }
 

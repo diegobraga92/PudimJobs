@@ -59,6 +59,21 @@ async function setup(): Promise<{
   return { fixture, component, http };
 }
 
+/**
+ * Flush the three requests the editor fires on init: the signed-in user, the
+ * master CV list and the export capabilities (ADR 024 — the language select is
+ * gated on whether translation is available).
+ */
+function flushInit(http: HttpTestingController, llmEnabled = false): void {
+  http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
+  http.expectOne('/api/cv').flush([MASTER_CV]);
+  http.expectOne('/api/cv/capabilities').flush({
+    llm_enabled: llmEnabled,
+    export_languages: ['en', 'pt-BR'],
+    default_language: 'en',
+  });
+}
+
 describe('CvEditorComponent', () => {
   let component: CvEditorComponent;
   let http: HttpTestingController;
@@ -70,8 +85,7 @@ describe('CvEditorComponent', () => {
   afterEach(() => http.verify());
 
   it('pre-fills the editor from the current master CV (contact + certifications)', () => {
-    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
-    http.expectOne('/api/cv').flush([MASTER_CV]);
+    flushInit(http);
 
     expect(component.cvForm.value.fullName).toBe('Ada Lovelace');
     expect(component.cvForm.value.contactEmail).toBe('ada@example.com');
@@ -83,8 +97,7 @@ describe('CvEditorComponent', () => {
   });
 
   it('does not touch the tailored-CV endpoints any more', () => {
-    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
-    http.expectOne('/api/cv').flush([MASTER_CV]);
+    flushInit(http);
 
     http.expectNone('/api/cv/generated');
     // The editor holds the master document, not a per-job tailored version.
@@ -93,8 +106,7 @@ describe('CvEditorComponent', () => {
   });
 
   it('parses ODT uploads and rejects other extensions', () => {
-    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
-    http.expectOne('/api/cv').flush([MASTER_CV]);
+    flushInit(http);
 
     const odt = fileInput('cv.odt');
     component.onFileSelected({ target: odt } as unknown as Event);
@@ -107,8 +119,7 @@ describe('CvEditorComponent', () => {
   });
 
   it('exports the current CV with the selected template', () => {
-    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
-    http.expectOne('/api/cv').flush([MASTER_CV]);
+    flushInit(http);
 
     component.exportCv('pdf', 'ats');
 
@@ -116,6 +127,7 @@ describe('CvEditorComponent', () => {
       (candidate) => candidate.url === '/api/cv/pdf' && candidate.params.get('template') === 'ats'
     );
     expect(request.request.params.get('format')).toBe('pdf');
+    expect(request.request.params.get('language')).toBe('en');
     expect(request.request.responseType).toBe('blob');
     request.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
 
@@ -123,8 +135,7 @@ describe('CvEditorComponent', () => {
   });
 
   it('exports the current CV as DOCX for the Word download', () => {
-    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
-    http.expectOne('/api/cv').flush([MASTER_CV]);
+    flushInit(http);
 
     component.exportCv('docx');
     http.expectOne(
@@ -132,6 +143,48 @@ describe('CvEditorComponent', () => {
     );
 
     expect(component.exporting).toBeTrue();
+  });
+
+  it('offers PT-BR and sends it as the export language when the LLM is enabled', () => {
+    flushInit(http, true);
+
+    expect(component.translationAvailable).toBeTrue();
+    expect(component.languageEnabled('pt-BR')).toBeTrue();
+    expect(component.languageOptions).toEqual(['en', 'pt-BR']);
+
+    component.exportCv('pdf', 'classic', 'pt-BR');
+
+    const request = http.expectOne(
+      (candidate) =>
+        candidate.url === '/api/cv/pdf' && candidate.params.get('language') === 'pt-BR'
+    );
+    expect(request.request.params.get('format')).toBe('pdf');
+    request.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+
+    expect(component.exporting).toBeFalse();
+  });
+
+  it('keeps PT-BR off (and English selected) when the LLM is disabled', () => {
+    flushInit(http, false);
+
+    expect(component.languageEnabled('pt-BR')).toBeFalse();
+    expect(component.languageEnabled('en')).toBeTrue();
+    expect(component.exportLanguage).toBe('en');
+  });
+
+  it('reports a refused translation as such, not as a generic export failure', () => {
+    flushInit(http, true);
+
+    component.exportCv('pdf', 'classic', 'pt-BR');
+    http
+      .expectOne((candidate) => candidate.params.get('language') === 'pt-BR')
+      .flush(new Blob([JSON.stringify({ detail: 'LLM off' })], { type: 'application/json' }), {
+        status: 409,
+        statusText: 'Conflict',
+      });
+
+    expect(component.exporting).toBeFalse();
+    expect(component.error).toBe(component.i18n.t('errors.failedTranslateCv'));
   });
 });
 
@@ -148,8 +201,7 @@ describe('CvEditorComponent (master CV only)', () => {
   it('never loads a tailored CV, even when ?generated= is present', () => {
     // ADR 016: tailoring is separated from the master document, so no code path
     // here touches `/api/cv/generated`.
-    http.expectOne('/api/auth/me').flush({ id: 'u1', email: 'ada@example.com', role: 'user' });
-    http.expectOne('/api/cv').flush([MASTER_CV]);
+    flushInit(http);
     http.expectNone('/api/cv/generated');
 
     expect(component.cvForm.value.summary).toBe(STRUCTURED.summary);

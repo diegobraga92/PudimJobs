@@ -52,6 +52,19 @@ class CVStructure(BaseModel):
     languages: list[str] = Field(default_factory=list)
 
 
+class CVExportCapabilities(BaseModel):
+    """What the CV export endpoints can currently produce (ADR 024).
+
+    ``llm_enabled`` mirrors the tailor rule (enabled config *and* a usable API
+    key): only the non-default export languages need the LLM, and the client must
+    be able to grey them out before the user picks one and gets a 409.
+    """
+
+    llm_enabled: bool
+    export_languages: list[str]
+    default_language: str
+
+
 class MasterCVCreate(BaseModel):
     structured_json: CVStructure
     label: str | None = Field(default=None, max_length=255)

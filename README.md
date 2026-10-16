@@ -274,10 +274,11 @@ reminders, free-text retrospectives) are listed in the ADRs.
 
 **Backend (FastAPI + PostgreSQL)** — JWT auth (`POST /api/auth/login`,
 `GET /api/auth/me`, bcrypt); user-scoped CRUD for sources, jobs (manual add +
-search/filter), versioned master CV and applications (pipeline status, notes);
+search/filter, with a `source_id` filter and a preview-first bulk cleanup —
+ADR 023), versioned master CV and applications (pipeline status, notes);
 audit logging for CV and application mutations; Alembic migrations + idempotent
-seed. 366 backend tests (221 run without PostgreSQL, 145 integration tests
-skipped when it is unreachable) and 60 Angular specs.
+seed. 557 backend tests (343 run without PostgreSQL, 214 integration tests
+skipped when it is unreachable) and 100 Angular specs.
 
 **Scraping engine (Celery + RabbitMQ)** — pluggable scrapers (`scrapers/`:
 career page via schema.org/JSON-LD, RSS via feedparser, aggregator adapters,
@@ -319,7 +320,12 @@ the same endpoint accepts `?format=docx`, and `POST /api/cv/pdf` (`?format=`,
 plus `?template=` for the PDF) renders straight from the editor, so both also
 hand back an editable Word copy built on demand from the stored structure. The
 PDF stays the canonical artifact — it is the only one stored and page-measured
-(ADR 017). Every export opens with the same header — the name over one flowing
+(ADR 017). Both export endpoints also accept `?language=pt-BR`: the copy is
+translated on demand by the LLM from the same structure and rendered fresh, with
+the section headings taken from a fixed PT-BR catalog so a translated CV never
+mixes *Resumo* with *Summary* (ADR 024). English is the stored language and needs
+no LLM; the client learns whether translation is available from
+`GET /api/cv/capabilities` rather than by provoking a 409. Every export opens with the same header — the name over one flowing
 contact line (`email • phone • location • links`), set at the 8pt at which all
 five fields fit a single row of the A4 text block, with the DOCX put on the same
 page box (ADR 021).
@@ -373,11 +379,14 @@ structlog; Prometheus/Grafana and worker metrics (scrapes total/duration) are
 provisioned by docker-compose.
 
 **Frontend (Angular)** — login + auth guard + JWT interceptor; source
-management; job listing with keyword/company/tag/date search, manual add and a
+management; job listing with keyword/company/tag/date search, manual add, a
+preview-then-confirm bulk cleanup (age and/or source, applications protected by
+default — ADR 023) and a
 detail view (parsed requirements, *add to applications*, pipeline badge once
 tracked); master CV editor (contact, summary, experience, education, skills,
 projects, certifications, languages) with version history, PDF/DOCX/ODT import,
-live preview and Classic/ATS-safe PDF export; a kanban pipeline (saved → applied
+live preview and Classic/ATS-safe PDF export (plus a PT-BR copy translated on
+demand, ADR 024); a kanban pipeline (saved → applied
 → interview → offer → rejected) with Angular CDK drag & drop whose cards open the
 per-application workspace; interview prep and lessons-learned pages; a
 five-tab admin panel (Overview, Sources, Quality, Dead-Letter Queue, Audit Log);

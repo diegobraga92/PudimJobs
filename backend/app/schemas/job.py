@@ -42,3 +42,32 @@ class JobSummary(BaseModel):
 class JobResponse(JobSummary):
     description: str | None
     source_id: uuid.UUID | None
+
+
+class JobCleanupRequest(BaseModel):
+    """Criteria for the bulk jobs cleanup (ADR 023).
+
+    At least one of ``older_than_days`` / ``source_id`` must be given; both may
+    be combined (``AND``). ``dry_run`` is the default because a bulk delete also
+    cascades away the applications attached to the matched jobs.
+    """
+
+    # Matched against ``Job.created_at`` (the moment the job entered the DB), not
+    # ``posted_date``: the posting date is nullable and often absent on scraped
+    # rows, so an age filter on it would silently spare whole sources.
+    older_than_days: int | None = Field(default=None, ge=1, le=3650)
+    source_id: uuid.UUID | None = None
+    # Jobs already tracked in the pipeline (they have an application) are kept
+    # unless the caller explicitly opts in — deleting them cascades the
+    # application away (``applications.job_id`` is ON DELETE CASCADE).
+    include_with_applications: bool = False
+    dry_run: bool = True
+
+
+class JobCleanupResponse(BaseModel):
+    """What a cleanup run matched, deleted and deliberately spared (ADR 023)."""
+
+    matched: int
+    deleted: int
+    protected: int
+    dry_run: bool

@@ -4,7 +4,8 @@ import pytest
 from weasyprint import HTML
 from weasyprint.formatting_structure import boxes
 
-from app.services.cv_tailor import tailor_cv
+from app.services.cv_labels import labels_for
+from app.services.cv_tailor import TailoredCV, tailor_cv
 from app.services.pdf_generator import generate_pdf, render_cv_html
 
 CV = {
@@ -258,3 +259,72 @@ def test_generate_pdf_with_ats_template():
     pdf = generate_pdf(tailored, template="ats")
     assert pdf[:4] == b"%PDF"
     assert len(pdf) > 500
+
+
+# --- Localised headings (ADR 024) -------------------------------------------
+
+
+def test_render_cv_html_localises_every_heading():
+    """The headings are chrome: they must match the translated content."""
+    tailored = TailoredCV.from_structure(
+        {
+            "full_name": "Jane Doe",
+            "summary": "Engenheira backend",
+            "experience": [
+                {"company": "Acme", "title": "Dev", "start_date": "2020-01", "bullets": ["x"]}
+            ],
+            "education": [{"institution": "MIT", "degree": "BSc"}],
+            "skills": ["python"],
+            "projects": [{"name": "PudimJobs", "description": "Job tracker"}],
+            "certifications": ["AWS Solutions Architect"],
+            "languages": ["Inglês (fluente)"],
+        }
+    )
+    html = render_cv_html(tailored, labels=labels_for("pt-BR"))
+
+    assert '<html lang="pt-BR">' in html
+    for heading in (
+        "Resumo",
+        "Experiência",
+        "Competências",
+        "Projetos",
+        "Formação",
+        "Certificações",
+        "Idiomas",
+    ):
+        assert f"<h2>{heading}</h2>" in html, heading
+    for english in ("Summary", "Experience", "Education", "Certifications"):
+        assert f"<h2>{english}</h2>" not in html, english
+
+
+def test_render_cv_html_localises_the_open_ended_date():
+    """A current role dates to "Atual" under PT-BR, not "Present"."""
+    tailored = TailoredCV.from_structure(
+        {
+            "summary": "x",
+            "experience": [
+                {"company": "Acme", "title": "Dev", "start_date": "2020-01", "bullets": []}
+            ],
+        }
+    )
+    html = render_cv_html(tailored, labels=labels_for("pt-BR"))
+
+    assert "2020-01 \u2013 Atual" in html
+    assert "Present" not in html
+
+
+def test_render_cv_html_ats_template_is_localised_too():
+    html = render_cv_html(
+        tailor_cv(CV, ["python"]), template="ats", labels=labels_for("pt-BR")
+    )
+
+    assert "<h2>Resumo</h2>" in html
+    assert "<h2>Formação</h2>" in html
+
+
+def test_generate_pdf_with_localised_labels_returns_a_valid_pdf():
+    pdf = generate_pdf(tailor_cv(CV, ["python"]), labels=labels_for("pt-BR"))
+
+    assert pdf[:4] == b"%PDF"
+    assert len(pdf) > 500
+

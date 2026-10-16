@@ -1,9 +1,15 @@
 <div class="page-header">
   <h2>{{ i18n.t('jobs.title') }}</h2>
-  <button type="button" class="btn btn-primary" (click)="openCreate()">
-    <app-icon name="plus" [size]="16" />
-    {{ i18n.t('jobs.addJob') }}
-  </button>
+  <div class="header-actions">
+    <button type="button" class="btn btn-ghost" (click)="openCleanup()">
+      <app-icon name="trash" [size]="16" />
+      {{ i18n.t('jobs.cleanup.open') }}
+    </button>
+    <button type="button" class="btn btn-primary" (click)="openCreate()">
+      <app-icon name="plus" [size]="16" />
+      {{ i18n.t('jobs.addJob') }}
+    </button>
+  </div>
 </div>
 
 @if (error) {
@@ -155,6 +161,78 @@
         <button type="button" class="btn btn-ghost" (click)="cancelForm()">{{ i18n.t('common.cancel') }}</button>
         <button type="submit" class="btn btn-primary" [disabled]="jobForm.invalid">
           {{ i18n.t('jobs.addJob') }}
+        </button>
+      </div>
+    </form>
+  </app-modal>
+}
+
+@if (showCleanup) {
+  <app-modal
+    [title]="i18n.t('jobs.cleanup.title')"
+    (closed)="closeCleanup()"
+  >
+    <form class="form" [formGroup]="cleanupForm" (ngSubmit)="previewCleanup()">
+      <p class="muted">{{ i18n.t('jobs.cleanup.intro') }}</p>
+
+      <div class="form-field">
+        <label for="cleanup-days">{{ i18n.t('jobs.cleanup.olderThan') }}</label>
+        <input
+          id="cleanup-days"
+          class="input"
+          type="number"
+          min="1"
+          formControlName="older_than_days"
+        />
+      </div>
+
+      <div class="form-field">
+        <label for="cleanup-source">{{ i18n.t('jobs.cleanup.source') }}</label>
+        <select id="cleanup-source" class="select" formControlName="source_id">
+          <option value="">{{ i18n.t('jobs.cleanup.anySource') }}</option>
+          @for (source of cleanupSources; track source.id) {
+            <option [value]="source.id">{{ source.name }}</option>
+          }
+        </select>
+      </div>
+
+      <label class="checkbox-row">
+        <input type="checkbox" formControlName="include_with_applications" />
+        {{ i18n.t('jobs.cleanup.includeWithApplications') }}
+      </label>
+      <p class="muted xs">{{ i18n.t('jobs.cleanup.protectedHint') }}</p>
+
+      @if (cleanupPreview) {
+        <div class="alert" role="status">
+          @if (cleanupPreview.matched === 0) {
+            <span>{{ i18n.t('jobs.cleanup.nothingMatched') }}</span>
+          } @else {
+            <span>
+              {{
+                i18n.t('jobs.cleanup.previewResult', {
+                  matched: cleanupPreview.matched,
+                  protected: cleanupPreview.protected,
+                })
+              }}
+            </span>
+          }
+        </div>
+      }
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" (click)="closeCleanup()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button type="submit" class="btn btn-ghost" [disabled]="cleanupRunning">
+          {{ i18n.t('jobs.cleanup.preview') }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-danger"
+          [disabled]="cleanupRunning || !cleanupHasDeletions"
+          (click)="runCleanup()"
+        >
+          {{ i18n.t('jobs.cleanup.confirm') }}
         </button>
       </div>
     </form>

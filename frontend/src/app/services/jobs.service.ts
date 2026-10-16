@@ -33,11 +33,33 @@ export interface JobFilters {
   date_from?: string;
   date_to?: string;
   tags?: string;
+  source_id?: string;
   include_hidden?: boolean;
   hide_applied?: boolean;
 }
 
 export type JobInput = Partial<JobDetail>;
+
+/**
+ * Criteria for a bulk cleanup run (ADR 023). At least one of `older_than_days`
+ * (matched against `created_at`) / `source_id` must be given; both may be
+ * combined. `dry_run` is the default: it only counts.
+ */
+export interface JobCleanupRequest {
+  older_than_days?: number | null;
+  source_id?: string | null;
+  /** Opt-in: also delete jobs in the pipeline, cascading their application away. */
+  include_with_applications?: boolean;
+  dry_run?: boolean;
+}
+
+/** What a cleanup run matched, deleted and deliberately spared (ADR 023). */
+export interface JobCleanupResult {
+  matched: number;
+  deleted: number;
+  protected: number;
+  dry_run: boolean;
+}
 
 /** Acknowledgement of an enqueued tailor run. `variants` names the artifacts the run will produce (`rule` always, plus `llm` when the LLM is on) so the caller knows what to wait for (ADR 016). */
 export interface TailorEnqueueResult {
@@ -84,6 +106,15 @@ export class JobsService {
 
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`/api/jobs/${id}`);
+  }
+
+  /**
+   * Bulk-delete jobs by age and/or source. Jobs already in the pipeline are kept
+   * unless `include_with_applications` is set, and `dry_run` (the default) only
+   * counts — the UI previews first (ADR 023).
+   */
+  cleanup(payload: JobCleanupRequest): Observable<JobCleanupResult> {
+    return this.http.post<JobCleanupResult>('/api/jobs/cleanup', payload);
   }
 
   parse(id: string): Observable<{ enqueued: boolean; job_id: string }> {

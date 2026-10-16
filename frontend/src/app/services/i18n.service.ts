@@ -118,6 +118,38 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'jobs.unhide': { en: 'Show job', 'pt-BR': 'Mostrar vaga' },
   'jobs.jobHidden': { en: 'Job hidden.', 'pt-BR': 'Vaga ocultada.' },
   'jobs.jobUnhidden': { en: 'Job is visible again.', 'pt-BR': 'Vaga visível novamente.' },
+  'jobs.cleanup.open': { en: 'Clean up', 'pt-BR': 'Limpar' },
+  'jobs.cleanup.title': { en: 'Clean up old jobs', 'pt-BR': 'Limpar vagas antigas' },
+  'jobs.cleanup.intro': {
+    en: 'Delete jobs in bulk by age and/or source. Preview first — nothing is removed until you confirm.',
+    'pt-BR': 'Exclua vagas em massa por idade e/ou fonte. Pré-visualize antes — nada é removido até você confirmar.',
+  },
+  'jobs.cleanup.olderThan': { en: 'Older than (days)', 'pt-BR': 'Mais antigas que (dias)' },
+  'jobs.cleanup.source': { en: 'Source', 'pt-BR': 'Fonte' },
+  'jobs.cleanup.anySource': { en: 'Any source', 'pt-BR': 'Qualquer fonte' },
+  'jobs.cleanup.includeWithApplications': {
+    en: 'Also delete jobs with an application',
+    'pt-BR': 'Excluir também vagas com candidatura',
+  },
+  'jobs.cleanup.protectedHint': {
+    en: 'Jobs you applied to are kept by default; deleting them also deletes their application.',
+    'pt-BR': 'Vagas com candidatura são mantidas por padrão; excluí-las também exclui a candidatura.',
+  },
+  'jobs.cleanup.preview': { en: 'Preview', 'pt-BR': 'Pré-visualizar' },
+  'jobs.cleanup.confirm': { en: 'Delete jobs', 'pt-BR': 'Excluir vagas' },
+  'jobs.cleanup.previewResult': {
+    en: '{matched} jobs match; {protected} kept (they have an application).',
+    'pt-BR': '{matched} vagas correspondem; {protected} mantidas (com candidatura).',
+  },
+  'jobs.cleanup.nothingMatched': {
+    en: 'No jobs match these criteria.',
+    'pt-BR': 'Nenhuma vaga corresponde a estes critérios.',
+  },
+  'jobs.cleanup.needCriteria': {
+    en: 'Set an age and/or a source.',
+    'pt-BR': 'Informe uma idade e/ou uma fonte.',
+  },
+  'jobs.cleanup.done': { en: '{count} jobs deleted.', 'pt-BR': '{count} vagas excluídas.' },
 
   // ---- Application pipeline statuses ---------------------------------------
   'pipeline.saved': { en: 'Saved', 'pt-BR': 'Salva' },
@@ -419,6 +451,18 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'cv.templateLabel': { en: 'PDF template', 'pt-BR': 'Modelo do PDF' },
   'cv.template.classic': { en: 'Classic', 'pt-BR': 'Clássico' },
   'cv.template.ats': { en: 'ATS-safe', 'pt-BR': 'Compatível com ATS' },
+  'cv.exportLanguage.label': { en: 'CV language', 'pt-BR': 'Idioma do CV' },
+  'cv.exportLanguage.en': { en: 'English', 'pt-BR': 'Inglês' },
+  'cv.exportLanguage.ptBR': { en: 'Portuguese (BR)', 'pt-BR': 'Português (BR)' },
+  'cv.exportLanguage.needsLlm': {
+    en: 'Translated on export; requires the LLM in Admin → LLM.',
+    'pt-BR': 'Traduzido na exportação; requer o LLM em Admin → LLM.',
+  },
+  'cv.exportPtBr': { en: 'PDF (PT-BR)', 'pt-BR': 'PDF (PT-BR)' },
+  'cv.exportPtBrHint': {
+    en: 'Translated to Brazilian Portuguese on download.',
+    'pt-BR': 'Traduzido para português (BR) ao baixar.',
+  },
   'cv.exporting': { en: 'Exporting…', 'pt-BR': 'Exportando…' },
   'cv.pdfExported': { en: 'PDF exported.', 'pt-BR': 'PDF exportado.' },
   'cv.docxExported': { en: 'DOCX exported.', 'pt-BR': 'DOCX exportado.' },
@@ -795,6 +839,14 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     'pt-BR': 'Falha ao baixar o DOCX',
   },
   'errors.failedExportDocx': { en: 'Failed to export DOCX', 'pt-BR': 'Falha ao exportar o DOCX' },
+  'errors.failedTranslateCv': {
+    en: 'Failed to translate the CV — the LLM must be enabled in Admin → LLM',
+    'pt-BR': 'Falha ao traduzir o CV — o LLM precisa estar habilitado em Admin → LLM',
+  },
+  'errors.failedCleanupJobs': {
+    en: 'Failed to clean up jobs',
+    'pt-BR': 'Falha ao limpar as vagas',
+  },
   'errors.failedSaveCV': { en: 'Failed to save CV', 'pt-BR': 'Falha ao salvar o CV' },
   'errors.failedDeleteCV': { en: 'Failed to delete CV version', 'pt-BR': 'Falha ao excluir a versão do CV' },
   'errors.failedDeleteGeneratedCV': { en: 'Failed to delete tailored CV', 'pt-BR': 'Falha ao excluir o CV personalizado' },

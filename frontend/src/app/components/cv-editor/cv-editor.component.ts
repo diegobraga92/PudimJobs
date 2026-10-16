@@ -1,9 +1,18 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { AuthService } from '../../services/auth.service';
-import { CVStructure, CvExportFormat, CvService, CvTemplate, MasterCV } from '../../services/cv.service';
+import {
+  CVStructure,
+  CvCapabilities,
+  CvExportFormat,
+  CvLanguage,
+  CvService,
+  CvTemplate,
+  MasterCV,
+} from '../../services/cv.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
@@ -47,6 +56,10 @@ export class CvEditorComponent implements OnInit {
   exporting = false;
   exportTemplate: CvTemplate = 'classic';
   exportFormat: CvExportFormat = 'pdf';
+  /** Export language: `en` is the stored CV, `pt-BR` is translated on demand (ADR 024). */
+  exportLanguage: CvLanguage = 'en';
+  /** What the API can export right now (whether translation is available). */
+  capabilities: CvCapabilities | null = null;
   mode: 'edit' | 'preview' = 'edit';
   cvName = 'Your Name';
 
@@ -59,6 +72,25 @@ export class CvEditorComponent implements OnInit {
   get displayName(): string {
     const typed = String(this.cvForm.value.fullName ?? '').trim();
     return typed || this.cvName;
+  }
+
+  /** Languages the API offers; the English-only fallback keeps the select usable. */
+  get languageOptions(): CvLanguage[] {
+    return this.capabilities?.export_languages ?? ['en'];
+  }
+
+  /** Whether a non-default language can be exported (the LLM is on). */
+  get translationAvailable(): boolean {
+    return this.capabilities?.llm_enabled === true;
+  }
+
+  /** A non-default language is off until the API reports the LLM is usable. */
+  languageEnabled(language: CvLanguage): boolean {
+    return language === 'en' || this.translationAvailable;
+  }
+
+  languageLabel(language: CvLanguage): string {
+    return this.i18n.t(language === 'en' ? 'cv.exportLanguage.en' : 'cv.exportLanguage.ptBR');
   }
 
   constructor(
@@ -100,6 +132,21 @@ export class CvEditorComponent implements OnInit {
 
   ngOnInit(): void {
     this.refreshVersions(true);
+    this.loadCapabilities();
+  }
+
+  /** Ask the API whether translation is available (the only source of truth). */
+  private loadCapabilities(): void {
+    this.service.capabilities().subscribe({
+      next: (capabilities) => {
+        this.capabilities = capabilities;
+        // A language that is no longer offered must not stay selected.
+        if (!this.languageEnabled(this.exportLanguage)) {
+          this.exportLanguage = capabilities.default_language;
+        }
+      },
+      error: () => undefined,
+    });
   }
 
   /** Reload master CV versions; optionally re-load the current one into the editor. */
@@ -166,36 +213,59 @@ export class CvEditorComponent implements OnInit {
   /**
    * Export the current editor content as a PDF (classic or ATS-safe layout) or as
    * an editable DOCX. The layout only applies to the PDF: Word gets one plain
-   * document, so the template select is disabled for DOCX.
+   * document, so the template select is disabled for DOCX. `language` (ADR 024)
+   * asks the API to translate the content before rendering; a non-default
+   * language needs the LLM, and a 409 says it is not available.
    */
   exportCv(
     format: CvExportFormat = this.exportFormat,
     template: CvTemplate = this.exportTemplate,
+    language: CvLanguage = this.exportLanguage,
   ): void {
     if (this.exporting) {
       return;
     }
     this.exporting = true;
     this.message = null;
-    this.service.exportCv(this.buildStructure(), template, format).subscribe({
+    this.service.exportCv(this.buildStructure(), template, format, language).subscribe({
       next: (blob) => {
         this.exporting = false;
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download =
-          format === 'docx' ? 'cv.docx' : template === 'ats' ? 'cv-ats.pdf' : 'cv.pdf';
+        anchor.download = this.exportFilename(format, template, language);
         anchor.click();
         URL.revokeObjectURL(url);
         this.toast.success(this.i18n.t(format === 'docx' ? 'cv.docxExported' : 'cv.pdfExported'));
       },
-      error: () => {
+      error: (response: HttpErrorResponse) => {
         this.exporting = false;
-        const key = format === 'docx' ? 'errors.failedExportDocx' : 'errors.failedExportPdf';
+        // A translated export fails when the LLM is off (409) or the provider
+        // failed (502); both read better as "could not translate" than as a
+        // generic export failure.
+        const key =
+          language !== 'en' && (response.status === 409 || response.status === 502)
+            ? 'errors.failedTranslateCv'
+            : format === 'docx'
+              ? 'errors.failedExportDocx'
+              : 'errors.failedExportPdf';
         this.error = this.i18n.t(key);
         this.toast.error(this.i18n.t(key));
       },
     });
+  }
+
+  /** Mirrors the `Content-Disposition` filename the API returns. */
+  private exportFilename(
+    format: CvExportFormat,
+    template: CvTemplate,
+    language: CvLanguage,
+  ): string {
+    const suffix = language === 'en' ? '' : `-${language.toLowerCase()}`;
+    if (format === 'docx') {
+      return `cv${suffix}.docx`;
+    }
+    return `${template === 'ats' ? 'cv-ats' : 'cv'}${suffix}.pdf`;
   }
 
   get experience(): FormArray {

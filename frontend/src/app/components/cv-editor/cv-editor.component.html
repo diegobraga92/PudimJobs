@@ -66,6 +66,19 @@
       <option value="classic">{{ i18n.t('cv.template.classic') }}</option>
       <option value="ats">{{ i18n.t('cv.template.ats') }}</option>
     </select>
+    <select
+      class="select export-language"
+      [value]="exportLanguage"
+      (change)="exportLanguage = $any($event.target).value"
+      [attr.aria-label]="i18n.t('cv.exportLanguage.label')"
+      [attr.title]="translationAvailable ? null : i18n.t('cv.exportLanguage.needsLlm')"
+    >
+      @for (language of languageOptions; track language) {
+        <option [value]="language" [disabled]="!languageEnabled(language)">
+          {{ languageLabel(language) }}
+        </option>
+      }
+    </select>
     <button
       type="button"
       class="btn btn-ghost"

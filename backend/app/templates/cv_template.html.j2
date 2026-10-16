@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ labels.locale }}">
 <head>
 <meta charset="utf-8">
 <style>
@@ -54,18 +54,18 @@
   {% endif %}
 
   {% if summary %}
-    <h2>Summary</h2>
+    <h2>{{ labels.summary }}</h2>
     <p>{{ summary }}</p>
   {% endif %}
 
   {% if experience %}
-    <h2>Experience</h2>
+    <h2>{{ labels.experience }}</h2>
     {% for exp in experience %}
       <div class="experience-item">
         <div class="experience-header">
           {{ exp.title }} — {{ exp.company }}
           {% if exp.start_date or exp.end_date %}
-            <span class="date">{{ exp.start_date or '' }} – {{ exp.end_date or 'Present' }}</span>
+            <span class="date">{{ exp.start_date or '' }} – {{ exp.end_date or labels.present }}</span>
           {% endif %}
         </div>
         {% if exp.bullets %}
@@ -78,7 +78,7 @@
   {% endif %}
 
   {% if skill_groups %}
-    <h2>Skills</h2>
+    <h2>{{ labels.skills }}</h2>
     <div class="skills">
       {% for label, items in skill_groups %}
         <div class="skill-group"><strong>{{ label }}:</strong> {{ items | join(', ') }}</div>
@@ -87,7 +87,7 @@
   {% endif %}
 
   {% if projects %}
-    <h2>Projects</h2>
+    <h2>{{ labels.projects }}</h2>
     {% for proj in projects %}
       <div class="experience-item">
         <div class="experience-header">{{ proj.name }}</div>
@@ -98,7 +98,7 @@
   {% endif %}
 
   {% if education %}
-    <h2>Education</h2>
+    <h2>{{ labels.education }}</h2>
     {% for edu in education %}
       <div class="education-item">
         {{ edu.degree }}, {{ edu.institution }}{% if edu.year %} ({{ edu.year }}){% endif %}
@@ -107,14 +107,14 @@
   {% endif %}
 
   {% if certifications %}
-    <h2>Certifications</h2>
+    <h2>{{ labels.certifications }}</h2>
     {% for cert in certifications %}
       <div class="cert-item">{{ cert }}</div>
     {% endfor %}
   {% endif %}
 
   {% if languages %}
-    <h2>Languages</h2>
+    <h2>{{ labels.languages }}</h2>
     {% for lang in languages %}
       <div class="lang-item">{{ lang }}</div>
     {% endfor %}

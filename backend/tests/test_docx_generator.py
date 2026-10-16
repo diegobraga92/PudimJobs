@@ -6,7 +6,8 @@ from io import BytesIO
 from docx import Document
 from docx.shared import Pt
 
-from app.services.cv_tailor import tailor_cv
+from app.services.cv_labels import labels_for
+from app.services.cv_tailor import TailoredCV, tailor_cv
 from app.services.docx_generator import generate_docx
 
 CV = {
@@ -165,3 +166,41 @@ def test_generate_docx_stays_plain_for_ats_parsers():
     assert document.tables == []
     assert "word/media" not in zipfile.ZipFile(BytesIO(docx)).namelist()
     assert b"w:txbxContent" not in zipfile.ZipFile(BytesIO(docx)).read("word/document.xml")
+
+
+# --- Localised headings (ADR 024) -------------------------------------------
+
+
+def test_generate_docx_uses_the_brazilian_portuguese_headings():
+    document = _document(tailor_cv(CV, ["python"]), labels=labels_for("pt-BR"))
+    texts = _texts(document)
+
+    for heading in (
+        "Resumo",
+        "Experiência",
+        "Competências",
+        "Projetos",
+        "Formação",
+        "Certificações",
+        "Idiomas",
+    ):
+        assert heading in texts, heading
+    assert "Summary" not in texts
+    # Word styles are untouched by the translation: it is still an ATS-shaped doc.
+    assert _style_for(document, "Resumo") == "Heading 1"
+
+
+def test_generate_docx_localises_the_open_ended_date():
+    tailored = TailoredCV.from_structure(
+        {
+            "summary": "x",
+            "experience": [
+                {"company": "Acme", "title": "Dev", "start_date": "2020-01", "bullets": []}
+            ],
+        }
+    )
+    texts = _texts(_document(tailored, labels=labels_for("pt-BR")))
+
+    assert any("2020-01" in text and "Atual" in text for text in texts)
+    assert not any("Present" in text for text in texts)
+

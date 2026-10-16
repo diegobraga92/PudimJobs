@@ -21,6 +21,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.shared import Cm, Emu, Pt
 
+from app.services.cv_labels import DEFAULT_LABELS, CVLabels
 from app.services.cv_tailor import TailoredCV
 
 # Same separator the PDF contact line uses between fields.
@@ -62,13 +63,13 @@ def _add_dated_line(document: Document, left: str, right: str = "") -> None:
         paragraph.add_run(f"\t{right}").font.size = Pt(9)
 
 
-def _date_range(item: dict) -> str:
+def _date_range(item: dict, present: str) -> str:
     """The ``start``-``end`` range shown in the PDF's experience header."""
     start = str(item.get("start_date") or "").strip()
     end = str(item.get("end_date") or "").strip()
     if not start and not end:
         return ""
-    return f"{start} {_DATE_SEPARATOR} {end or 'Present'}"
+    return f"{start} {_DATE_SEPARATOR} {end or present}"
 
 
 def _add_bullets(document: Document, bullets: list[object]) -> None:
@@ -108,10 +109,10 @@ def _add_header(document: Document, tailored: TailoredCV, name: str, email: str)
             run.font.size = Pt(_CONTACT_FONT_SIZE)
 
 
-def _add_experience(document: Document, experience: list[dict]) -> None:
+def _add_experience(document: Document, experience: list[dict], heading: str, present: str) -> None:
     if not experience:
         return
-    document.add_heading("Experience", level=1)
+    document.add_heading(heading, level=1)
     for item in experience:
         if not isinstance(item, dict):
             continue
@@ -123,7 +124,7 @@ def _add_experience(document: Document, experience: list[dict]) -> None:
             )
             if part
         )
-        date = _date_range(item)
+        date = _date_range(item, present)
         if heading:
             _add_dated_line(document, heading, date)
         elif date:
@@ -131,22 +132,22 @@ def _add_experience(document: Document, experience: list[dict]) -> None:
         _add_bullets(document, item.get("bullets") or [])
 
 
-def _add_skills(document: Document, groups: list[tuple[str, list[str]]]) -> None:
+def _add_skills(document: Document, groups: list[tuple[str, list[str]]], heading: str) -> None:
     """One bold ``Label:`` line per category, exactly like the PDF section."""
     groups = [(label, items) for label, items in groups if items]
     if not groups:
         return
-    document.add_heading("Skills", level=1)
+    document.add_heading(heading, level=1)
     for label, items in groups:
         paragraph = document.add_paragraph()
         paragraph.add_run(f"{label}: ").bold = True
         paragraph.add_run(", ".join(items))
 
 
-def _add_projects(document: Document, projects: list[dict]) -> None:
+def _add_projects(document: Document, projects: list[dict], heading: str) -> None:
     if not projects:
         return
-    document.add_heading("Projects", level=1)
+    document.add_heading(heading, level=1)
     for item in projects:
         if not isinstance(item, dict):
             continue
@@ -163,10 +164,10 @@ def _add_projects(document: Document, projects: list[dict]) -> None:
                 run.font.size = Pt(9)
 
 
-def _add_education(document: Document, education: list[dict]) -> None:
+def _add_education(document: Document, education: list[dict], heading: str) -> None:
     if not education:
         return
-    document.add_heading("Education", level=1)
+    document.add_heading(heading, level=1)
     for item in education:
         if not isinstance(item, dict):
             continue
@@ -190,24 +191,26 @@ def generate_docx(
     *,
     name: str = "",
     email: str = "",
+    labels: CVLabels = DEFAULT_LABELS,
 ) -> bytes:
     """Render a tailored CV as a Word document.
 
     ``name``/``email`` are the account-derived fallbacks for a CV that carries no
-    contact header (same contract as ``generate_pdf``).
+    contact header (same contract as ``generate_pdf``). ``labels`` carries the
+    section headings, so a translated export does not mix languages (ADR 024).
     """
     document = Document()
     _set_a4_page(document)
     _add_header(document, tailored, name=name, email=email)
     if tailored.summary:
-        document.add_heading("Summary", level=1)
+        document.add_heading(labels.summary, level=1)
         document.add_paragraph(tailored.summary)
-    _add_experience(document, tailored.experience)
-    _add_skills(document, tailored.resolved_skill_groups())
-    _add_projects(document, tailored.projects)
-    _add_education(document, tailored.education)
-    _add_list_section(document, "Certifications", tailored.certifications)
-    _add_list_section(document, "Languages", tailored.languages)
+    _add_experience(document, tailored.experience, labels.experience, labels.present)
+    _add_skills(document, tailored.resolved_skill_groups(), labels.skills)
+    _add_projects(document, tailored.projects, labels.projects)
+    _add_education(document, tailored.education, labels.education)
+    _add_list_section(document, labels.certifications, tailored.certifications)
+    _add_list_section(document, labels.languages, tailored.languages)
 
     buffer = BytesIO()
     document.save(buffer)

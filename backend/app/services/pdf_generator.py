@@ -5,6 +5,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
+from app.services.cv_labels import DEFAULT_LABELS, CVLabels
 from app.services.cv_tailor import TailoredCV
 
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
@@ -28,8 +29,13 @@ def render_cv_html(
     name: str = "",
     email: str = "",
     template: str = DEFAULT_TEMPLATE,
+    labels: CVLabels = DEFAULT_LABELS,
 ) -> str:
-    """Render a tailored CV to HTML using the named template."""
+    """Render a tailored CV to HTML using the named template.
+
+    ``labels`` carries the section headings, so a translated export does not
+    print English headings over Portuguese content (ADR 024).
+    """
     try:
         filename = TEMPLATES[template]
     except KeyError as exc:
@@ -37,6 +43,7 @@ def render_cv_html(
 
     jinja_template = _env.get_template(filename)
     return jinja_template.render(
+        labels=labels,
         name=tailored.full_name or name,
         email=tailored.email or email,
         phone=tailored.phone,
@@ -62,6 +69,7 @@ def generate_pdf(
     name: str = "",
     email: str = "",
     template: str = DEFAULT_TEMPLATE,
+    labels: CVLabels = DEFAULT_LABELS,
 ) -> bytes:
-    html = render_cv_html(tailored, name=name, email=email, template=template)
+    html = render_cv_html(tailored, name=name, email=email, template=template, labels=labels)
     return HTML(string=html).write_pdf()

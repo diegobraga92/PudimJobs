@@ -9,7 +9,10 @@ from structlog.testing import capture_logs
 
 from app.models.audit_log import AuditLog
 from app.models.generated_cv import GeneratedCV
+from app.routers import cv as cv_router
 from app.routers.cv import DOCX_MEDIA_TYPE
+from app.services import cv_translator
+from app.services.llm_config import LlmRuntimeConfig
 from tests.helpers import create_user
 
 CV_PAYLOAD = {
@@ -423,4 +426,213 @@ async def test_download_generated_cv_docx_rejects_another_users_artifact(auth_cl
         f"/api/cv/generated/{generated.id}/pdf", params={"format": "docx"}
     )
     assert response.status_code == 404
+
+
+# --- PT-BR export (ADR 024) -------------------------------------------------
+
+
+def _enable_llm(monkeypatch, *, enabled: bool = True, api_key: str = "sk-x") -> None:
+    """Point the router at a canned LLM config (the DB row is admin-owned)."""
+
+    async def _config(_db):
+        return LlmRuntimeConfig(
+            enabled=enabled, api_key=api_key, base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    monkeypatch.setattr(cv_router, "get_llm_config", _config)
+
+
+def _canned_translation(monkeypatch, **overrides) -> list[dict]:
+    """Stub the service's ``chat_json``; returns the list of calls it received."""
+    calls: list[dict] = []
+
+    async def _fake_chat_json(config, **kwargs):
+        calls.append(kwargs)
+        # `full_name` is identity, not prose: the reply echoes it untouched.
+        return {
+            **CV_PAYLOAD,
+            "full_name": "Jane Doe",
+            "summary": "Engenheiro backend",
+            **overrides,
+        }
+
+    monkeypatch.setattr(cv_translator, "chat_json", _fake_chat_json)
+    return calls
+
+
+async def test_cv_capabilities_report_the_export_languages(auth_client):
+    """The client cannot read admin settings, so this is how it gates PT-BR."""
+    client, _, _ = auth_client
+    response = await client.get("/api/cv/capabilities")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "llm_enabled": False,
+        "export_languages": ["en", "pt-BR"],
+        "default_language": "en",
+    }
+
+
+async def test_cv_capabilities_follow_the_llm_config(auth_client, monkeypatch):
+    client, _, _ = auth_client
+    _enable_llm(monkeypatch)
+
+    assert (await client.get("/api/cv/capabilities")).json()["llm_enabled"] is True
+
+
+async def test_cv_capabilities_require_a_key_not_just_enabled(auth_client, monkeypatch):
+    client, _, _ = auth_client
+    _enable_llm(monkeypatch, api_key="")
+
+    assert (await client.get("/api/cv/capabilities")).json()["llm_enabled"] is False
+
+
+async def test_export_cv_in_pt_br_requires_the_llm(auth_client):
+    client, _, _ = auth_client
+    response = await client.post("/api/cv/pdf", json=CV_PAYLOAD, params={"language": "pt-BR"})
+
+    assert response.status_code == 409
+    assert "pt-BR" in response.json()["detail"]
+
+
+async def test_export_cv_rejects_an_unknown_language(auth_client):
+    client, _, _ = auth_client
+    response = await client.post("/api/cv/pdf", json=CV_PAYLOAD, params={"language": "de"})
+
+    assert response.status_code == 400
+    assert "de" in response.json()["detail"]
+
+
+async def test_export_cv_translates_on_demand_for_pt_br(auth_client, monkeypatch):
+    """The rendered DOCX carries translated content *and* Portuguese headings."""
+    client, _, _ = auth_client
+    _enable_llm(monkeypatch)
+    calls = _canned_translation(monkeypatch)
+
+    response = await client.post(
+        "/api/cv/pdf", json=CV_PAYLOAD, params={"format": "docx", "language": "pt-BR"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == 'attachment; filename="cv-pt-br.docx"'
+    texts = [paragraph.text for paragraph in Document(BytesIO(response.content)).paragraphs]
+    assert "Engenheiro backend" in texts
+    assert "Resumo" in texts
+    assert "Experiência" in texts
+    assert "Summary" not in texts
+    assert len(calls) == 1
+    assert "Brazilian Portuguese" in calls[0]["system"]
+
+
+async def test_export_cv_fails_when_the_translation_fails(auth_client, monkeypatch):
+    """A broken translation is a 502, never an English CV with PT headings."""
+    client, _, _ = auth_client
+    _enable_llm(monkeypatch)
+    _canned_translation(monkeypatch, summary="")
+
+    response = await client.post("/api/cv/pdf", json=CV_PAYLOAD, params={"language": "pt-BR"})
+
+    assert response.status_code == 502
+
+
+
+
+async def test_download_generated_cv_in_pt_br_renders_on_demand(
+    auth_client, db_session, monkeypatch
+):
+    """The stored PDF is English, so PT-BR re-renders it from the structure."""
+    client, user, _ = auth_client
+    generated = GeneratedCV(
+        user_id=user.id,
+        pdf=b"%PDF-1.4 stored",
+        structured_json={**CV_PAYLOAD, "full_name": "Jane Doe"},
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+    _enable_llm(monkeypatch)
+    calls = _canned_translation(monkeypatch)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"language": "pt-BR"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="tailored-cv-{generated.id}-pt-br.pdf"'
+    )
+    assert response.content != b"%PDF-1.4 stored"
+    assert response.content.startswith(b"%PDF")
+    assert len(calls) == 1
+
+
+async def test_download_generated_cv_in_pt_br_requires_the_llm(auth_client, db_session):
+    client, user, _ = auth_client
+    generated = GeneratedCV(user_id=user.id, pdf=b"%PDF-1.4 stored", structured_json=CV_PAYLOAD)
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"language": "pt-BR"}
+    )
+
+    assert response.status_code == 409
+
+
+async def test_download_generated_cv_pt_br_without_a_structure_is_a_404(auth_client, db_session):
+    client, user, _ = auth_client
+    generated = GeneratedCV(user_id=user.id, pdf=b"%PDF-1.4 stored", structured_json=None)
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"language": "pt-BR"}
+    )
+
+    assert response.status_code == 404
+
+
+async def test_download_generated_cv_pt_br_docx_carries_portuguese_headings(
+    auth_client, db_session, monkeypatch
+):
+    client, user, _ = auth_client
+    generated = GeneratedCV(
+        user_id=user.id, pdf=b"%PDF-1.4 stored", structured_json={**CV_PAYLOAD, "full_name": "J"}
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+    _enable_llm(monkeypatch)
+    _canned_translation(monkeypatch)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf",
+        params={"format": "docx", "language": "pt-BR"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="tailored-cv-{generated.id}-pt-br.docx"'
+    )
+    texts = [paragraph.text for paragraph in Document(BytesIO(response.content)).paragraphs]
+    assert "Resumo" in texts
+    assert "Engenheiro backend" in texts
+    assert "Summary" not in texts
+
+
+async def test_download_generated_cv_rejects_an_unknown_language(auth_client, db_session):
+    client, user, _ = auth_client
+    generated = GeneratedCV(user_id=user.id, pdf=b"%PDF-1.4 stored", structured_json=CV_PAYLOAD)
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(
+        f"/api/cv/generated/{generated.id}/pdf", params={"language": "pt"}
+    )
+
+    assert response.status_code == 400
 
