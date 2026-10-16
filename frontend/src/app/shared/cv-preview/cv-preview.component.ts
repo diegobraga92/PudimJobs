@@ -14,9 +14,6 @@ import { I18nService } from '../../services/i18n.service';
         @if (contactLine) {
           <p class="cv-contact-line">{{ contactLine }}</p>
         }
-        @if (links.length > 0) {
-          <p class="cv-contact-line cv-links">{{ links.join(' · ') }}</p>
-        }
         <p class="cv-contact">
           @if (cv.summary) {
             <span>{{ cv.summary }}</span>
@@ -137,7 +134,10 @@ import { I18nService } from '../../services/i18n.service';
       }
 
       .cv-preview-sheet {
-        max-width: 640px;
+        /* Wide enough that the single-line header of ADR 021 fits on a desktop
+           viewport: 760px minus the 2.75rem padding leaves ~672px of text, where
+           640px left only 552px and pushed the contact line onto a second row. */
+        max-width: 760px;
         margin: 0 auto;
         background: var(--color-surface);
         border: 1px solid var(--color-border);
@@ -165,16 +165,16 @@ import { I18nService } from '../../services/i18n.service';
         }
       }
 
+      /* One line, as the PDF header draws it. Smaller than the old 0.825rem and
+         with the links folded in (ADR 021); fields still break only at the
+         separators, so an email is never split mid-token unless a field is wider
+         than the sheet, where the anywhere rule is the last resort. */
       .cv-contact-line {
         margin: 0;
         color: var(--color-text-muted);
-        font-size: var(--text-sm);
+        font-size: var(--text-xs);
         line-height: 1.5;
         overflow-wrap: anywhere;
-      }
-
-      .cv-links {
-        color: var(--color-accent);
       }
 
       .cv-section {
@@ -281,15 +281,10 @@ export class CvPreviewComponent {
   /** Display name for the resume header. */
   @Input() name = 'Your Name';
 
-  /** `email · phone · location`, skipping whatever is missing. */
+  /** The whole contact flow — `email • phone • location • links…` — joining whatever is present. */
   get contactLine(): string {
-    return [this.cv?.email, this.cv?.phone, this.cv?.location]
-      .filter((part) => !!part)
-      .join(' · ');
-  }
-
-  get links(): string[] {
-    return this.cv?.links ?? [];
+    const parts = [this.cv?.email, this.cv?.phone, this.cv?.location, ...(this.cv?.links ?? [])];
+    return parts.filter((part) => !!part).join(' • ');
   }
 
   /** Labelled skills categories from the LLM variant; empty for deterministic CVs, which render the flat chips instead. */

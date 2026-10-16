@@ -19,15 +19,30 @@ from io import BytesIO
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
-from docx.shared import Emu, Pt
+from docx.shared import Cm, Emu, Pt
 
 from app.services.cv_tailor import TailoredCV
 
 # Same separator the PDF contact line uses between fields.
 _CONTACT_SEPARATOR = " • "
+# Contact fields render at 8pt, the size at which the PDF header fits a
+# five-field line on one row (ADR 021).
+_CONTACT_FONT_SIZE = 8
+# A4 with the PDF template's 1.8cm side margins. python-docx defaults to Letter
+# with 1.25in margins — only 432pt of usable width — where even the 8pt contact
+# line overflows and wraps.
+_A4_PAGE = (Cm(21), Cm(29.7))
+_SIDE_MARGIN = Cm(1.8)
 # Typographic en dash, escaped because a literal one trips RUF001 (ambiguous
 # unicode). It is the separator the PDF's experience header uses.
 _DATE_SEPARATOR = "\u2013"
+
+
+def _set_a4_page(document: Document) -> None:
+    """Give the document the same page box the PDF template renders on (ADR 021)."""
+    section = document.sections[0]
+    section.page_width, section.page_height = _A4_PAGE
+    section.left_margin = section.right_margin = _SIDE_MARGIN
 
 
 def _usable_width(document: Document) -> int:
@@ -72,24 +87,25 @@ def _add_list_section(document: Document, heading: str, items: list[str]) -> Non
         document.add_paragraph(value)
 
 
-
 def _add_header(document: Document, tailored: TailoredCV, name: str, email: str) -> None:
-    """Name + the two contact lines (details, then links), as the PDF draws them."""
+    """Name + one contact line holding every field, as the PDF header draws it."""
     display_name = tailored.full_name or name
     if display_name:
         paragraph = document.add_paragraph(display_name, style="Title")
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    details = [
+    fields = [
         value for value in (tailored.email or email, tailored.phone, tailored.location) if value
     ]
-    for line in (details, tailored.links):
-        if not line:
-            continue
-        paragraph = document.add_paragraph(_CONTACT_SEPARATOR.join(line))
+    fields.extend(tailored.links)
+    if fields:
+        # One line, not a details paragraph plus a links paragraph: Word wraps it
+        # between fields when it has to, and the wider A4 page box means it
+        # usually does not (ADR 021).
+        paragraph = document.add_paragraph(_CONTACT_SEPARATOR.join(fields))
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for run in paragraph.runs:
-            run.font.size = Pt(9.5)
+            run.font.size = Pt(_CONTACT_FONT_SIZE)
 
 
 def _add_experience(document: Document, experience: list[dict]) -> None:
@@ -181,6 +197,7 @@ def generate_docx(
     contact header (same contract as ``generate_pdf``).
     """
     document = Document()
+    _set_a4_page(document)
     _add_header(document, tailored, name=name, email=email)
     if tailored.summary:
         document.add_heading("Summary", level=1)

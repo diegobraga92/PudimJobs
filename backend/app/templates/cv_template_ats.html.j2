@@ -7,12 +7,18 @@
      no decorative glyphs, standard fonts and plain black text. Section titles
      are literal words a parser can match; contact details are one text line. */
   @page { size: A4; margin: 2cm 1.9cm; }
-  body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 11pt;
-         color: #000; line-height: 1.4; }
+  /* The UA's 8px <body> margin used to narrow the content box below the @page
+     inset; reset it (as the classic template does) so the header gets the full
+     width ADR 021 measured. */
+  body { margin: 0; font-family: 'DejaVu Sans', Arial, sans-serif;
+         font-size: 11pt; color: #000; line-height: 1.4; }
   h1 { font-size: 16pt; margin: 0 0 4px; font-weight: bold; }
-  .contact { margin: 0 0 14px; font-size: 11pt; }
-  /* Fields stay on one line each; breaks happen only at the " | " separators,
-     so an email or URL is never split mid-token. */
+  /* 8pt, not the 11pt this line used to inherit: at 11pt the same five fields
+     need ~639pt against the 487.6pt this template's @page inset leaves, and
+     measured two lines; at 8pt the line uses 464.8pt of the 487.6pt (ADR 021). */
+  .contact { margin: 0 0 14px; font-size: 8pt; }
+  /* Fields stay whole; breaks happen only at the " | " separators, so an email
+     or URL is never split mid-token. */
   .contact .ci { white-space: nowrap; }
   h2 { font-size: 12pt; margin: 16px 0 6px; font-weight: bold; }
   p { margin: 0 0 6px; }

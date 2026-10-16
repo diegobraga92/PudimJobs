@@ -319,7 +319,10 @@ the same endpoint accepts `?format=docx`, and `POST /api/cv/pdf` (`?format=`,
 plus `?template=` for the PDF) renders straight from the editor, so both also
 hand back an editable Word copy built on demand from the stored structure. The
 PDF stays the canonical artifact — it is the only one stored and page-measured
-(ADR 017).
+(ADR 017). Every export opens with the same header — the name over one flowing
+contact line (`email • phone • location • links`), set at the 8pt at which all
+five fields fit a single row of the A4 text block, with the DOCX put on the same
+page box (ADR 021).
 The Skills section is grouped into labelled lines either way: the deterministic
 variant groups the flat list by taxonomy (skills the taxonomy does not know land
 in an `Additional` bucket, never `Other`), while the LLM variant authors its own

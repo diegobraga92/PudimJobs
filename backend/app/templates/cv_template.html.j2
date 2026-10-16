@@ -8,20 +8,24 @@
      section read with the same rhythm. Previously the summary <p> kept the
      UA's 1em margins and a 1.5 line-height while bullets ran tighter, so the
      two sections looked like different documents. */
-  body { font-family: 'DejaVu Sans', sans-serif; font-size: 10pt; color: #222;
-         line-height: 1.4; }
+  /* The UA gives <body> an 8px margin, which silently narrowed the content box
+     to 16.98cm instead of the 17.4cm that A4 minus the @page inset promises.
+     Reset it so the @page margin is the only inset (the ATS template does the
+     same, and ADR 021's measurements assume this width). */
+  body { margin: 0; font-family: 'DejaVu Sans', sans-serif; font-size: 10pt;
+         color: #222; line-height: 1.4; }
   p { margin: 0 0 6px; }
   h1 { font-size: 20pt; margin: 0 0 4px; color: #16324f; }
-  .contact { color: #555; font-size: 9.5pt; margin-bottom: 14px; }
-  .contact-line + .contact-line { margin-top: 2px; }
-  /* Each field is one unbreakable token and adjacent fields offer no break
-     opportunity, so a contact line never wraps: the " • " separator (drawn by
-     ::before on every field but the first) can never be orphaned onto a line of
-     its own. The trade-off is that an over-long contact block overlaps the page
-     edge instead of wrapping — acceptable for a header, and the reason the
-     details and the links get a line each. */
+  /* One flowing line: email, phone, location and links share a single block
+     instead of a details line plus a links line (ADR 021). Fields stay
+     unbreakable, but the separator between two fields does offer a break, so the
+     block packs greedily onto one line and spills over between fields only:
+     never mid-token, never past the page edge. 8pt is the size at which a real
+     five-field line (109 characters) fits in the 17.4cm A4 text block: measured
+     472.9pt of the 493.2pt available, where 9.5pt wrapped onto a second line. */
+  .contact { color: #555; font-size: 8pt; margin-bottom: 14px; }
   .contact .ci { white-space: nowrap; }
-  .contact .ci + .ci::before { content: " • "; color: #b9c4cf; }
+  .contact .sep { color: #b9c4cf; }
   h2 { font-size: 11pt; text-transform: uppercase; letter-spacing: 1px;
        border-bottom: 1px solid #b9c4cf; padding-bottom: 2px; margin: 14px 0 6px;
        color: #16324f; }
@@ -44,15 +48,9 @@
   {% if email %}{% set _ = contact_bits.append(email) %}{% endif %}
   {% if phone %}{% set _ = contact_bits.append(phone) %}{% endif %}
   {% if location %}{% set _ = contact_bits.append(location) %}{% endif %}
-  {% if contact_bits or links %}
-    <div class="contact">
-      {% if contact_bits %}
-        <div class="contact-line">{% for bit in contact_bits %}<span class="ci">{{ bit }}</span>{% endfor %}</div>
-      {% endif %}
-      {% if links %}
-        <div class="contact-line">{% for link in links %}<span class="ci">{{ link }}</span>{% endfor %}</div>
-      {% endif %}
-    </div>
+  {% if links %}{% set _ = contact_bits.extend(links) %}{% endif %}
+  {% if contact_bits %}
+    <div class="contact">{% for bit in contact_bits %}<span class="ci">{{ bit }}</span>{% if not loop.last %}<span class="sep"> • </span>{% endif %}{% endfor %}</div>
   {% endif %}
 
   {% if summary %}

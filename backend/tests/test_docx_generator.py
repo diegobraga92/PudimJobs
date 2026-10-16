@@ -4,6 +4,7 @@ import zipfile
 from io import BytesIO
 
 from docx import Document
+from docx.shared import Pt
 
 from app.services.cv_tailor import tailor_cv
 from app.services.docx_generator import generate_docx
@@ -62,16 +63,30 @@ def test_generate_docx_renders_the_sections_and_uses_word_styles():
     assert _style_for(document, "Built FastAPI services") == "List Bullet"
 
 
-def test_generate_docx_contact_is_two_centred_lines():
-    """Details on one line, links on the next — as the PDF header draws them."""
+def test_generate_docx_contact_is_one_centred_line():
+    """Every field on one centred line, as the PDF header draws it (ADR 021)."""
     document = _document(tailor_cv(CV, ["python"]))
     texts = _texts(document)
 
-    details = "jane@example.com • +55 11 91234-5678 • Sao Paulo, Brazil"
-    assert details in texts
-    assert "https://github.com/janedoe" in texts
-    assert texts.index(details) < texts.index("https://github.com/janedoe")
-    assert all(paragraph.alignment is not None for paragraph in document.paragraphs[:3])
+    line = "jane@example.com • +55 11 91234-5678 • Sao Paulo, Brazil • https://github.com/janedoe"
+    assert line in texts
+    # The details/links split is gone, so neither half is a paragraph of its own.
+    assert "jane@example.com • +55 11 91234-5678 • Sao Paulo, Brazil" not in texts
+    assert "https://github.com/janedoe" not in texts
+    assert all(paragraph.alignment is not None for paragraph in document.paragraphs[:2])
+    # 8pt is the size the PDF header fits five fields at (ADR 021).
+    assert document.paragraphs[1].runs[0].font.size == Pt(8)
+
+
+def test_generate_docx_uses_the_pdf_page_box():
+    """A4 with the PDF's side margins: Letter's 432pt is too narrow for the header."""
+    section = _document(tailor_cv(CV, ["python"])).sections[0]
+
+    # Word stores lengths in twips, so a cm round-trips to within a fraction of a
+    # millimetre (21cm comes back as 21.0009cm) — hence the rounding.
+    assert round(section.page_width.cm, 1) == 21
+    assert round(section.page_height.cm, 1) == 29.7
+    assert round(section.left_margin.cm, 1) == round(section.right_margin.cm, 1) == 1.8
 
 
 def test_generate_docx_falls_back_to_the_account_name():

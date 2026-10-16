@@ -1,6 +1,8 @@
 """Tests for PDF generation (classic + ATS templates)."""
 
 import pytest
+from weasyprint import HTML
+from weasyprint.formatting_structure import boxes
 
 from app.services.cv_tailor import tailor_cv
 from app.services.pdf_generator import generate_pdf, render_cv_html
@@ -21,6 +23,56 @@ CV = {
     "certifications": ["AWS Solutions Architect"],
     "languages": ["English (fluent)"],
 }
+
+# The header that exposed the wrap (ADR 021): five fields, 109 characters, which
+# DejaVu Sans fits on one row at 8pt (472.9pt of the 493.2pt text block) but not
+# at the 9.5pt the template used.
+REPORTED_HEADER = {
+    "full_name": "Diego Braga",
+    "email": "diego.braga92@gmail.com",
+    "phone": "+55 12 98801-8904",
+    "location": "Brazil",
+    "links": ["github.com/diegobraga92", "linkedin.com/in/diegobraga92"],
+    "skills": [],
+}
+
+
+def _boxes(box):
+    """Depth-first walk of WeasyPrint's box tree."""
+    yield box
+    for child in getattr(box, "children", None) or []:
+        yield from _boxes(child)
+
+
+def _is_contact_block(box) -> bool:
+    element = getattr(box, "element", None)
+    if getattr(box, "element_tag", None) != "div" or element is None:
+        return False
+    return "contact" in (element.get("class") or "").split()
+
+
+def _text_of(box) -> str:
+    """Every character box under ``box``, in visual order."""
+    if isinstance(box, boxes.TextBox):
+        return box.text
+    return "".join(_text_of(child) for child in getattr(box, "children", None) or [])
+
+
+def _contact_lines(html: str) -> list[str]:
+    """The contact block as the renderer laid it out: one string per rendered line.
+
+    WeasyPrint exposes no public box API, so this walks the private ``_page_box``:
+    the coupling is deliberate, because "does the header wrap, and where" is a
+    property of the *rendered* page. The old two-line header passed every
+    string-level test in this module, which is what let the wrap ship.
+    """
+    page_box = getattr(HTML(string=html).render().pages[0], "_page_box", None)
+    if page_box is None:  # pragma: no cover - guards a WeasyPrint upgrade
+        pytest.skip("WeasyPrint no longer exposes a page box tree to walk")
+
+    contact = next((box for box in _boxes(page_box) if _is_contact_block(box)), None)
+    assert contact is not None, "contact block not found in the rendered page"
+    return [_text_of(box) for box in _boxes(contact) if isinstance(box, boxes.LineBox)]
 
 
 def test_render_cv_html_contains_sections():
@@ -79,23 +131,29 @@ def test_render_cv_html_falls_back_to_account_name():
     assert "jane@example.com" in html
 
 
-def test_render_cv_html_contact_is_two_nowrap_lines():
-    """Contact info splits into a details line and a links line, never mid-value."""
+def test_render_cv_html_contact_is_one_flowing_line():
+    """Every field shares one line — no forced details-then-links split (ADR 021)."""
     tailored = tailor_cv(CV, ["python"])
     html = render_cv_html(tailored)
 
-    assert (
-        '<div class="contact-line"><span class="ci">jane@example.com</span>'
-        '<span class="ci">+55 11 91234-5678</span>'
-        '<span class="ci">Sao Paulo, Brazil</span></div>'
-    ) in html
-    assert (
-        '<div class="contact-line"><span class="ci">https://github.com/janedoe</span></div>'
-    ) in html
-    # Values stay whole (the separator rides on the following field's ::before).
+    assert html.count('<div class="contact">') == 1
+    # The pre-split shape is gone: it was only there to stop the block
+    # overflowing the page edge, which the breakable separator now handles.
+    assert '<div class="contact-line">' not in html
+    for bit in (
+        "jane@example.com",
+        "+55 11 91234-5678",
+        "Sao Paulo, Brazil",
+        "https://github.com/janedoe",
+    ):
+        assert f'<span class="ci">{bit}</span>' in html
+    # Fields stay whole: the break opportunity lives in the separator, not in a value.
+    assert '<span class="sep"> • </span>' in html
     assert ".contact .ci { white-space: nowrap; }" in html
-    # The old single-line join is gone: a bullet could be orphaned onto its own line.
-    assert "jane@example.com • +55" not in html
+    # 8pt is what makes five fields fit in 17.4cm of DejaVu Sans (ADR 021).
+    assert ".contact { color: #555; font-size: 8pt; margin-bottom: 14px; }" in html
+    # So the content box is the width the @page margin promises, not 8px less.
+    assert "body { margin: 0;" in html
 
 
 def test_render_cv_html_shares_one_type_scale():
@@ -137,14 +195,55 @@ def test_render_cv_html_ats_template_is_plain_single_column():
     assert "<table" not in html.lower()
     assert "<img" not in html.lower()
     assert "float:" not in html.lower()
-    # Values stay whole even though the contact line is allowed to wrap.
+    # Values stay whole even though the contact line is allowed to wrap, and the
+    # line renders at the 8pt that keeps five fields on one row (ADR 021).
     assert ".contact .ci { white-space: nowrap; }" in html
+    assert ".contact { margin: 0 0 14px; font-size: 8pt; }" in html
 
 
 def test_render_cv_html_rejects_unknown_template():
     tailored = tailor_cv(CV, ["python"])
     with pytest.raises(ValueError):
         render_cv_html(tailored, template="fancy")
+
+
+@pytest.mark.parametrize("template", ["classic", "ats"])
+def test_contact_header_renders_as_a_single_line(template):
+    """The reported five-field header fits on one line in both templates (ADR 021)."""
+    html = render_cv_html(tailor_cv(REPORTED_HEADER, []), template=template)
+
+    separator = " | " if template == "ats" else " • "
+    assert _contact_lines(html) == [
+        separator.join(
+            [
+                "diego.braga92@gmail.com",
+                "+55 12 98801-8904",
+                "Brazil",
+                "github.com/diegobraga92",
+                "linkedin.com/in/diegobraga92",
+            ]
+        )
+    ]
+
+
+@pytest.mark.parametrize("template", ["classic", "ats"])
+def test_contact_header_keeps_every_field_when_it_has_to_wrap(template):
+    """A header too long for one line wraps *between* fields, never mid-token (ADR 021)."""
+    padded = {**REPORTED_HEADER, "location": "Sao Paulo, Brazil (open to relocation)"}
+    html = render_cv_html(tailor_cv(padded, []), template=template)
+
+    lines = _contact_lines(html)
+    assert len(lines) == 2
+    # A mid-token split would leave the value on neither line; a clean break
+    # leaves it whole on exactly one.
+    for field in (
+        "diego.braga92@gmail.com",
+        "+55 12 98801-8904",
+        "Sao Paulo, Brazil (open to relocation)",
+        "github.com/diegobraga92",
+        "linkedin.com/in/diegobraga92",
+    ):
+        assert sum(field in line for line in lines) == 1, field
 
 
 def test_generate_pdf_returns_valid_pdf():
