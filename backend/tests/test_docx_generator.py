@@ -190,6 +190,26 @@ def test_generate_docx_uses_the_brazilian_portuguese_headings():
     assert _style_for(document, "Resumo") == "Heading 1"
 
 
+def test_generate_docx_localises_the_skill_group_labels():
+    """The group labels travel inside the translated structure, so a PT-BR export
+    prints `Linguagens`/`Ferramentas` instead of the taxonomy's English fallback."""
+    tailored = TailoredCV.from_structure(
+        {
+            "summary": "x",
+            "skills": ["python", "Docker"],
+            "skill_groups": [
+                {"label": "Linguagens", "items": ["python"]},
+                {"label": "Ferramentas", "items": ["Docker"]},
+            ],
+        }
+    )
+    texts = _texts(_document(tailored, labels=labels_for("pt-BR")))
+
+    assert "Linguagens: python" in texts
+    assert "Ferramentas: Docker" in texts
+    assert "Languages: python" not in texts
+
+
 def test_generate_docx_localises_the_open_ended_date():
     tailored = TailoredCV.from_structure(
         {

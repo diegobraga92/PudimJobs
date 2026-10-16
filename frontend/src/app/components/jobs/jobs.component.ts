@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import {
   JobCleanupRequest,
@@ -12,7 +12,7 @@ import {
   JobsService,
 } from '../../services/jobs.service';
 import { ApplicationsService } from '../../services/applications.service';
-import { Source, SourcesService } from '../../services/sources.service';
+import { Source, SourcesService, isJobSource } from '../../services/sources.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { AppModalComponent } from '../../shared/modal/modal.component';
 import { OnboardingComponent } from '../../shared/onboarding/onboarding.component';
@@ -60,11 +60,19 @@ export class JobsComponent implements OnInit {
   cleanupRunning = false;
   cleanupSources: Source[] = [];
 
+  /**
+   * Sources known to the filter dropdown, loaded once on init. Empty while the
+   * request is in flight (or when it failed): the list still works, it just
+   * cannot be narrowed by board.
+   */
+  sources: Source[] = [];
+
   constructor(
     private fb: FormBuilder,
     private service: JobsService,
     private applications: ApplicationsService,
     private sourcesService: SourcesService,
+    private route: ActivatedRoute,
     private router: Router,
     private toast: ToastService,
     readonly i18n: I18nService
@@ -75,6 +83,7 @@ export class JobsComponent implements OnInit {
       date_from: [''],
       date_to: [''],
       tags: [''],
+      source_id: [''],
     });
     this.jobForm = this.fb.group({
       title: ['', Validators.required],
@@ -92,8 +101,54 @@ export class JobsComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // `/jobs?source_id=<id>` is the handoff used by the Sources page's "View
+    // jobs" link: the filter is seeded before the first search, so the list
+    // opens already narrowed. It seeds once — the select then owns the value.
+    const sourceId = this.route.snapshot.queryParamMap.get('source_id');
+    if (sourceId) {
+      this.searchForm.patchValue({ source_id: sourceId });
+    }
+    this.loadSources();
     this.search();
     this.loadPipeline();
+  }
+
+  /** Sources offered by the filter dropdown (see `sources` for the fallback). */
+  private loadSources(): void {
+    this.sourcesService.list().subscribe({
+      next: (sources) => (this.sources = sources),
+      error: () => undefined,
+    });
+  }
+
+  /**
+   * Boards the dropdown offers: the ones that can own jobs. Manual watchlists
+   * are never fetched, so listing them would only ever return nothing.
+   */
+  get sourceOptions(): Source[] {
+    return this.sources.filter(isJobSource);
+  }
+
+  /**
+   * Line shown above the results while the list is narrowed to one board. The
+   * name comes from the loaded sources; an unknown id (a stale link, or a
+   * failed sources request) falls back to a generic "narrowed" label.
+   */
+  get activeSourceLabel(): string {
+    const id = this.searchForm.get('source_id')?.value as string;
+    if (!id) {
+      return '';
+    }
+    const name = this.sources.find((source) => source.id === id)?.name;
+    return name
+      ? this.i18n.t('jobs.sourceFilterActive', { name })
+      : this.i18n.t('jobs.sourceFilterUnknown');
+  }
+
+  /** Drop the board narrowing from the filter bar's action. */
+  clearSourceFilter(): void {
+    this.searchForm.patchValue({ source_id: '' });
+    this.search();
   }
 
   /** Loads the pipeline status map so job cards can show "Applied / Interview / …". */
@@ -128,6 +183,7 @@ export class JobsComponent implements OnInit {
       date_from: string;
       date_to: string;
       tags: string;
+      source_id: string;
     };
     const filters: JobFilters = {
       q: value.q || undefined,
@@ -135,6 +191,7 @@ export class JobsComponent implements OnInit {
       date_from: value.date_from || undefined,
       date_to: value.date_to || undefined,
       tags: value.tags || undefined,
+      source_id: value.source_id || undefined,
       include_hidden: this.showHidden || undefined,
       hide_applied: this.hideApplied || undefined,
     };

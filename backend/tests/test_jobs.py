@@ -83,6 +83,55 @@ async def test_job_search_filters(auth_client):
     assert no_match.json() == []
 
 
+async def test_list_jobs_filters_by_source(auth_client, db_session):
+    """``source_id`` narrows the list to one board's jobs, and never leaks others'."""
+    client, _, _ = auth_client
+    source_a = (
+        await client.post(
+            "/api/sources",
+            json={
+                "name": "Acme Careers",
+                "url": "https://acme.example/careers",
+                "type": "career_page",
+            },
+        )
+    ).json()["id"]
+    source_b = (
+        await client.post(
+            "/api/sources",
+            json={
+                "name": "Beta Board",
+                "url": "https://beta.example/jobs",
+                "type": "career_page",
+            },
+        )
+    ).json()["id"]
+    await _create_job(client, title="From A1", source_id=source_a)
+    await _create_job(client, title="From A2", source_id=source_a)
+    await _create_job(client, title="From B", source_id=source_b)
+    await _create_job(client, title="Manual")
+
+    # Another user's job that happens to point at my source stays invisible.
+    other = await create_user(db_session, email="jobs-source-other@example.com")
+    db_session.add(
+        Job(user_id=other.id, title="Theirs", company="Beta", source_id=uuid.UUID(source_a))
+    )
+    await db_session.commit()
+
+    from_a = await client.get("/api/jobs", params={"source_id": source_a})
+    assert from_a.status_code == 200
+    assert sorted(job["title"] for job in from_a.json()) == ["From A1", "From A2"]
+
+    # An unknown id narrows everything out instead of erroring, so a stale link
+    # (a deleted source) is harmless rather than a 404 mid-navigation.
+    unknown = await client.get("/api/jobs", params={"source_id": str(uuid.uuid4())})
+    assert unknown.status_code == 200
+    assert unknown.json() == []
+
+    # Without the parameter the list is not narrowed at all.
+    assert len((await client.get("/api/jobs")).json()) == 4
+
+
 async def test_create_job_with_foreign_source_rejected(auth_client):
     client, _, _ = auth_client
     response = await client.post(

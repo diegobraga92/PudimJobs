@@ -1,4 +1,5 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
@@ -44,7 +45,7 @@ describe('SourcesComponent — manual watchlist', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [SourcesComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     }).compileComponents();
 
     fixture = TestBed.createComponent(SourcesComponent);
@@ -323,5 +324,43 @@ describe('SourcesComponent — manual watchlist', () => {
     });
     request.flush(ACTIVE_SOURCE);
     http.expectOne('/api/sources').flush([]);
+  });
+
+  // --- Jobs column + "View jobs": the deep link into the jobs list ---
+
+  /** A scraped board: the only kind that collects jobs on its own. */
+  const CAREER_SOURCE: Source = {
+    ...MANUAL_SOURCE,
+    id: 'src-6',
+    name: 'Acme Careers',
+    type: 'career_page',
+    config: null,
+    next_check_at: null,
+    jobs_count: 7,
+  };
+
+  it('offers "View jobs" only for sources that can own jobs', () => {
+    expect(component.canViewJobs(CAREER_SOURCE)).toBeTrue();
+    // A watchlist is never fetched, so there is nothing to open…
+    expect(component.canViewJobs(MANUAL_SOURCE)).toBeFalse();
+    // …unless a job was attached to it by hand, which the count reveals.
+    expect(component.canViewJobs({ ...MANUAL_SOURCE, jobs_count: 1 })).toBeTrue();
+  });
+
+  it('opens the jobs list narrowed to the source', () => {
+    const navigate = spyOn(TestBed.inject(Router), 'navigate');
+
+    component.viewJobs(CAREER_SOURCE);
+
+    expect(navigate).toHaveBeenCalledWith(['/jobs'], { queryParams: { source_id: 'src-6' } });
+  });
+
+  it('shows only scraped boards when the Automated filter is active', () => {
+    component.sources = [MANUAL_SOURCE, CAREER_SOURCE, UNHEALTHY_SOURCE];
+
+    component.setSourceFilter('automated');
+
+    expect(component.visibleSources.map((source) => source.id)).toEqual(['src-6', 'src-4']);
+    expect(component.automatedCount).toBe(2);
   });
 });

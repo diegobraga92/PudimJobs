@@ -313,6 +313,26 @@ def test_render_cv_html_localises_the_open_ended_date():
     assert "Present" not in html
 
 
+def test_render_cv_html_localises_the_skill_group_labels():
+    """The group labels travel inside the translated structure: a PT-BR export of
+    a CV that groups by taxonomy shows `Linguagens`, not `Languages`."""
+    tailored = TailoredCV.from_structure(
+        {
+            "summary": "x",
+            "skills": ["python", "Docker"],
+            "skill_groups": [
+                {"label": "Linguagens", "items": ["python"]},
+                {"label": "Ferramentas", "items": ["Docker"]},
+            ],
+        }
+    )
+    html = render_cv_html(tailored, labels=labels_for("pt-BR"))
+
+    assert "<strong>Linguagens:</strong> python" in html
+    assert "<strong>Ferramentas:</strong> Docker" in html
+    assert "<strong>Languages:</strong>" not in html
+
+
 def test_render_cv_html_ats_template_is_localised_too():
     html = render_cv_html(
         tailor_cv(CV, ["python"]), template="ats", labels=labels_for("pt-BR")

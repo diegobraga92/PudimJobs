@@ -2,6 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 
 import {
   AggregatorAdapter,
@@ -14,6 +15,7 @@ import {
   SourceInput,
   SourcePreview,
   SourcesService,
+  isJobSource,
 } from '../../services/sources.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
 import { AppModalComponent } from '../../shared/modal/modal.component';
@@ -33,8 +35,10 @@ const SOURCE_TYPE_KEYS: Record<string, string> = {
 /**
  * Single-select quick filter for the source list. `''` means "All": every
  * source is shown (avoided ones still sink to the bottom — ADR 019).
+ * `'automated'` keeps the scraped boards — the ones that can own jobs — and is
+ * the mirror image of `'manual'`.
  */
-export type SourceQuickFilter = '' | 'manual' | 'unhealthy' | 'due' | 'avoided';
+export type SourceQuickFilter = '' | 'manual' | 'automated' | 'unhealthy' | 'due' | 'avoided';
 
 @Component({
   selector: 'app-sources',
@@ -107,6 +111,7 @@ export class SourcesComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private service: SourcesService,
+    private router: Router,
     private confirm: ConfirmService,
     private toast: ToastService,
     readonly i18n: I18nService
@@ -335,6 +340,8 @@ export class SourcesComponent implements OnInit {
     switch (this.sourceFilter) {
       case 'manual':
         return source.type === 'manual';
+      case 'automated':
+        return source.type !== 'manual';
       case 'unhealthy':
         return source.health !== 'healthy';
       case 'due':
@@ -351,9 +358,31 @@ export class SourcesComponent implements OnInit {
     this.sourceFilter = filter;
   }
 
+  /**
+   * True when the row has jobs worth opening: the scraped boards, plus any
+   * source that already owns a job (a watchlist cannot be fetched, but a job
+   * can still be attached to it by hand).
+   */
+  canViewJobs(source: Source): boolean {
+    return isJobSource(source);
+  }
+
+  /**
+   * Open the jobs list narrowed to this board. The Jobs page reads the query
+   * param once and seeds its Source filter, so there is a single list of jobs
+   * to maintain (search, pagination and cleanup all keep working there).
+   */
+  viewJobs(source: Source): void {
+    this.router.navigate(['/jobs'], { queryParams: { source_id: source.id } });
+  }
+
   /** Live counts shown inside the filter chips (0 hides the counter). */
   get manualCount(): number {
     return this.sources.filter((source) => source.type === 'manual').length;
+  }
+
+  get automatedCount(): number {
+    return this.sources.filter((source) => source.type !== 'manual').length;
   }
 
   get unhealthyCount(): number {

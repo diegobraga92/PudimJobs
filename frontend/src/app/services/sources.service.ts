@@ -37,6 +37,18 @@ export type SourceInput = Pick<
   Pick<Source, 'id' | 'health' | 'config' | 'avoided' | 'avoided_at' | 'avoid_reason'>
 >;
 
+/**
+ * True when a source is worth opening the jobs list for.
+ *
+ * `manual` sources are watchlists that nobody fetches (ADR 018), so they never
+ * collect a job — *unless* one was attached by hand, because `POST /api/jobs`
+ * accepts any `source_id` the user owns. Hence the extra count check: it keeps
+ * a hand-made job reachable instead of hiding it behind the type.
+ */
+export function isJobSource(source: Source): boolean {
+  return source.type !== 'manual' || (source.jobs_count ?? 0) > 0;
+}
+
 export type SourceAuthType = 'none' | 'token' | 'api_key';
 
 export interface SourceAuth {

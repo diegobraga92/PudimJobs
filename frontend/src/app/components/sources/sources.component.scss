@@ -162,6 +162,24 @@
   font-weight: var(--font-weight-semibold);
 }
 
+/* The count is the way into that board's jobs, so it reads as an action. */
+.source-jobs-link {
+  gap: 0.25rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+
+  &:hover,
+  &:focus-visible {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+}
+
 @media (max-width: 768px) {
   .skeleton-row {
     grid-template-columns: 1fr;

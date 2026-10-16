@@ -1,5 +1,6 @@
 """Tests for the master CV API (versioning + audit)."""
 
+import json
 import uuid
 from io import BytesIO
 
@@ -442,17 +443,40 @@ def _enable_llm(monkeypatch, *, enabled: bool = True, api_key: str = "sk-x") -> 
     monkeypatch.setattr(cv_router, "get_llm_config", _config)
 
 
+# The taxonomy's group labels as a translated reply would carry them. The stub
+# below reads the structure it was handed (a real model echoes it back) and
+# translates the labels only — the chrome/data split the prompt asks for.
+GROUP_LABELS_PT_BR = {
+    "Languages": "Linguagens",
+    "Frameworks": "Frameworks",
+    "Databases": "Bancos de dados",
+    "Cloud & DevOps": "Cloud & DevOps",
+    "Concepts": "Conceitos",
+    "Tools": "Ferramentas",
+    "Additional": "Adicionais",
+}
+
+
 def _canned_translation(monkeypatch, **overrides) -> list[dict]:
     """Stub the service's ``chat_json``; returns the list of calls it received."""
     calls: list[dict] = []
 
     async def _fake_chat_json(config, **kwargs):
         calls.append(kwargs)
+        sent = json.loads(kwargs["user"].split("\n\n", 1)[1])
+        groups = [
+            {
+                "label": GROUP_LABELS_PT_BR.get(group["label"], group["label"]),
+                "items": group["items"],
+            }
+            for group in sent.get("skill_groups") or []
+        ]
         # `full_name` is identity, not prose: the reply echoes it untouched.
         return {
             **CV_PAYLOAD,
             "full_name": "Jane Doe",
             "summary": "Engenheiro backend",
+            "skill_groups": groups,
             **overrides,
         }
 
@@ -504,7 +528,8 @@ async def test_export_cv_rejects_an_unknown_language(auth_client):
 
 
 async def test_export_cv_translates_on_demand_for_pt_br(auth_client, monkeypatch):
-    """The rendered DOCX carries translated content *and* Portuguese headings."""
+    """The rendered DOCX carries translated content, Portuguese headings *and* the
+    skill-group labels the taxonomy would otherwise print in English."""
     client, _, _ = auth_client
     _enable_llm(monkeypatch)
     calls = _canned_translation(monkeypatch)
@@ -519,7 +544,12 @@ async def test_export_cv_translates_on_demand_for_pt_br(auth_client, monkeypatch
     assert "Engenheiro backend" in texts
     assert "Resumo" in texts
     assert "Experiência" in texts
+    # CV_PAYLOAD stores no `skill_groups`, so the renderer groups by taxonomy —
+    # those labels are what a PT-BR CV used to show in English.
+    assert "Linguagens: python" in texts
+    assert "Frameworks: fastapi" in texts
     assert "Summary" not in texts
+    assert not any(text.startswith("Languages:") for text in texts)
     assert len(calls) == 1
     assert "Brazilian Portuguese" in calls[0]["system"]
 
@@ -529,6 +559,20 @@ async def test_export_cv_fails_when_the_translation_fails(auth_client, monkeypat
     client, _, _ = auth_client
     _enable_llm(monkeypatch)
     _canned_translation(monkeypatch, summary="")
+
+    response = await client.post("/api/cv/pdf", json=CV_PAYLOAD, params={"language": "pt-BR"})
+
+    assert response.status_code == 502
+
+
+async def test_export_cv_fails_when_the_translation_flattens_the_skill_groups(
+    auth_client, monkeypatch
+):
+    """The groups handed to the model are content: losing them fails the export
+    rather than rendering a CV with an English skills heading."""
+    client, _, _ = auth_client
+    _enable_llm(monkeypatch)
+    _canned_translation(monkeypatch, skill_groups=[])
 
     response = await client.post("/api/cv/pdf", json=CV_PAYLOAD, params={"language": "pt-BR"})
 

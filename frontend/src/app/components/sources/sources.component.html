@@ -468,6 +468,17 @@
       <button
         type="button"
         class="chip"
+        [class.active]="sourceFilter === 'automated'"
+        (click)="setSourceFilter('automated')"
+      >
+        {{ i18n.t('sources.filter.automated') }}
+        @if (automatedCount) {
+          <span class="chip-count">{{ automatedCount }}</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="chip"
         [class.active]="sourceFilter === 'unhealthy'"
         (click)="setSourceFilter('unhealthy')"
       >
@@ -578,7 +589,21 @@
             </td>
             <td>{{ typeLabel(source.type) }}</td>
             <td>
-              <span class="source-count">{{ source.jobs_count ?? '—' }}</span>
+              @if (canViewJobs(source)) {
+                <!-- The count doubles as the entry point to that board's jobs. -->
+                <button
+                  type="button"
+                  class="source-count source-jobs-link"
+                  [attr.title]="i18n.t('sources.viewJobsHint')"
+                  [attr.aria-label]="i18n.t('sources.viewJobsAria', { name: source.name })"
+                  (click)="viewJobs(source)"
+                >
+                  <app-icon name="briefcase" [size]="13" />
+                  {{ source.jobs_count ?? 0 }}
+                </button>
+              } @else {
+                <span class="source-count" [attr.title]="i18n.t('sources.manualHasNoJobs')">—</span>
+              }
             </td>
             <td>
               <span
@@ -602,6 +627,12 @@
               }
             </td>
             <td class="row-actions">
+              @if (canViewJobs(source)) {
+                <button type="button" class="btn btn-ghost btn-sm" (click)="viewJobs(source)">
+                  <app-icon name="briefcase" [size]="14" />
+                  {{ i18n.t('sources.viewJobs') }}
+                </button>
+              }
               @if (source.type === 'manual') {
                 <a
                   class="btn btn-ghost btn-sm"

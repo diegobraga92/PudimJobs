@@ -1,5 +1,7 @@
 """Tests for on-demand CV translation and localised headings (ADR 024)."""
 
+import copy
+import json
 from dataclasses import replace
 
 from app.services import cv_translator
@@ -42,11 +44,20 @@ TRANSLATED = {
     "experience": [
         {
             "company": "Acme",
-            "title": "Python Developer",
+            "title": "Desenvolvedora Python",
             "start_date": "2020-01",
             "end_date": None,
             "bullets": ["Construiu pipelines assíncronos"],
         }
+    ],
+    "education": [
+        {"institution": "MIT", "degree": "Bacharelado em Ciência da Computação", "year": "2015"}
+    ],
+    # The group labels are chrome and translate; the entries under them are data
+    # and keep the candidate's own spelling (ADR 024).
+    "skill_groups": [
+        {"label": "Linguagens", "items": ["python"]},
+        {"label": "Frameworks", "items": ["fastapi"]},
     ],
     "languages": ["Inglês (fluente)"],
 }
@@ -68,6 +79,11 @@ def _reply(monkeypatch, payload):
     return calls
 
 
+def _sent_structure(calls: dict) -> dict:
+    """The structure the service actually handed the model (the user message)."""
+    return json.loads(calls["user"].split("\n\n", 1)[1])
+
+
 async def test_translate_returns_the_validated_structure(monkeypatch):
     calls = _reply(monkeypatch, TRANSLATED)
 
@@ -76,8 +92,13 @@ async def test_translate_returns_the_validated_structure(monkeypatch):
     )
 
     assert translated["summary"] == TRANSLATED["summary"]
-    # The non-translatable fields survive the round trip through CVStructure.
+    # Job titles and degrees are prose: the model translates them.
+    assert translated["experience"][0]["title"] == "Desenvolvedora Python"
+    assert translated["education"][0]["degree"] == "Bacharelado em Ciência da Computação"
+    # The data survives the round trip through CVStructure untouched, in the
+    # candidate's own spelling.
     assert translated["experience"][0]["company"] == "Acme"
+    assert translated["skills"] == ["python", "fastapi"]
     assert translated["email"] == "jane@example.com"
     assert calls["label"] == "LLM CV translation"
     assert "Brazilian Portuguese" in calls["system"]
@@ -136,6 +157,84 @@ async def test_translate_discards_an_invalid_structure(monkeypatch):
 async def test_translate_discards_a_reply_that_drops_a_section(monkeypatch):
     """`{}` validates against CVStructure — it must still be rejected."""
     _reply(monkeypatch, {})
+
+    assert (
+        await cv_translator.translate_cv_structure(
+            STRUCTURE, target_language="pt-BR", config=ENABLED
+        )
+        is None
+    )
+
+
+async def test_translate_prompt_splits_translated_prose_from_verbatim_data(monkeypatch):
+    calls = _reply(monkeypatch, TRANSLATED)
+
+    await cv_translator.translate_cv_structure(STRUCTURE, target_language="pt-BR", config=ENABLED)
+
+    system = calls["system"]
+    # Job titles and degrees are prose. The prompt used to pin them as
+    # non-negotiables, which left a PT-BR CV saying `Masters` and `Senior...`.
+    assert "Engenheiro de Software Sênior" in system
+    assert "Mestrado em Ciência da Computação" in system
+    # ...while the skill entries are the data that never moves.
+    assert "`skill_groups[].items`" in system
+    assert "programming languages and tool names" in system
+
+
+# --- Skill groups the model is handed (ADR 024) ----------------------------
+# The taxonomy fallback used to be invisible to the translator: a CV with no
+# `skill_groups` rendered "Tools:" under a `Competências` heading because those
+# English labels never left the renderer.
+
+
+async def test_translate_hands_the_model_the_taxonomy_skill_groups(monkeypatch):
+    calls = _reply(monkeypatch, TRANSLATED)
+
+    translated = await cv_translator.translate_cv_structure(
+        STRUCTURE, target_language="pt-BR", config=ENABLED
+    )
+
+    assert _sent_structure(calls)["skill_groups"] == [
+        {"label": "Languages", "items": ["python"]},
+        {"label": "Frameworks", "items": ["fastapi"]},
+    ]
+    assert [group["label"] for group in translated["skill_groups"]] == ["Linguagens", "Frameworks"]
+
+
+async def test_translate_injects_nothing_when_there_is_nothing_to_group(monkeypatch):
+    """LLM-authored labels are the model's own, and a CV with no skills has no
+    section to group — both are passed through as they were."""
+    own_groups = [{"label": "Backend", "items": ["python"]}]
+    calls = _reply(monkeypatch, {**TRANSLATED, "skill_groups": own_groups})
+
+    await cv_translator.translate_cv_structure(
+        {**STRUCTURE, "skill_groups": own_groups}, target_language="pt-BR", config=ENABLED
+    )
+    assert _sent_structure(calls)["skill_groups"] == own_groups
+
+    calls = _reply(monkeypatch, {**TRANSLATED, "skills": [], "skill_groups": []})
+    await cv_translator.translate_cv_structure(
+        {**STRUCTURE, "skills": [], "skill_groups": []}, target_language="pt-BR", config=ENABLED
+    )
+    assert _sent_structure(calls)["skill_groups"] == []
+
+
+async def test_translate_does_not_mutate_the_structure_it_was_handed(monkeypatch):
+    """`_localized_structure` also passes a stored `structured_json`; writing the
+    injected groups into it would put English labels in the candidate's CV."""
+    structure = copy.deepcopy(STRUCTURE)
+    _reply(monkeypatch, TRANSLATED)
+
+    await cv_translator.translate_cv_structure(structure, target_language="pt-BR", config=ENABLED)
+
+    assert structure == STRUCTURE
+    assert structure["skill_groups"] == []
+
+
+async def test_translate_discards_a_reply_that_flattens_the_skill_groups(monkeypatch):
+    """The injected groups are content too: rolling the section back to the flat
+    list loses what the model was handed, so it fails like any other drop."""
+    _reply(monkeypatch, {**TRANSLATED, "skill_groups": []})
 
     assert (
         await cv_translator.translate_cv_structure(

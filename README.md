@@ -277,8 +277,8 @@ reminders, free-text retrospectives) are listed in the ADRs.
 search/filter, with a `source_id` filter and a preview-first bulk cleanup —
 ADR 023), versioned master CV and applications (pipeline status, notes);
 audit logging for CV and application mutations; Alembic migrations + idempotent
-seed. 557 backend tests (343 run without PostgreSQL, 214 integration tests
-skipped when it is unreachable) and 100 Angular specs.
+seed. 566 backend tests (350 run without PostgreSQL, 216 integration tests
+skipped when it is unreachable) and 110 Angular specs.
 
 **Scraping engine (Celery + RabbitMQ)** — pluggable scrapers (`scrapers/`:
 career page via schema.org/JSON-LD, RSS via feedparser, aggregator adapters,
@@ -323,7 +323,9 @@ PDF stays the canonical artifact — it is the only one stored and page-measured
 (ADR 017). Both export endpoints also accept `?language=pt-BR`: the copy is
 translated on demand by the LLM from the same structure and rendered fresh, with
 the section headings taken from a fixed PT-BR catalog so a translated CV never
-mixes *Resumo* with *Summary* (ADR 024). English is the stored language and needs
+mixes *Resumo* with *Summary* (ADR 024). The skill-group labels travel to the
+model with the copy, so a CV that groups its skills by taxonomy reads
+*Ferramentas* rather than *Tools*. English is the stored language and needs
 no LLM; the client learns whether translation is available from
 `GET /api/cv/capabilities` rather than by provoking a 409. Every export opens with the same header — the name over one flowing
 contact line (`email • phone • location • links`), set at the 8pt at which all
@@ -379,7 +381,11 @@ structlog; Prometheus/Grafana and worker metrics (scrapes total/duration) are
 provisioned by docker-compose.
 
 **Frontend (Angular)** — login + auth guard + JWT interceptor; source
-management; job listing with keyword/company/tag/date search, manual add, a
+management with quick filters (all / manual / automated / unhealthy / due /
+avoided) and a per-source jobs count that opens that board's jobs in the jobs
+list (`/jobs?source_id=…`, the filter the API already exposes — a manual
+watchlist stays unlinked until it owns a job); job listing with
+keyword/company/tag/date/source search, manual add, a
 preview-then-confirm bulk cleanup (age and/or source, applications protected by
 default — ADR 023) and a
 detail view (parsed requirements, *add to applications*, pipeline badge once

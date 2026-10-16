@@ -67,6 +67,23 @@
     />
   </div>
 
+  <!-- Board the jobs were scraped from. Only boards that can own jobs are
+       listed: manual watchlists are never fetched. -->
+  <div class="search-field">
+    <select
+      class="select"
+      formControlName="source_id"
+      [attr.aria-label]="i18n.t('jobs.aria.filterSource')"
+    >
+      <option value="">{{ i18n.t('jobs.allSources') }}</option>
+      @for (source of sourceOptions; track source.id) {
+        <option [value]="source.id">
+          {{ source.name }}{{ source.jobs_count ? ' (' + source.jobs_count + ')' : '' }}
+        </option>
+      }
+    </select>
+  </div>
+
   <label class="checkbox-row search-toggle">
     <input
       type="checkbox"
@@ -96,6 +113,19 @@
     <span class="search-label">{{ loading ? i18n.t('jobs.searching') : i18n.t('jobs.search') }}</span>
   </button>
 </form>
+
+<!-- The list is narrowed to one board: say so, and offer a way out — the
+     dropdown may be empty when the sources request failed. -->
+@if (activeSourceLabel) {
+  <div class="active-source-filter">
+    <app-icon name="list-filter" [size]="15" />
+    <span class="active-source-name">{{ activeSourceLabel }}</span>
+    <button type="button" class="btn btn-ghost btn-sm" (click)="clearSourceFilter()">
+      <app-icon name="x" [size]="14" />
+      {{ i18n.t('jobs.clearSourceFilter') }}
+    </button>
+  </div>
+}
 
 @if (showForm) {
   <app-modal
