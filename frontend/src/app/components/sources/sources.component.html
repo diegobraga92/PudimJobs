@@ -441,31 +441,103 @@
     </button>
   </div>
 } @else {
-  @if (avoidedCount) {
-    <label class="checkbox-row list-toggle">
-      <input
-        type="checkbox"
-        [checked]="hideAvoided"
-        (change)="toggleHideAvoided()"
-        [attr.aria-label]="i18n.t('sources.hideAvoided')"
-      />
-      {{ i18n.t('sources.hideAvoided') }}
-      <span class="muted xs">{{ i18n.t('sources.avoidedCount', { count: avoidedCount }) }}</span>
-    </label>
-  }
-
-  @if (visibleSources.length === 0) {
-    <div class="empty-state panel">
-      <span class="empty-icon">
-        <app-icon name="eye-off" [size]="26" />
-      </span>
-      <h3>{{ i18n.t('sources.allAvoidedHidden') }}</h3>
-      <p>{{ i18n.t('sources.allAvoidedHiddenHint') }}</p>
-      <button type="button" class="btn btn-ghost" (click)="toggleHideAvoided()">
-        <app-icon name="eye" [size]="16" />
-        {{ i18n.t('sources.showAvoided') }}
+  <div class="filters panel">
+    <div class="filter-group" role="group" [attr.aria-label]="i18n.t('sources.quickFilters')">
+      <span class="muted small">{{ i18n.t('sources.quickFilters') }}</span>
+      <button
+        type="button"
+        class="chip"
+        [class.active]="sourceFilter === ''"
+        (click)="setSourceFilter('')"
+      >
+        {{ i18n.t('sources.filter.all') }}
+      </button>
+      <button
+        type="button"
+        class="chip"
+        [class.active]="sourceFilter === 'manual'"
+        (click)="setSourceFilter('manual')"
+      >
+        {{ i18n.t('sources.filter.manual') }}
+        @if (manualCount) {
+          <span class="chip-count">{{ manualCount }}</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="chip"
+        [class.active]="sourceFilter === 'unhealthy'"
+        (click)="setSourceFilter('unhealthy')"
+      >
+        {{ i18n.t('sources.filter.unhealthy') }}
+        @if (unhealthyCount) {
+          <span class="chip-count">{{ unhealthyCount }}</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="chip"
+        [class.active]="sourceFilter === 'due'"
+        (click)="setSourceFilter('due')"
+      >
+        {{ i18n.t('sources.filter.due') }}
+        @if (dueCount) {
+          <span class="chip-count">{{ dueCount }}</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="chip"
+        [class.active]="sourceFilter === 'avoided'"
+        (click)="setSourceFilter('avoided')"
+      >
+        {{ i18n.t('sources.filter.avoided') }}
+        @if (avoidedCount) {
+          <span class="chip-count">{{ avoidedCount }}</span>
+        }
       </button>
     </div>
+
+    @if (avoidedCount) {
+      <label class="checkbox-row list-toggle">
+        <input
+          type="checkbox"
+          [checked]="hideAvoided"
+          (change)="toggleHideAvoided()"
+          [attr.aria-label]="i18n.t('sources.hideAvoided')"
+        />
+        {{ i18n.t('sources.hideAvoided') }}
+        <span class="muted xs">{{ i18n.t('sources.avoidedCount', { count: avoidedCount }) }}</span>
+      </label>
+    }
+  </div>
+
+  @if (visibleSources.length === 0) {
+    @if (sourceFilter !== '') {
+      <div class="empty-state panel">
+        <span class="empty-icon">
+          <app-icon name="globe" [size]="26" />
+        </span>
+        <h3>{{ i18n.t('sources.noMatch') }}</h3>
+        <p>{{ i18n.t('sources.noMatchHint') }}</p>
+        <button type="button" class="btn btn-ghost" (click)="setSourceFilter('')">
+          <app-icon name="x" [size]="16" />
+          {{ i18n.t('sources.clearFilter') }}
+        </button>
+      </div>
+    } @else {
+      <div class="empty-state panel">
+        <span class="empty-icon">
+          <app-icon name="eye-off" [size]="26" />
+        </span>
+        <h3>{{ i18n.t('sources.allAvoidedHidden') }}</h3>
+        <p>{{ i18n.t('sources.allAvoidedHiddenHint') }}</p>
+        <button type="button" class="btn btn-ghost" (click)="toggleHideAvoided()">
+          <app-icon name="eye" [size]="16" />
+          {{ i18n.t('sources.showAvoided') }}
+        </button>
+      </div>
+    }
   } @else {
     <div class="table-scroll">
     <table class="table">

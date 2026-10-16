@@ -29,6 +29,12 @@ const SOURCE_TYPE_KEYS: Record<string, string> = {
   manual: 'sources.type.manual',
 };
 
+/**
+ * Single-select quick filter for the source list. `''` means "All": every
+ * source is shown (avoided ones still sink to the bottom — ADR 019).
+ */
+export type SourceQuickFilter = '' | 'manual' | 'unhealthy' | 'due' | 'avoided';
+
 @Component({
   selector: 'app-sources',
   standalone: true,
@@ -80,6 +86,8 @@ export class SourcesComponent implements OnInit {
   avoidingId: string | null = null;
   /** When on, avoided sources are dropped from the table (they stay in the API). */
   hideAvoided = false;
+  /** Quick filter applied to the list (single-select chip row). `''` = All. */
+  sourceFilter: SourceQuickFilter = '';
 
   /** Dry-run of the current form values (nothing is saved). */
   previewing = false;
@@ -309,15 +317,50 @@ export class SourcesComponent implements OnInit {
   }
 
   /**
-   * The rows to render. Avoided sources are listed *last* — they are a reminder
-   * of what to stay away from, not work to do — and are dropped entirely while
-   * "Hide avoided" is on. The API keeps returning them either way (ADR 019).
+   * The rows to render. The quick filter narrows first, then "Hide avoided"
+   * drops them; avoided sources that survive are listed *last* — they are a
+   * reminder of what to stay away from, not work to do. The API keeps returning
+   * them either way (ADR 019).
    */
   get visibleSources(): Source[] {
-    const rows = this.hideAvoided
-      ? this.sources.filter((source) => !source.avoided)
-      : [...this.sources];
+    const rows = this.sources
+      .filter((source) => this.matchesFilter(source))
+      .filter((source) => (this.hideAvoided ? !source.avoided : true));
     return rows.sort((a, b) => Number(!!a.avoided) - Number(!!b.avoided));
+  }
+
+  /** Predicate of the active quick filter (`''` keeps every source). */
+  private matchesFilter(source: Source): boolean {
+    switch (this.sourceFilter) {
+      case 'manual':
+        return source.type === 'manual';
+      case 'unhealthy':
+        return source.health !== 'healthy';
+      case 'due':
+        return source.type === 'manual' && !!source.due;
+      case 'avoided':
+        return !!source.avoided;
+      default:
+        return true;
+    }
+  }
+
+  /** Selects a quick filter (single-select); `''` shows every source again. */
+  setSourceFilter(filter: SourceQuickFilter): void {
+    this.sourceFilter = filter;
+  }
+
+  /** Live counts shown inside the filter chips (0 hides the counter). */
+  get manualCount(): number {
+    return this.sources.filter((source) => source.type === 'manual').length;
+  }
+
+  get unhealthyCount(): number {
+    return this.sources.filter((source) => source.health !== 'healthy').length;
+  }
+
+  get dueCount(): number {
+    return this.sources.filter((source) => source.type === 'manual' && !!source.due).length;
   }
 
   /** How many sources are flagged as avoided (0 hides the toggle's counter). */

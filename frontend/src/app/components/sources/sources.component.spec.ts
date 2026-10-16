@@ -149,6 +149,19 @@ describe('SourcesComponent — manual watchlist', () => {
     avoided_at: '2026-01-02T00:00:00+00:00',
     avoid_reason: 'postings are never remote',
   };
+  const UNHEALTHY_SOURCE: Source = {
+    ...MANUAL_SOURCE,
+    id: 'src-4',
+    name: 'Broken board',
+    type: 'rss',
+    health: 'degraded',
+  };
+  const DUE_SOURCE: Source = {
+    ...MANUAL_SOURCE,
+    id: 'src-5',
+    name: 'Due board',
+    due: true,
+  };
 
   it('lists avoided sources last and counts them', () => {
     component.sources = [AVOIDED_SOURCE, ACTIVE_SOURCE];
@@ -166,6 +179,74 @@ describe('SourcesComponent — manual watchlist', () => {
 
     component.toggleHideAvoided();
     expect(component.visibleSources.length).toBe(2);
+  });
+
+  // --- Quick filters: single-select chips above the table ---
+
+  it('shows only manual sources when the Manual filter is active', () => {
+    component.sources = [MANUAL_SOURCE, UNHEALTHY_SOURCE, ACTIVE_SOURCE];
+
+    component.setSourceFilter('manual');
+
+    expect(component.sourceFilter).toBe('manual');
+    expect(component.visibleSources.map((source) => source.id)).toEqual([
+      MANUAL_SOURCE.id,
+      ACTIVE_SOURCE.id,
+    ]);
+  });
+
+  it('shows only non-healthy sources when the Unhealthy filter is active', () => {
+    component.sources = [MANUAL_SOURCE, UNHEALTHY_SOURCE];
+
+    component.setSourceFilter('unhealthy');
+
+    expect(component.visibleSources.map((source) => source.id)).toEqual([UNHEALTHY_SOURCE.id]);
+    expect(component.unhealthyCount).toBe(1);
+  });
+
+  it('shows only due manual sources when the Due filter is active', () => {
+    component.sources = [MANUAL_SOURCE, DUE_SOURCE, ACTIVE_SOURCE];
+
+    component.setSourceFilter('due');
+
+    expect(component.visibleSources.map((source) => source.id)).toEqual([DUE_SOURCE.id]);
+    expect(component.dueCount).toBe(1);
+  });
+
+  it('shows only avoided sources when the Avoided filter is active', () => {
+    component.sources = [ACTIVE_SOURCE, AVOIDED_SOURCE];
+
+    component.setSourceFilter('avoided');
+
+    expect(component.visibleSources.map((source) => source.id)).toEqual([AVOIDED_SOURCE.id]);
+  });
+
+  it('composes an active filter with "Hide avoided"', () => {
+    component.sources = [ACTIVE_SOURCE, AVOIDED_SOURCE];
+
+    component.setSourceFilter('manual');
+    component.toggleHideAvoided();
+
+    // Both are manual, but the avoided one is trimmed by the toggle.
+    expect(component.visibleSources.map((source) => source.id)).toEqual([ACTIVE_SOURCE.id]);
+  });
+
+  it('restores every source when the All filter is selected again', () => {
+    component.sources = [ACTIVE_SOURCE, UNHEALTHY_SOURCE];
+    component.setSourceFilter('unhealthy');
+    expect(component.visibleSources.length).toBe(1);
+
+    component.setSourceFilter('');
+
+    expect(component.sourceFilter).toBe('');
+    expect(component.visibleSources.length).toBe(2);
+  });
+
+  it('counts manual and unhealthy sources for the chip counters', () => {
+    component.sources = [MANUAL_SOURCE, ACTIVE_SOURCE, UNHEALTHY_SOURCE];
+
+    expect(component.manualCount).toBe(2);
+    expect(component.unhealthyCount).toBe(1);
   });
 
   it('avoids a source in one click, sending no reason so the stored one is kept', () => {
