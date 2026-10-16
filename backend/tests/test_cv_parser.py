@@ -205,6 +205,93 @@ def test_structure_cv_ignores_unknown_sections():
     assert cv.skills == ["Python", "SQL"]
 
 
+# A skills section written the way hiring-manager-friendly CVs do it: one labelled
+# line per group, multi-word and slashed skills included.
+LABELLED_SKILLS_CV = """\
+Jane Doe
+
+SKILLS
+Languages: C++, Rust, Python, Golang, C#, Ruby, JavaScript, TypeScript, SQL
+Frameworks: Flask, Qt, Boost, Protobuf, gRPC, Apache Thrift, Tauri, RoR, Celery, n8n
+Cloud & DevOps: AWS, Azure, Docker, Jenkins, Terraform, CI/CD, Artifactory, Nginx, CDK
+Databases: PostgreSQL, MongoDB, Redis, SQLite, BigQuery
+Concepts: Agile, Scrum, Kanban, TDD, Microservices
+Tools: Linux, Windows, macOS, Git, Confluence, JIRA
+Methodologies: Test-Driven Development
+"""
+
+
+def test_parse_skills_strips_category_labels():
+    # Regression: the label words ("Frameworks", "Cloud", "DevOps", ...) used to be
+    # split out of the line *as skills*, so they ended up rendered under "Additional".
+    cv = structure_cv(LABELLED_SKILLS_CV)
+
+    assert "Flask" in cv.skills
+    assert "PostgreSQL" in cv.skills
+    assert "Nginx" in cv.skills
+    for label in (
+        "Frameworks",
+        "Databases",
+        "Concepts",
+        "Tools",
+        "Methodologies",
+        "Languages",
+        "Cloud",
+        "DevOps",
+    ):
+        assert label not in cv.skills
+
+
+def test_parse_skills_keeps_multiword_and_slashed_skills_intact():
+    # Regression: single spaces and slashes used to be delimiters, which shredded
+    # these into fragments ("Apache" + "Thrift", "CI" + "CD") that no taxonomy lookup
+    # could place.
+    cv = structure_cv(LABELLED_SKILLS_CV)
+
+    assert "Apache Thrift" in cv.skills
+    assert "Test-Driven Development" in cv.skills
+    assert "CI/CD" in cv.skills
+    for fragment in ("Apache", "Thrift", "CI", "CD", "Test-Driven", "Development"):
+        assert fragment not in cv.skills
+
+
+def test_parse_skills_splits_on_bullets_columns_and_numbered_lines():
+    cv = structure_cv(
+        "SKILLS\n"
+        "\u2022 Python\n"
+        "\u2022 SQL\n"
+        "Docker  Kubernetes\n"
+        "1. Terraform\n"
+        "2. AWS\n"
+    )
+
+    assert cv.skills == ["Python", "SQL", "Docker", "Kubernetes", "Terraform", "AWS"]
+
+
+def test_structure_cv_keeps_a_label_only_skills_line_in_the_skills_section():
+    # Regression: the bare "Languages:" line matched the spoken-languages heading, so
+    # every skill after it was filed under `cv.languages` and vanished from the CV.
+    cv = structure_cv("SKILLS\nLanguages:\nC++, Rust, Python\n\nTools: Git, Docker\n")
+
+    assert cv.skills == ["C++", "Rust", "Python", "Git", "Docker"]
+    assert cv.languages == []
+
+
+def test_structure_cv_still_honours_a_languages_section_heading():
+    cv = structure_cv("SKILLS\nPython, SQL\n\nLANGUAGES\nEnglish (fluent)\n")
+
+    assert cv.skills == ["Python", "SQL"]
+    assert cv.languages == ["English (fluent)"]
+
+
+def test_structure_cv_still_switches_section_on_a_colon_terminated_heading():
+    # Only *skill-group* labels are treated as labels; "PROJECTS:" still switches.
+    cv = structure_cv("SKILLS\nPython\n\nPROJECTS:\nPudimJobs - Job tracker\n")
+
+    assert cv.skills == ["Python"]
+    assert [p.name for p in cv.projects] == ["PudimJobs"]
+
+
 def test_structure_cv_keeps_wrapped_bullets_with_their_entry():
     # PDF text extraction yields Symbol-font bullets (\uf0b7) and wraps long
     # bullets across lines; neither should be mistaken for a new job header.

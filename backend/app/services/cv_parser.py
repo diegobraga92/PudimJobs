@@ -124,22 +124,63 @@ _NON_SKILL_WORDS = {
     "to",
     "for",
     "with",
-    "skills",
-    "skill",
-    "technical",
-    "technologies",
-    "tools",
-    "core",
-    "competencies",
-    "competency",
-    "competences",
     "summary",
     "profile",
     "experience",
     "education",
     "projects",
     "certifications",
+}
+
+# Category labels a CV writes *inside* its skills section to say where a group of
+# skills belongs ("Frameworks: Flask, Qt", "Cloud & DevOps: AWS, Docker"). The
+# label names a group the taxonomy already encodes — it is an instruction, never a
+# skill — so `_parse_skills` strips it, and a label left on a line of its own (one
+# with no payload to attach it to) is dropped here instead of becoming a skill.
+_SKILL_LABEL_WORDS = {
+    "skills",
+    "skill",
+    "technical",
+    "technical skills",
+    "technologies",
+    "technology",
+    "tech",
+    "tech stack",
+    "tools",
+    "tooling",
+    "core",
+    "core competencies",
+    "competencies",
+    "competency",
+    "competences",
     "languages",
+    "language",
+    "programming languages",
+    "frameworks",
+    "framework",
+    "libraries",
+    "library",
+    "databases",
+    "database",
+    "data stores",
+    "cloud",
+    "cloud & devops",
+    "cloud and devops",
+    "devops",
+    "infrastructure",
+    "platforms",
+    "concepts",
+    "concept",
+    "methodologies",
+    "methodology",
+    "practices",
+    "other",
+    "others",
+    "additional",
+    "misc",
+    "miscellaneous",
+    "soft",
+    "soft skills",
 }
 
 _MONTH_INDEX = {
@@ -304,6 +345,21 @@ def _match_heading(line: str) -> str | None:
         if re.fullmatch(pattern, cleaned):
             return kind
     return None
+
+
+def _is_skill_sublabel(line: str) -> bool:
+    """True for a colon-terminated skill-group label, e.g. ``Languages:``.
+
+    A CV that groups its skills writes ``Languages:`` meaning *programming*
+    languages; the trailing colon is what tells it apart from the spoken-languages
+    section heading (``LANGUAGES``), so a label like this seen inside the skills
+    section keeps the lines that follow it in the skills section instead of
+    diverting them into `cv.languages`. Unknown labels (``PROJECTS:``) still switch
+    sections — only labels listed in `_SKILL_LABEL_WORDS` are treated this way.
+    """
+    if not line.rstrip().endswith(":"):
+        return False
+    return line.rstrip().rstrip(":").strip().lower() in _SKILL_LABEL_WORDS
 
 
 def _bullet_text(line: str) -> str | None:
@@ -485,18 +541,65 @@ def _parse_education(lines: list[str]) -> list[EducationItem]:
     return items
 
 
+# Skills are listed inline and across lines, so only *real* separators split them:
+# commas/semicolons/pipes, bullet glyphs and runs of 2+ spaces (PDF column padding).
+# Never a single space and never a slash — "Apache Thrift", "Test-Driven
+# Development" and "CI/CD" are single skills, and splitting on whitespace used to
+# shred them (plus the label words in front of them) into fragments that fell
+# straight through to the "Additional" bucket.
+_SKILL_SPLIT_RE = re.compile(
+    r"[,;|]"
+    r"|[\u2022\u25cf\u25e6\u25aa\u2023\u2043\u00b7"
+    r"\uf0b7\uf0a7\uf0d8\uf0fc\uf0a8]"
+    r"|\s{2,}"
+)
+
+# A skill-group label in front of its values: "Frameworks: Flask, Qt". The pattern
+# is loose on purpose; `_strip_skill_label` only acts when the prefix is a known
+# label word, so a skill that merely contains a colon ("CKA: Certified ...") keeps
+# its prefix.
+_SKILL_LABEL_RE = re.compile(r"^([A-Za-z][A-Za-z0-9 &/+.]{0,39}):[ \t]*(.+)$")
+
+# Single-letter languages are real skills, but the length floor below drops every
+# 1-char token to avoid capturing stray initials.
+_SHORT_SKILLS = {"c", "r"}
+
+
+def _strip_skill_label(line: str) -> str:
+    """Drop a leading category label ("Cloud & DevOps: AWS, Docker")."""
+    match = _SKILL_LABEL_RE.match(line)
+    if match and match.group(1).strip().lower() in _SKILL_LABEL_WORDS:
+        return match.group(2)
+    return line
+
+
 def _parse_skills(lines: list[str]) -> list[str]:
+    """Split the skills section into de-duplicated, atomic skill names.
+
+    Only the delimiters above split a line: a line with neither separators nor a
+    label ("Python SQL Docker") stays a single entry rather than being chopped up,
+    because guessing at word boundaries is what shredded multi-word skills in the
+    first place. The CV editor is one comma-separated field, so such a line is a
+    ten-second fix for the CV's owner.
+    """
     seen: set[str] = set()
     skills: list[str] = []
-    for line in lines:
-        for token in re.split(r"[,;•|/\s]\s*|\s{2,}", line):
+    for raw_line in lines:
+        line = _strip_skill_label(raw_line)
+        bullet = _bullet_text(line)
+        if bullet is not None:
+            # Also covers numbered lines ("1. Python"), which the splitter would
+            # otherwise keep as one token.
+            line = bullet
+        for token in _SKILL_SPLIT_RE.split(line):
             token = token.strip(" \t.,;:()[]{}\u00b7\u2013\u2014")
             low = token.lower()
             if (
                 not token
-                or len(token) < 2
                 or len(token) > 64
+                or (len(token) < 2 and low not in _SHORT_SKILLS)
                 or low in _NON_SKILL_WORDS
+                or low in _SKILL_LABEL_WORDS
                 or _YEAR_RE.fullmatch(token)
                 or _URL_RE.fullmatch(token)
             ):
@@ -510,7 +613,7 @@ def _parse_skills(lines: list[str]) -> list[str]:
 
 
 # Certifications/languages are phrase-like ("AWS Solutions Architect"), so split
-# only on strong separators — never on whitespace like the skills parser.
+# only on strong separators — like the skills parser, never on single whitespace.
 _ITEM_SPLIT_RE = re.compile(r"[,;•|]|\s{2,}")
 
 
@@ -655,7 +758,7 @@ def structure_cv(text: str) -> CVStructure:
         if not line:
             continue
         kind = _match_heading(line)
-        if kind is not None:
+        if kind is not None and not (current == "skills" and _is_skill_sublabel(line)):
             current = kind
             continue
         if current in sections:

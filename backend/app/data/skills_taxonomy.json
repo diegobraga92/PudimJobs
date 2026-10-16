@@ -9,7 +9,8 @@
     "django", "flask", "fastapi", "spring", "spring boot", "rails", "laravel",
     "asp.net", "graphql", "fastify", "tensorflow", "pytorch", "pandas",
     "numpy", "scikit-learn", "spark", "kafka", "hadoop", "airflow",
-    "hibernate", "jquery", "bootstrap", "tailwind", "redux"
+    "hibernate", "jquery", "bootstrap", "tailwind", "redux",
+    "qt", "boost", "protobuf", "grpc", "apache thrift", "tauri", "celery", "n8n"
   ],
   "databases": [
     "postgresql", "postgres", "mysql", "sqlite", "mongodb", "redis",
@@ -20,7 +21,8 @@
     "aws", "gcp", "google cloud", "azure", "docker", "kubernetes", "k8s",
     "terraform", "ansible", "jenkins", "gitlab ci", "github actions", "ci/cd",
     "prometheus", "grafana", "datadog", "opentelemetry", "serverless", "lambda",
-    "ec2", "s3", "ecs", "eks", "cloudformation", "helm", "istio"
+    "ec2", "s3", "ecs", "eks", "cloudformation", "helm", "istio",
+    "nginx", "artifactory", "aws cdk", "openssl", "tls"
   ],
   "concepts": [
     "microservices", "distributed systems", "rest", "restful", "rest api",
@@ -35,7 +37,8 @@
     "git", "github", "gitlab", "bitbucket", "jira", "confluence", "slack",
     "vscode", "intellij", "pycharm", "vim", "emacs", "linux", "unix",
     "macos", "windows", "postman", "swagger", "openapi", "docker compose",
-    "jupyter", "pytest", "jest", "mocha", "selenium", "cypress"
+    "jupyter", "pytest", "jest", "mocha", "selenium", "cypress",
+    "google analytics"
   ],
   "aliases": {
     "react": ["react.js", "reactjs"],
@@ -50,6 +53,10 @@
     "github actions": ["gh actions", "gha"],
     "ci/cd": ["cicd"],
     "rest api": ["restful api", "rest apis"],
-    "microservices": ["microservice", "micro-services"]
+    "microservices": ["microservice", "micro-services"],
+    "rails": ["ror", "ruby on rails"],
+    "apache thrift": ["thrift"],
+    "aws cdk": ["cdk"],
+    "test driven development": ["tdd", "test-driven development"]
   }
 }

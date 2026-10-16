@@ -323,7 +323,13 @@ PDF stays the canonical artifact — it is the only one stored and page-measured
 The Skills section is grouped into labelled lines either way: the deterministic
 variant groups the flat list by taxonomy (skills the taxonomy does not know land
 in an `Additional` bucket, never `Other`), while the LLM variant authors its own
-2–5 job-relevant groups and the renderer prefers those.
+2–5 job-relevant groups and the renderer prefers those. The importer splits that
+section on real separators only — commas, semicolons, pipes, bullets and runs of
+2+ spaces, never a single space or a slash — so multi-word and slashed skills stay
+atomic ("Apache Thrift", "Test-Driven Development", "CI/CD"), and a group label in
+front of its values ("Cloud & DevOps: AWS, Docker") is dropped instead of being
+imported as a skill. A CV that labels its own groups therefore parses back into
+exactly the taxonomy's categories (ADR 020).
 The two variants are committed one after the other — the deterministic one first —
 so the 202 from `POST /api/jobs/{id}/tailor` reports which variants the run will
 produce and the web/mobile panels keep polling until *all* of them have landed
