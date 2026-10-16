@@ -329,10 +329,16 @@ in an `Additional` bucket, never `Other`), while the LLM variant authors its own
 2–5 job-relevant groups and the renderer prefers those. The importer splits that
 section on real separators only — commas, semicolons, pipes, bullets and runs of
 2+ spaces, never a single space or a slash — so multi-word and slashed skills stay
-atomic ("Apache Thrift", "Test-Driven Development", "CI/CD"), and a group label in
-front of its values ("Cloud & DevOps: AWS, Docker") is dropped instead of being
-imported as a skill. A CV that labels its own groups therefore parses back into
-exactly the taxonomy's categories (ADR 020).
+atomic ("Apache Thrift", "Test-Driven Development (TDD)", "CI/CD"), and *every*
+group label in front of values is dropped instead of being imported as a skill:
+known ones ("Cloud & DevOps: AWS, Docker") and compounds a CV invented for itself
+("Frameworks & Tools: Qt, Protobuf/gRPC"), since a label is recognised by its shape
+(a few words, none of them a skill — which is what leaves "CKA: Certified
+Kubernetes Administrator" alone). Each entry then resolves to the skills it names,
+so a compound lands in the group its parts agree on ("JavaScript/TypeScript" under
+Languages) and a JD asking for TypeScript is matched by a CV that lists it as half
+of one. A CV that labels its own groups therefore parses back into exactly the
+taxonomy's categories (ADR 020/022).
 The two variants are committed one after the other — the deterministic one first —
 so the 202 from `POST /api/jobs/{id}/tailor` reports which variants the run will
 produce and the web/mobile panels keep polling until *all* of them have landed

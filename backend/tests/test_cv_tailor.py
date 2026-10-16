@@ -46,6 +46,23 @@ def test_tailor_places_matched_skills_first():
     assert "java" in tailored.skills  # remaining skill kept
 
 
+def test_tailor_does_not_inject_a_skill_the_cv_already_covers():
+    """A compound CV entry covers the JD's skill without being rewritten."""
+    cv = {**CV, "skills": ["JavaScript/TypeScript", "python"]}
+    tailored = tailor_cv(cv, ["typescript"])
+
+    assert tailored.matched_skills == ["typescript"]
+    assert tailored.skills == ["JavaScript/TypeScript", "python"]
+
+
+def test_tailor_leads_with_the_cv_spelling_of_a_matched_alias():
+    cv = {**CV, "skills": ["k8s", "python"]}
+    tailored = tailor_cv(cv, ["kubernetes"])
+
+    assert tailored.skills[0] == "k8s"
+    assert "kubernetes" not in tailored.skills
+
+
 def test_tailor_drops_irrelevant_blocks():
     tailored = tailor_cv(CV, ["python", "fastapi"], drop_irrelevant=True)
     assert len(tailored.experience) == 1

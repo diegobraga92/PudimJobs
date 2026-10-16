@@ -12,7 +12,7 @@ from app.schemas.master_cv import CVStructure
 from app.services.cv_schema import CV_JSON_SCHEMA
 from app.services.llm_client import chat_json, chat_text
 from app.services.llm_config import LlmRuntimeConfig
-from app.services.skill_matcher import group_skills, match_skills
+from app.services.skill_matcher import group_skills, match_skills, resolve_skills
 
 logger = logging.getLogger(__name__)
 
@@ -183,9 +183,25 @@ def _order_blocks_with_scores(
 
 
 def _tailored_skills(cv_skills: list[str], matched: list[str]) -> list[str]:
+    """The CV's own skills, led by the entries that cover a JD skill.
+
+    A JD skill is only added when the CV has no entry for it. Otherwise a CV
+    saying "k8s" — or "JavaScript/TypeScript" for a JD asking TypeScript — would
+    render the same skill twice, once in the JD's wording and once in its own.
+    """
     matched_lower = {s.lower() for s in matched}
-    remaining = [s for s in cv_skills if s.lower() not in matched_lower]
-    return list(dict.fromkeys([*matched, *remaining]))
+    resolved = {
+        entry: {part.lower() for part in resolve_skills(entry)} for entry in cv_skills
+    }
+    covered = {part for parts in resolved.values() for part in parts}
+
+    def _covers_matched(entry: str) -> bool:
+        return bool(resolved[entry] & matched_lower)
+
+    leading = [entry for entry in cv_skills if _covers_matched(entry)]
+    trailing = [entry for entry in cv_skills if not _covers_matched(entry)]
+    injected = [skill for skill in matched if skill.lower() not in covered]
+    return list(dict.fromkeys([*injected, *leading, *trailing]))
 
 
 def _tailored_summary(base: str, matched: list[str]) -> str:

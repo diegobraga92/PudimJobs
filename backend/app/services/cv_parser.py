@@ -22,6 +22,7 @@ from app.schemas.master_cv import (
 from app.services.cv_schema import CV_JSON_SCHEMA
 from app.services.llm_client import chat_json
 from app.services.llm_config import LlmRuntimeConfig
+from app.services.skill_matcher import _ALIAS_LOOKUP, _SKILL_TO_GROUP
 
 logger = logging.getLogger(__name__)
 
@@ -132,11 +133,13 @@ _NON_SKILL_WORDS = {
     "certifications",
 }
 
-# Category labels a CV writes *inside* its skills section to say where a group of
-# skills belongs ("Frameworks: Flask, Qt", "Cloud & DevOps: AWS, Docker"). The
-# label names a group the taxonomy already encodes — it is an instruction, never a
-# skill — so `_parse_skills` strips it, and a label left on a line of its own (one
-# with no payload to attach it to) is dropped here instead of becoming a skill.
+# Category labels a CV is *expected* to write inside its skills section to say where
+# a group of skills belongs ("Frameworks: Flask, Qt", "Cloud & DevOps: AWS,
+# Docker"). The label names a group the taxonomy already encodes — it is an
+# instruction, never a skill — so `_parse_skills` strips it, and a label left on a
+# line of its own (one with no payload to attach it to) is dropped here instead of
+# becoming a skill. CVs invent their own compounds ("Frameworks & Tools"), so this
+# list is a fast path and not the contract; see `_is_skill_label`.
 _SKILL_LABEL_WORDS = {
     "skills",
     "skill",
@@ -182,6 +185,66 @@ _SKILL_LABEL_WORDS = {
     "soft",
     "soft skills",
 }
+
+# Shape of a label: at most a few words, none of them a skill, no digits. "&", "/",
+# "+", "and" and "or" all join label words ("Frameworks & Tools").
+_LABEL_WORD_SPLIT_RE = re.compile(r"[&/+]|\band\b|\bor\b|\s+")
+_LABEL_MAX_WORDS = 4
+_DIGIT_RE = re.compile(r"\d")
+# Values behind a label are a list ("Qt, Protobuf/gRPC") or a couple of words; a
+# longer unseparated phrase is a qualification the CV wrote with its acronym
+# ("CKA: Certified Kubernetes Administrator") and must keep that acronym.
+_LABEL_VALUE_HINT_RE = re.compile(r"[,;|/&]|\s{2,}|\band\b|\bor\b", re.IGNORECASE)
+_LABEL_VALUE_MAX_WORDS = 2
+
+
+def _is_known_skill_label(text: str) -> bool:
+    """True when ``text`` is one of the expected labels in `_SKILL_LABEL_WORDS`."""
+    return " ".join(text.strip().lower().split()) in _SKILL_LABEL_WORDS
+
+
+def _is_skill_label(text: str) -> bool:
+    """True when ``text`` names a group of skills rather than being a skill.
+
+    A CV is free to invent its own label ("Databases & Analytics:", "Systems &
+    Tools:"), and one the word list above does not know is recognised by shape: a
+    handful of words, no digits, and — the decisive part — no word that the
+    taxonomy knows as a skill. That last rule is what keeps "AWS: EC2" or
+    "CKA: Certified Kubernetes Administrator" intact instead of eating the skill
+    or acronym in front of the colon.
+    """
+    if _is_known_skill_label(text):
+        return True
+    cleaned = " ".join(text.strip().lower().split())
+    if cleaned in _SKILL_TO_GROUP or cleaned in _ALIAS_LOOKUP:
+        # A taxonomy skill always wins, separators and all: "CI/CD" is one skill,
+        # not a label that happens to contain a slash.
+        return False
+    words = [word for word in _LABEL_WORD_SPLIT_RE.split(cleaned) if word]
+    if not words or len(words) > _LABEL_MAX_WORDS:
+        return False
+    if any(_DIGIT_RE.search(word) for word in words):
+        return False
+    return not any(word in _SKILL_TO_GROUP or word in _ALIAS_LOOKUP for word in words)
+
+
+def _is_skill_label_with_values(prefix: str, payload: str) -> bool:
+    """True when ``prefix`` labels the ``payload`` skills, so it can be dropped.
+
+    A known label is always dropped (its values are skills by definition). A label
+    the word list does not know is only dropped when the values behind it read like
+    values — one or two words, or anything carrying a separator — so that a
+    qualification written as "CKA: Certified Kubernetes Administrator" is left
+    alone rather than losing the acronym a recruiter's ATS searches for.
+    """
+    if _is_known_skill_label(prefix):
+        return True
+    if not _is_skill_label(prefix):
+        return False
+    return bool(_LABEL_VALUE_HINT_RE.search(payload)) or (
+        len(payload.split()) <= _LABEL_VALUE_MAX_WORDS
+    )
+
 
 _MONTH_INDEX = {
     "jan": 1,
@@ -356,10 +419,15 @@ def _is_skill_sublabel(line: str) -> bool:
     section keeps the lines that follow it in the skills section instead of
     diverting them into `cv.languages`. Unknown labels (``PROJECTS:``) still switch
     sections — only labels listed in `_SKILL_LABEL_WORDS` are treated this way.
+
+    This deliberately takes the narrow word list rather than `_is_skill_label`: the
+    veto below is only ever consulted for a line that already matched a section
+    heading, and the other labels that collide with one (``PROJECTS:``,
+    ``CERTIFICATIONS:``) really are section headings, not skills sublabels.
     """
     if not line.rstrip().endswith(":"):
         return False
-    return line.rstrip().rstrip(":").strip().lower() in _SKILL_LABEL_WORDS
+    return _is_known_skill_label(line.rstrip().rstrip(":"))
 
 
 def _bullet_text(line: str) -> str | None:
@@ -555,22 +623,40 @@ _SKILL_SPLIT_RE = re.compile(
 )
 
 # A skill-group label in front of its values: "Frameworks: Flask, Qt". The pattern
-# is loose on purpose; `_strip_skill_label` only acts when the prefix is a known
-# label word, so a skill that merely contains a colon ("CKA: Certified ...") keeps
-# its prefix.
+# is loose on purpose; `_strip_skill_label` only acts when the prefix reads like a
+# label, so a skill that merely contains a colon ("CKA: Certified ...") keeps its
+# prefix.
 _SKILL_LABEL_RE = re.compile(r"^([A-Za-z][A-Za-z0-9 &/+.]{0,39}):[ \t]*(.+)$")
 
 # Single-letter languages are real skills, but the length floor below drops every
 # 1-char token to avoid capturing stray initials.
 _SHORT_SKILLS = {"c", "r"}
 
+# Brackets are unwrapped, never stripped: stripping them turns
+# "Test-Driven Development (TDD)" into "...(TDD", losing the acronym an ATS
+# matches on, while a balanced "(Python)" is pure decoration.
+_BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}"}
+_TOKEN_TRIM_CHARS = " \t.,;:\u00b7\u2013\u2014"
+
 
 def _strip_skill_label(line: str) -> str:
     """Drop a leading category label ("Cloud & DevOps: AWS, Docker")."""
     match = _SKILL_LABEL_RE.match(line)
-    if match and match.group(1).strip().lower() in _SKILL_LABEL_WORDS:
+    if match and _is_skill_label_with_values(match.group(1), match.group(2)):
         return match.group(2)
     return line
+
+
+def _clean_skill_token(token: str) -> str:
+    """Trim separators around a skill, unwrapping only balanced brackets."""
+    token = token.strip()
+    while (
+        len(token) > 1
+        and token[0] in _BRACKET_PAIRS
+        and token[-1] == _BRACKET_PAIRS[token[0]]
+    ):
+        token = token[1:-1].strip()
+    return token.strip(_TOKEN_TRIM_CHARS)
 
 
 def _parse_skills(lines: list[str]) -> list[str]:
@@ -580,7 +666,9 @@ def _parse_skills(lines: list[str]) -> list[str]:
     label ("Python SQL Docker") stays a single entry rather than being chopped up,
     because guessing at word boundaries is what shredded multi-word skills in the
     first place. The CV editor is one comma-separated field, so such a line is a
-    ten-second fix for the CV's owner.
+    ten-second fix for the CV's owner. Labels are the exception: they say where a
+    group of skills belongs, so each one — the leading label and any that share a
+    line with it after a PDF extraction merged two columns — is dropped here.
     """
     seen: set[str] = set()
     skills: list[str] = []
@@ -591,8 +679,14 @@ def _parse_skills(lines: list[str]) -> list[str]:
             # Also covers numbered lines ("1. Python"), which the splitter would
             # otherwise keep as one token.
             line = bullet
-        for token in _SKILL_SPLIT_RE.split(line):
-            token = token.strip(" \t.,;:()[]{}\u00b7\u2013\u2014")
+        for raw_token in _SKILL_SPLIT_RE.split(line):
+            candidate = _strip_skill_label(raw_token.strip())
+            # A label with nothing after it ("Frameworks & Tools:") has no values to
+            # attach it to, so it is dropped instead of becoming a skill.
+            is_bare_label = candidate.endswith(":") and _is_skill_label(
+                candidate.rstrip(":")
+            )
+            token = _clean_skill_token(candidate)
             low = token.lower()
             if (
                 not token
@@ -600,6 +694,7 @@ def _parse_skills(lines: list[str]) -> list[str]:
                 or (len(token) < 2 and low not in _SHORT_SKILLS)
                 or low in _NON_SKILL_WORDS
                 or low in _SKILL_LABEL_WORDS
+                or is_bare_label
                 or _YEAR_RE.fullmatch(token)
                 or _URL_RE.fullmatch(token)
             ):

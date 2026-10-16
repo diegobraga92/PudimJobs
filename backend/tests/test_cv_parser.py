@@ -292,6 +292,66 @@ def test_structure_cv_still_switches_section_on_a_colon_terminated_heading():
     assert [p.name for p in cv.projects] == ["PudimJobs"]
 
 
+def test_parse_skills_strips_compound_category_labels():
+    # Regression: labels the closed word list did not know ("Frameworks & Tools",
+    # "Databases & Analytics", "Systems & Tools") were left glued to the first value
+    # on their line ("Frameworks & Tools: Qt"), which no taxonomy lookup can place.
+    cv = structure_cv(
+        "SKILLS\n"
+        "Frameworks & Tools: Qt, Protobuf/gRPC\n"
+        "Databases & Analytics: PostgreSQL, Google BigQuery\n"
+        "Systems & Tools: Linux, OpenSSL/TLS\n"
+    )
+
+    assert cv.skills == [
+        "Qt",
+        "Protobuf/gRPC",
+        "PostgreSQL",
+        "Google BigQuery",
+        "Linux",
+        "OpenSSL/TLS",
+    ]
+    for leaked in ("Frameworks & Tools", "Databases & Analytics", "Systems & Tools"):
+        assert leaked not in cv.skills
+
+
+def test_parse_skills_strips_every_label_sharing_a_line():
+    # PDF extraction can merge two labelled columns onto one line, so only the
+    # first label used to be stripped and the rest leaked into the skill names.
+    cv = structure_cv("SKILLS\nAdditional: JavaScript/TypeScript, Frameworks & Tools: Qt\n")
+
+    assert cv.skills == ["JavaScript/TypeScript", "Qt"]
+    assert "Frameworks & Tools: Qt" not in cv.skills
+
+
+def test_parse_skills_keeps_a_parenthesised_acronym():
+    # Regression: the token cleanup stripped *unbalanced* brackets, so
+    # "Test-Driven Development (TDD)" lost the acronym an ATS matches on.
+    cv = structure_cv(
+        "SKILLS\nMethodologies: Agile/Scrum, Test-Driven Development (TDD)\n"
+    )
+
+    assert cv.skills == ["Agile/Scrum", "Test-Driven Development (TDD)"]
+
+
+def test_parse_skills_drops_a_compound_label_with_no_values():
+    # A label line with nothing after it carries no skill; the values on the lines
+    # below it must still land in the skills section.
+    cv = structure_cv("SKILLS\nFrameworks & Tools:\nQt, Protobuf/gRPC\n")
+
+    assert cv.skills == ["Qt", "Protobuf/gRPC"]
+
+
+def test_parse_skills_keeps_a_colon_that_is_part_of_the_entry():
+    # A skill with a detail glued on, and a qualification written as an acronym +
+    # title, are not labels: both keep their prefix (the acronym is the keyword).
+    cv = structure_cv(
+        "SKILLS\nAWS: EC2, S3\nCKA: Certified Kubernetes Administrator\n"
+    )
+
+    assert cv.skills == ["AWS: EC2", "S3", "CKA: Certified Kubernetes Administrator"]
+
+
 def test_structure_cv_keeps_wrapped_bullets_with_their_entry():
     # PDF text extraction yields Symbol-font bullets (\uf0b7) and wraps long
     # bullets across lines; neither should be mistaken for a new job header.

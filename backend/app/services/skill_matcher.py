@@ -44,6 +44,19 @@ for _canonical, _aliases in _ALIASES.items():
     for _alias in _aliases:
         _ALIAS_LOOKUP[_alias.lower()] = _canonical
 
+# Same patterns again, longest name first, for finding the known skill *inside* an
+# entry a CV wrote as one token ("JavaScript/TypeScript", "Google BigQuery").
+# `resolve_skills` walks them in length order so the longest match wins
+# ("sql server" before "sql").
+_RESOLVE_PATTERNS: list[tuple[str, re.Pattern]] = sorted(
+    ((name, _skill_pattern(name)) for name in _ALIAS_LOOKUP if len(name) >= 3),
+    key=lambda pair: len(pair[0]),
+    reverse=True,
+)
+
+# A compound entry joins two skills the same way the parser's label splitter does.
+_COMPOUND_SPLIT_RE = re.compile(r"\s*[/&]\s*")
+
 
 # Human-readable labels for the taxonomy groups, used when a CV renders its
 # skills grouped by category (the JSON keys are snake_case).
@@ -72,11 +85,50 @@ def canonical_skill(skill: str) -> str:
     return _ALIAS_LOOKUP.get(stripped.lower(), stripped)
 
 
+def resolve_skills(entry: str) -> list[str]:
+    """Canonical skills named by a single CV entry, which may be a compound.
+
+    A CV writes one skill per token most of the time ("Kubernetes"), but the
+    taxonomy has to survive the other spellings too: "JavaScript/TypeScript" names
+    two skills, "Protobuf/gRPC" two more, and "Google BigQuery" one it happens to
+    spell with a vendor prefix. Resolution walks three rungs and returns the entry
+    unchanged when none of them apply, so an unknown skill never silently
+    disappears from the owner's CV:
+
+    1. the entry is already a canonical skill or a known alias;
+    2. every ``/``- or ``&``-separated part is a known skill (a compound);
+    3. the longest known skill name appears in the entry as a whole word.
+    """
+    stripped = entry.strip()
+    if not stripped:
+        return []
+    exact = canonical_skill(stripped)
+    if exact.lower() in _SKILL_TO_GROUP:
+        return [exact]
+    parts = [part.strip() for part in _COMPOUND_SPLIT_RE.split(stripped) if part.strip()]
+    if len(parts) > 1:
+        resolved = [canonical_skill(part) for part in parts]
+        if all(part.lower() in _SKILL_TO_GROUP for part in resolved):
+            return resolved
+    for name, pattern in _RESOLVE_PATTERNS:
+        if pattern.search(stripped):
+            canonical = canonical_skill(name)
+            if canonical.lower() in _SKILL_TO_GROUP:
+                return [canonical]
+    return [stripped]
+
+
 def group_skills(skills: list[str]) -> list[tuple[str, list[str]]]:
-    """Group a flat skill list into labelled categories for a CV section."""
+    """Group a flat skill list into labelled categories for a CV section.
+
+    An entry lands in the group its resolved skills agree on. A compound whose
+    parts disagree ("AWS/PostgreSQL") says nothing useful about where it belongs,
+    so it joins the unknown skills rather than being placed on a coin flip.
+    Grouping never rewrites an entry: it only decides which line draws it.
+    """
     buckets: dict[str, list[str]] = {}
     other: list[str] = []
-    seen: set[str] = set()
+    seen: set[frozenset[str]] = set()
 
     for raw in skills:
         if not isinstance(raw, str):
@@ -84,14 +136,23 @@ def group_skills(skills: list[str]) -> list[tuple[str, list[str]]]:
         display = raw.strip()
         if not display:
             continue
-        key = canonical_skill(display).lower()
+        resolved = resolve_skills(display)
+        # "k8s" and "kubernetes" are the same skill, so an entry repeating a set an
+        # earlier one already resolved to is dropped. A compound and one of its
+        # parts are deliberately *not* treated as repeats: the CV's own spelling is
+        # never rewritten, and dropping half of what its owner wrote is worse than
+        # one redundant mention.
+        key = frozenset(skill.lower() for skill in resolved)
         if key in seen:
-            # "k8s" and "kubernetes" are the same skill; keep the first spelling.
             continue
         seen.add(key)
-        group = _SKILL_TO_GROUP.get(key)
-        if group:
-            buckets.setdefault(group, []).append(display)
+        groups = {
+            _SKILL_TO_GROUP[skill.lower()]
+            for skill in resolved
+            if skill.lower() in _SKILL_TO_GROUP
+        }
+        if len(groups) == 1:
+            buckets.setdefault(groups.pop(), []).append(display)
         else:
             other.append(display)
 
@@ -129,7 +190,12 @@ def extract_skills(text: str) -> list[str]:
 def match_skills(jd_skills: list[str], cv_skills: list[str]) -> dict:
     """Compare JD-required skills against the CV's skills."""
     jd_set = {canonical_skill(s).lower() for s in jd_skills}
+    # `cv_set` is a superset of the CV's own spellings: a JD asking for
+    # "TypeScript" has to be satisfied by a CV entry that says
+    # "JavaScript/TypeScript", and one asking for "JavaScript" still is.
     cv_set = {canonical_skill(s).lower() for s in cv_skills}
+    for entry in cv_skills:
+        cv_set.update(resolved.lower() for resolved in resolve_skills(entry))
     matched = [s for s in jd_skills if canonical_skill(s).lower() in cv_set]
     missing = [s for s in jd_skills if canonical_skill(s).lower() not in cv_set]
     relevance = len(matched) / len(jd_set) if jd_set else 0.0
