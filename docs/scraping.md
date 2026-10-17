@@ -82,12 +82,25 @@ set to `1` here):
   "url_tpl": "https://remoteyeah.com/remote-{term}-jobs-in-brazil",
   "next_page_tpl": "https://remoteyeah.com/remote-{term}-jobs-in-brazil/page/{page}#jobs",
   "max_pages": 2,
-  "item_selector": ".job-card-inner",
-  "title_selector": ".job-card-title-text",
-  "url_selector": "a.job-card-title",
-  "company_selector": ".job-card-company"
+  "detail": true,
+  "item_selector": "article.job-card",
+  "title_selector": "a.job-card-title",
+  "url_selector": "a[href*='/jobs/']",
+  "company_selector": ".job-card-company",
+  "detail_title_selector": "h1",
+  "detail_company_selector": "a[href*='/remote-companies/']",
+  "detail_description_selector": ".prose",
+  "max_results": 31
 }
 ```
+
+On RemoteYeah `item_selector: "li"` matches the **“recent applications” ticker**,
+not the cards, so it yields a handful of titles and nothing else. The real cards
+are `article.job-card`; they carry title, company and tags, but no description.
+`detail: true` fetches each card's job page, whose `JobPosting` JSON-LD supplies
+the full description, posting date and skills. `max_results` bounds those detail
+fetches (rust: 25 on page 1, 31 across both pages), and each one waits for the
+source's `rate_limit_seconds` cooldown.
 
 The keyed discovery providers do the same thing with their own placeholders
 (`{api_key}`, `{page_size}`); see the `json_list` section below. A `url_tpl` that
@@ -263,7 +276,7 @@ writing):
 | TrabalhaBrasil | `/vagas-de-emprego/<term>` | `{"term": "rust", "url_tpl": "https://www.trabalhabrasil.com.br/vagas-de-emprego/{term}", "item_selector": "article.job-card", "title_selector": "h2.job-title", "url_selector": "a.job-link", "company_selector": ".job-company", "location_selector": ".job-location"}` — the term route is SSR, the homepage is a directory, and paging is JS | 15 |
 | InfoJobs | `/empregos.aspx?palabra=<term>` | `{"term": "Python", "url_tpl": "https://www.infojobs.com.br/empregos.aspx?palabra={term}", "item_selector": "div.js_cardLink", "title_selector": "h2.js_vacancyTitle", "url_selector": "a[href*='/vaga-de-']"}` | 20 — but only **2** on `palabra=Rust` (that page's card slice is client-rendered), so preview the term you store |
 | GeekHunter | `/pt/vagas?workModality=remote` | `{"item_selector": "article", "title_selector": "h3 a", "url_selector": "h3 a", "next_page_selector": "a[rel=next]", "max_pages": 3}` — list mode has no company (chakra hashes the classes); adding `"detail": true` makes each job page's JSON-LD (tried before the `detail_*_selectors`) supply company, date and description | 25/page |
-| RemoteYeah | `/remote-<term>-jobs-in-brazil` | the `url_tpl` + `next_page_tpl` recipe in *URL arguments and search terms* above (rust 25 + 6, cpp 25 + 13) | 31 / 38 |
+| RemoteYeah | `/remote-<term>-jobs-in-brazil` | the `url_tpl` + `next_page_tpl` recipe in *URL arguments and search terms* above: `detail: true` + `item_selector: "article.job-card"` (a bare `li` matches the recent-applications ticker, not job cards); each detail page's JSON-LD supplies the description, date and skills | 31 / 38 |
 
 `max_results` does **not** cap list-mode rows (it bounds detail fetches and
 `embedded_json_list` items); what bounds a multi-page walk is `max_pages`, and one
@@ -324,7 +337,9 @@ Wellfound, Hays, Michael Page, Robert Half, SimplyHired, Welcome to the Jungle;
 (`{"query": "site:jobs.lever.co python remote"}`).
 Two-stage providers parse detail pages with JSON-LD first; without it, set
 `{"detail_strategy": "selectors", "selectors": {"title_selectors": "...",
-"company_selectors": "..."}}`.
+"company_selectors": "..."}}`. A `JobPosting` that omits `url`/`@id` falls back
+to the fetched page's URL (so it is not dropped during normalization), and a
+comma-separated `skills` string is split into individual tags.
 
 **Bright Data endpoints.** `endpoint` picks which Bright Data API to call, and
 it must match the zone the key belongs to: `unlocker` (default for

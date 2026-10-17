@@ -361,8 +361,15 @@ def date_from_node(node: object) -> date | None:
     return coerce_date(raw) or coerce_date(text) or coerce_date(relative_age(text))
 
 
-def parse_json_ld_jobs(html_content: str) -> list[RawJob]:
-    """Extract schema.org ``JobPosting`` records from JSON-LD script blocks."""
+def parse_json_ld_jobs(
+    html_content: str, fallback_url: str | None = None
+) -> list[RawJob]:
+    """Extract schema.org ``JobPosting`` records from JSON-LD script blocks.
+
+    Some boards omit ``url``/``@id`` from their ``JobPosting`` payload, so a
+    detail page would otherwise lose the job during normalization. ``fallback_url``
+    (typically the fetched page's final URL) supplies the job URL in that case.
+    """
     soup = BeautifulSoup(html_content, "lxml")
     jobs: list[RawJob] = []
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
@@ -385,10 +392,10 @@ def parse_json_ld_jobs(html_content: str) -> list[RawJob]:
                 RawJob(
                     title=item.get("title") or "",
                     company=company or "",
-                    url=item.get("url") or item.get("@id"),
+                    url=item.get("url") or item.get("@id") or fallback_url,
                     posted_date=_parse_date(item.get("datePosted")),
                     description=item.get("description"),
-                    tags=[tag for tag in (item.get("skills") or []) if isinstance(tag, str)],
+                    tags=as_tag_list(item.get("skills")),
                     external_id=identifier,
                 )
             )

@@ -896,7 +896,7 @@ class TwoStageProvider(DiscoveryProvider):
         """Parse a job *detail* page (JSON-LD first, CSS selectors fallback)."""
         strategy = self.config.get("detail_strategy", "json_ld")
         if strategy != "selectors":
-            jobs = parse_json_ld_jobs(page.html_content)
+            jobs = parse_json_ld_jobs(page.html_content, page.final_url)
             if jobs:
                 return jobs
         return parse_job_detail(page, self.config.get("selectors"))

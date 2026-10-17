@@ -15,7 +15,7 @@ class CareerPageScraper(AbstractScraper):
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         # Preferred: schema.org JSON-LD JobPosting blocks.
-        json_ld_jobs = parse_json_ld_jobs(page.html_content)
+        json_ld_jobs = parse_json_ld_jobs(page.html_content, page.final_url)
         if json_ld_jobs:
             return json_ld_jobs
 

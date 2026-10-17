@@ -69,6 +69,24 @@ CAREER_PAGE_HTML = """
 </head></html>
 """
 
+# RemoteYeah detail pages expose the full JobPosting as JSON-LD but omit `url`
+# and `@id`; `skills` is a comma-separated string rather than an array.
+REMOTEYEAH_DETAIL_HTML = """
+<html><head>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org/",
+  "@type": "JobPosting",
+  "title": "Remote Rust Developer Advocate",
+  "hiringOrganization": {"@type": "Organization", "name": "SerpApi"},
+  "datePosted": "2026-10-16T00:35:39+00:00",
+  "description": "<p>Build Rust tooling and demos.</p>",
+  "skills": "GitHub, Figma, Rust"
+}
+</script>
+</head><body><h1>Remote Rust Developer Advocate</h1></body></html>
+"""
+
 RSS_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
@@ -420,6 +438,28 @@ def test_aggregator_detail_mode_prefers_json_ld():
     assert [job.title for job in raw] == ["Senior Python Engineer", "DevOps Engineer"]
 
 
+def test_aggregator_detail_mode_fills_missing_json_ld_url_from_page():
+    """A JobPosting without `url` keeps the detail page URL and its full data."""
+    detail_url = "https://remoteyeah.com/jobs/remote-rust-developer-advocate-serpapi"
+    scraper = GenericHtmlListScraper({"detail": True})
+    raw = scraper.parse(_aggregator_page(REMOTEYEAH_DETAIL_HTML, detail_url))
+
+    assert len(raw) == 1
+    assert raw[0].title == "Remote Rust Developer Advocate"
+    assert raw[0].company == "SerpApi"
+    assert raw[0].url == detail_url
+    assert raw[0].posted_date == date(2026, 10, 16)
+    assert raw[0].tags == ["GitHub", "Figma", "Rust"]
+    assert "Build Rust tooling and demos." in raw[0].description
+
+    normalized = scraper.normalize(raw)
+    assert len(normalized) == 1
+    assert normalized[0]["url"] == detail_url
+    assert normalized[0]["company"] == "SerpApi"
+    assert normalized[0]["tags"] == ["GitHub", "Figma", "Rust"]
+    assert "Build Rust tooling and demos." in normalized[0]["description"]
+
+
 def test_aggregator_detail_mode_uses_config_company_when_page_has_none():
     scraper = GenericHtmlListScraper(
         {
@@ -626,6 +666,22 @@ def test_json_ld_identifier_dict_is_coerced():
     """
     jobs = parse_json_ld_jobs(html)
     assert jobs[0].external_id == "req-42"
+
+
+def test_json_ld_falls_back_to_page_url_and_splits_skills():
+    """Missing `url`/`@id` must not drop the job; a `skills` string is split."""
+    page_url = "https://remoteyeah.com/jobs/remote-rust-developer-advocate-serpapi"
+    jobs = parse_json_ld_jobs(REMOTEYEAH_DETAIL_HTML, fallback_url=page_url)
+
+    assert len(jobs) == 1
+    assert jobs[0].url == page_url
+    assert jobs[0].posted_date == date(2026, 10, 16)
+    assert jobs[0].tags == ["GitHub", "Figma", "Rust"]
+    assert "Build Rust tooling and demos." in jobs[0].description
+
+    # An explicit URL in the JSON-LD still wins over the fallback.
+    explicit = parse_json_ld_jobs(CAREER_PAGE_HTML, fallback_url=page_url)
+    assert explicit[0].url == "https://acme.example/jobs/42"
 
 
 def test_get_aggregator_adapter_unknown_raises():

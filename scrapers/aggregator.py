@@ -158,7 +158,7 @@ class GenericHtmlListScraper(AggregatorScraper):
 
     def _parse_detail(self, page: ScrapedPage) -> list[RawJob]:
         """Parse a job *detail* page (JSON-LD first, then ``detail_*`` selectors)."""
-        jobs = parse_json_ld_jobs(page.html_content)
+        jobs = parse_json_ld_jobs(page.html_content, page.final_url)
         if jobs:
             return jobs
 
@@ -279,7 +279,7 @@ class EmbeddedJsonListScraper(AggregatorScraper):
         if isinstance(items, dict):
             items = [items]
         if not isinstance(items, list):
-            jobs = parse_json_ld_jobs(page.html_content)
+            jobs = parse_json_ld_jobs(page.html_content, page.final_url)
             if jobs:
                 return jobs
             if payload is None:
