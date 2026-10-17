@@ -1,4 +1,5 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -362,5 +363,152 @@ describe('SourcesComponent — manual watchlist', () => {
 
     expect(component.visibleSources.map((source) => source.id)).toEqual(['src-6', 'src-4']);
     expect(component.automatedCount).toBe(2);
+  });
+
+  // --- Column sorting: clicking a header toggles ascending/descending ---
+
+  it('sorts ascending on the first header click and descending on the next', () => {
+    component.sources = [
+      { ...ACTIVE_SOURCE, id: 'sort-b', name: 'Beta board' },
+      { ...ACTIVE_SOURCE, id: 'sort-a', name: 'Alpha board' },
+    ];
+
+    component.sortBy('name');
+    expect(component.sortKey).toBe('name');
+    expect(component.sortDirection).toBe('asc');
+    expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-a', 'sort-b']);
+
+    component.sortBy('name');
+    expect(component.sortDirection).toBe('desc');
+    expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-b', 'sort-a']);
+  });
+
+  it('starts a newly chosen column ascending', () => {
+    component.sortBy('name');
+    component.sortBy('name');
+    expect(component.sortDirection).toBe('desc');
+
+    component.sortBy('jobs');
+
+    expect(component.sortKey).toBe('jobs');
+    expect(component.sortDirection).toBe('asc');
+  });
+
+  it('sorts by type using the label shown in the table', () => {
+    component.sources = [
+      { ...ACTIVE_SOURCE, id: 'rss', type: 'rss' },
+      { ...ACTIVE_SOURCE, id: 'aggregator', type: 'aggregator' },
+      { ...ACTIVE_SOURCE, id: 'manual', type: 'manual' },
+    ];
+
+    component.sortBy('type');
+
+    // Aggregator < Manual (watchlist) < RSS feed — the displayed labels.
+    expect(component.visibleSources.map((source) => source.id)).toEqual([
+      'aggregator',
+      'manual',
+      'rss',
+    ]);
+  });
+
+  it('sorts jobs numerically and treats a missing count as zero', () => {
+    component.sources = [
+      { ...ACTIVE_SOURCE, id: 'ten', jobs_count: 10 },
+      { ...ACTIVE_SOURCE, id: 'none', jobs_count: undefined },
+      { ...ACTIVE_SOURCE, id: 'two', jobs_count: 2 },
+    ];
+
+    component.sortBy('jobs');
+    expect(component.visibleSources.map((source) => source.id)).toEqual(['none', 'two', 'ten']);
+
+    component.sortBy('jobs');
+    expect(component.visibleSources.map((source) => source.id)).toEqual(['ten', 'two', 'none']);
+  });
+
+  it('sorts health by severity rather than alphabetically', () => {
+    component.sources = [
+      { ...ACTIVE_SOURCE, id: 'failing', health: 'failing' },
+      { ...ACTIVE_SOURCE, id: 'healthy', health: 'healthy' },
+      { ...ACTIVE_SOURCE, id: 'degraded', health: 'degraded' },
+    ];
+
+    component.sortBy('health');
+    expect(component.visibleSources.map((source) => source.id)).toEqual([
+      'healthy',
+      'degraded',
+      'failing',
+    ]);
+
+    component.sortBy('health');
+    expect(component.visibleSources.map((source) => source.id)).toEqual([
+      'failing',
+      'degraded',
+      'healthy',
+    ]);
+  });
+
+  it('sorts by last scraped and keeps never-scraped sources last both ways', () => {
+    component.sources = [
+      { ...ACTIVE_SOURCE, id: 'never', last_scraped: null },
+      { ...ACTIVE_SOURCE, id: 'newer', last_scraped: '2026-03-01T00:00:00+00:00' },
+      { ...ACTIVE_SOURCE, id: 'older', last_scraped: '2025-01-01T00:00:00+00:00' },
+    ];
+
+    component.sortBy('last_scraped');
+    expect(component.visibleSources.map((source) => source.id)).toEqual([
+      'older',
+      'newer',
+      'never',
+    ]);
+
+    component.sortBy('last_scraped');
+    expect(component.visibleSources.map((source) => source.id)).toEqual([
+      'newer',
+      'older',
+      'never',
+    ]);
+  });
+
+  it('keeps avoided sources at the bottom of a descending sort', () => {
+    component.sources = [
+      { ...AVOIDED_SOURCE, id: 'avoided-z', name: 'Zzz avoided' },
+      { ...ACTIVE_SOURCE, id: 'active-a', name: 'Aaa active' },
+    ];
+
+    component.sortBy('name');
+    component.sortBy('name'); // descending would otherwise put Zzz first
+
+    expect(component.visibleSources.map((source) => source.id)).toEqual([
+      'active-a',
+      'avoided-z',
+    ]);
+  });
+
+  it('reports the sort direction through aria-sort', () => {
+    expect(component.ariaSort('name')).toBeNull();
+
+    component.sortBy('name');
+    expect(component.ariaSort('name')).toBe('ascending');
+    expect(component.ariaSort('jobs')).toBeNull();
+
+    component.sortBy('name');
+    expect(component.ariaSort('name')).toBe('descending');
+  });
+
+  it('sorts when a column header is clicked', () => {
+    component.sources = [
+      { ...ACTIVE_SOURCE, id: 'sort-b', name: 'Beta board' },
+      { ...ACTIVE_SOURCE, id: 'sort-a', name: 'Alpha board' },
+    ];
+    fixture.detectChanges();
+
+    const header = fixture.debugElement.queryAll(By.css('thead th'))[0];
+    const button = header.query(By.css('button.sort-header'));
+    button.nativeElement.click();
+    fixture.detectChanges();
+
+    expect(component.sortKey).toBe('name');
+    expect(header.nativeElement.getAttribute('aria-sort')).toBe('ascending');
+    expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-a', 'sort-b']);
   });
 });

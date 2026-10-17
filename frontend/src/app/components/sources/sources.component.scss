@@ -54,6 +54,32 @@
   margin-bottom: var(--space-4);
 }
 
+/* Column headers are buttons: the whole title is the sort control. */
+.sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--color-accent);
+  }
+
+  &.sorted {
+    color: var(--color-text);
+  }
+}
+
 .filter-group {
   display: flex;
   align-items: center;

@@ -362,6 +362,7 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'sources.noSourcesHint': { en: 'Add a career page, aggregator, or RSS feed to start collecting jobs.', 'pt-BR': 'Adicione uma página de carreiras, um agregador ou um feed RSS para começar a coletar vagas.' },
   'sources.addFirstSource': { en: 'Add your first source', 'pt-BR': 'Adicione sua primeira fonte' },
   'sources.lastScraped': { en: 'Last scraped', 'pt-BR': 'Última coleta' },
+  'sources.sortBy': { en: 'Sort by {column}', 'pt-BR': 'Ordenar por {column}' },
 
   // ---- Applications --------------------------------------------------------
   'applications.title': { en: 'Application Pipeline', 'pt-BR': 'Pipeline de Candidaturas' },

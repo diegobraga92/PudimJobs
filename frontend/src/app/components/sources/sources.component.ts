@@ -32,6 +32,26 @@ const SOURCE_TYPE_KEYS: Record<string, string> = {
   manual: 'sources.type.manual',
 };
 
+/** Columns of the sources table that can be sorted by clicking their header. */
+export type SourceSortKey = 'name' | 'type' | 'jobs' | 'health' | 'last_scraped';
+
+export type SortDirection = 'asc' | 'desc';
+
+/** Header cells rendered above the list; the Actions column is not sortable. */
+const SORTABLE_COLUMNS: ReadonlyArray<{ key: SourceSortKey; labelKey: string }> = [
+  { key: 'name', labelKey: 'common.name' },
+  { key: 'type', labelKey: 'common.type' },
+  { key: 'jobs', labelKey: 'common.jobs' },
+  { key: 'health', labelKey: 'common.health' },
+  { key: 'last_scraped', labelKey: 'sources.lastScraped' },
+];
+
+/**
+ * Severity ranks for the Health column: ascending means "best first", which is
+ * more useful than the alphabetical degraded → failing → healthy.
+ */
+const HEALTH_RANK: Record<string, number> = { healthy: 0, degraded: 1, failing: 2 };
+
 /**
  * Single-select quick filter for the source list. `''` means "All": every
  * source is shown (avoided ones still sink to the bottom — ADR 019).
@@ -93,6 +113,12 @@ export class SourcesComponent implements OnInit {
   hideAvoided = false;
   /** Quick filter applied to the list (single-select chip row). `''` = All. */
   sourceFilter: SourceQuickFilter = '';
+
+  /** Sort applied by clicking a column header; `null` keeps the API order. */
+  sortKey: SourceSortKey | null = null;
+  sortDirection: SortDirection = 'asc';
+  /** Header cells rendered by the template; the Actions column is not sortable. */
+  readonly sortableColumns = SORTABLE_COLUMNS;
 
   /** Dry-run of the current form values (nothing is saved). */
   previewing = false;
@@ -332,7 +358,81 @@ export class SourcesComponent implements OnInit {
     const rows = this.sources
       .filter((source) => this.matchesFilter(source))
       .filter((source) => (this.hideAvoided ? !source.avoided : true));
-    return rows.sort((a, b) => Number(!!a.avoided) - Number(!!b.avoided));
+    return rows.sort((a, b) => this.compareSources(a, b));
+  }
+
+  /** Clicking a new column sorts it ascending; the active one toggles direction. */
+  sortBy(key: SourceSortKey): void {
+    if (this.sortKey === key) {
+      this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+      return;
+    }
+    this.sortKey = key;
+    this.sortDirection = 'asc';
+  }
+
+  /** `aria-sort` of a header: only the active column advertises a direction. */
+  ariaSort(key: SourceSortKey): 'ascending' | 'descending' | null {
+    if (this.sortKey !== key) {
+      return null;
+    }
+    return this.sortDirection === 'asc' ? 'ascending' : 'descending';
+  }
+
+  /**
+   * Avoided sources always sink to the bottom (ADR 019) — they are a reminder,
+   * not work — while the chosen sort orders the rows inside each group.
+   */
+  private compareSources(a: Source, b: Source): number {
+    const avoided = Number(!!a.avoided) - Number(!!b.avoided);
+    if (avoided !== 0) {
+      return avoided;
+    }
+    const key = this.sortKey;
+    if (!key) {
+      return 0;
+    }
+    const direction = this.sortDirection === 'asc' ? 1 : -1;
+    switch (key) {
+      case 'name':
+        return direction * this.compareText(a.name, b.name);
+      case 'type':
+        return direction * this.compareText(this.typeLabel(a.type), this.typeLabel(b.type));
+      case 'jobs':
+        return direction * ((a.jobs_count ?? 0) - (b.jobs_count ?? 0));
+      case 'health':
+        return direction * (this.healthRank(a.health) - this.healthRank(b.health));
+      case 'last_scraped': {
+        const aTime = this.scrapedTime(a);
+        const bTime = this.scrapedTime(b);
+        // Never-scraped boards stay last in both directions.
+        if (aTime === null || bTime === null) {
+          if (aTime === null && bTime === null) {
+            return 0;
+          }
+          return aTime === null ? 1 : -1;
+        }
+        return direction * (aTime - bTime);
+      }
+    }
+  }
+
+  /** Case/accent-insensitive text order in the active language. */
+  private compareText(a: string, b: string): number {
+    return a.localeCompare(b, this.i18n.current, { sensitivity: 'base' });
+  }
+
+  private healthRank(health: string): number {
+    return HEALTH_RANK[health] ?? Number.MAX_SAFE_INTEGER;
+  }
+
+  /** Epoch millis of `last_scraped`, or `null` when missing/unparseable. */
+  private scrapedTime(source: Source): number | null {
+    if (!source.last_scraped) {
+      return null;
+    }
+    const time = new Date(source.last_scraped).getTime();
+    return Number.isNaN(time) ? null : time;
   }
 
   /** Predicate of the active quick filter (`''` keeps every source). */

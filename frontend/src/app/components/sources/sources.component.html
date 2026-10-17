@@ -556,11 +556,25 @@
     <table class="table">
       <thead>
         <tr>
-          <th>{{ i18n.t('common.name') }}</th>
-          <th>{{ i18n.t('common.type') }}</th>
-          <th>{{ i18n.t('common.jobs') }}</th>
-          <th>{{ i18n.t('common.health') }}</th>
-          <th>{{ i18n.t('sources.lastScraped') }}</th>
+          @for (column of sortableColumns; track column.key) {
+            <th [attr.aria-sort]="ariaSort(column.key)">
+              <button
+                type="button"
+                class="sort-header"
+                [class.sorted]="sortKey === column.key"
+                [attr.title]="i18n.t('sources.sortBy', { column: i18n.t(column.labelKey) })"
+                (click)="sortBy(column.key)"
+              >
+                {{ i18n.t(column.labelKey) }}
+                @if (sortKey === column.key) {
+                  <app-icon
+                    [name]="sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'"
+                    [size]="14"
+                  />
+                }
+              </button>
+            </th>
+          }
           <th class="row-actions">{{ i18n.t('common.actions') }}</th>
         </tr>
       </thead>
