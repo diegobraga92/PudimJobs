@@ -158,7 +158,14 @@ search APIs within their free tier. The API returns `next_scrape_at` and
 `scrape_due` for the source list, and the form seeds new `search_api` providers
 with a weekly interval. `POST /api/sources/preview`
 runs the scraper once and returns sample jobs without persisting anything — the
-*Preview* button on the Sources form. Worker-side alternative:
+*Preview* button on the Sources form. When the form is editing an existing
+source it sends that source's `source_id`, so the preview borrows the stored
+credentials while still testing the unsaved URL/config. A **new** keyed source
+has nowhere to borrow a key from: save it, add the key in *Authentication*, then
+edit it and preview again. A preview without a required key returns
+`<provider> needs an API key …` before making the request; when the vendor
+rejects the request anyway, its (redacted, capped) response body is included in
+the error. Worker-side alternative:
 
 ```bash
 docker compose exec worker python -c \

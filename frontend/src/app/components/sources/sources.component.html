@@ -299,6 +299,12 @@
             </button>
             <span class="muted xs">{{ i18n.t('sources.previewHint') }}</span>
           </div>
+
+          @if (isSearchApiProvider && !editingId) {
+            <p class="muted xs">
+              {{ i18n.t('sources.previewNeedsAuth') }}
+            </p>
+          }
   
           @if (previewResult) {
             @if (previewResult.error) {

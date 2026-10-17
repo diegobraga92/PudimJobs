@@ -132,6 +132,11 @@ export interface SourcePreviewInput {
   url: string;
   type: string;
   config?: Record<string, unknown> | null;
+  /**
+   * Borrow this owned source's stored credentials. The form still sends its
+   * current URL/config, so unsaved edits can be previewed.
+   */
+  source_id?: string;
 }
 
 export interface AuthTestResult {

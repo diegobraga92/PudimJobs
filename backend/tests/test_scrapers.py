@@ -15,6 +15,7 @@ from scrapers.aggregator import (
 from scrapers.career_page import CareerPageScraper
 from scrapers.discovery import (
     AdzunaProvider,
+    BraveProvider,
     BrightDataProvider,
     DiscoveryScraper,
     GoogleCseProvider,
@@ -1991,6 +1992,34 @@ def test_redact_sensitive_hides_a_key_given_by_the_caller():
     assert "9f8e7d6c5b" not in redact_sensitive(message, "9f8e7d6c5b")
 
 
+def test_search_api_providers_require_a_key_only_when_known_missing():
+    """Creation stays possible; a known-missing key fails with an actionable error."""
+    assert BraveProvider.validate_config({"query": "rust"}, has_api_key=None) is None
+    assert BraveProvider.validate_config({"query": "rust"}, has_api_key=True) is None
+    with pytest.raises(ValueError, match="needs an API key"):
+        BraveProvider.validate_config({"query": "rust"}, has_api_key=False)
+
+
+async def test_brave_fetch_surfaces_the_validation_error_body(monkeypatch, offline_fetch):
+    """Brave explains a rejected request in the payload (e.g. missing header)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["X-Subscription-Token"] == "brave-secret-key"
+        return httpx.Response(
+            422,
+            json={"error": {"detail": "missing x-subscription-token"}},
+        )
+
+    _patch_httpx_transport(monkeypatch, handler)
+    provider = BraveProvider({"query": "rust remote"}, "brave-secret-key")
+
+    with pytest.raises(httpx.HTTPStatusError) as excinfo:
+        await provider.fetch(provider.results_url())
+
+    assert "missing x-subscription-token" in str(excinfo.value)
+    assert "brave-secret-key" not in str(excinfo.value)
+
+
 async def test_fetch_html_error_message_never_echoes_the_api_key(monkeypatch, offline_fetch):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, text="forbidden")
@@ -2007,4 +2036,3 @@ async def test_fetch_html_error_message_never_echoes_the_api_key(monkeypatch, of
 
     # The path segment is part of the request URL, so it must be scrubbed.
     assert "SUPER-SECRET-KEY" not in str(excinfo.value)
-

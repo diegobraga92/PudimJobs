@@ -12,6 +12,7 @@ from app.config import settings
 from app.models import Source
 from app.models.enums import SourceType
 from app.routers.sources import _run_preview
+from app.schemas.source import SourcePreviewResponse
 from app.services.source_config import (
     adapter_metadata,
     manual_metadata,
@@ -414,6 +415,18 @@ async def test_run_preview_times_out(monkeypatch):
     assert "timed out" in response.error
 
 
+async def test_run_preview_requires_a_key_for_search_providers():
+    """A keyed preview explains what is missing instead of calling the vendor."""
+    response = await _run_preview(
+        source_type=SourceType.discovery,
+        url="https://search.example",
+        config={"provider": "brave", "query": "rust remote latam"},
+    )
+
+    assert response.status_code is None
+    assert "brave needs an API key" in (response.error or "")
+
+
 async def test_preview_endpoint_returns_a_sample_without_persisting(auth_client, monkeypatch):
     client, _, _ = auth_client
     _stub_registry(monkeypatch, _StubScraper(jobs_per_page=2))
@@ -431,6 +444,96 @@ async def test_preview_endpoint_returns_a_sample_without_persisting(auth_client,
     assert body["error"] is None
     # A dry run writes nothing: no source, no jobs.
     assert (await client.get("/api/sources")).json() == []
+
+
+async def test_preview_config_borrows_credentials_from_an_owned_source(auth_client, monkeypatch):
+    """The form preview uses saved credentials but the unsaved form config."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Brave search",
+            "url": "https://search.example",
+            "type": "discovery",
+            "config": {"provider": "brave", "query": "old query"},
+        },
+    )
+    assert created.status_code == 201
+    source_id = created.json()["id"]
+    saved = await client.put(
+        f"/api/sources/{source_id}/auth",
+        json={"auth_type": "api_key", "api_key": "brave-secret-key"},
+    )
+    assert saved.status_code == 200
+
+    captured: dict = {}
+
+    async def fake_preview(**kwargs):
+        captured.update(kwargs)
+        return SourcePreviewResponse(fetched_url=kwargs["url"])
+
+    monkeypatch.setattr("app.routers.sources._run_preview", fake_preview)
+
+    response = await client.post(
+        "/api/sources/preview",
+        json={
+            "url": "https://search.example",
+            "type": "discovery",
+            "config": {"provider": "brave", "query": "new unsaved query"},
+            "source_id": source_id,
+        },
+    )
+
+    assert response.status_code == 200, response.json()
+    assert captured["api_key"] == "brave-secret-key"
+    assert captured["auth"].api_key == "brave-secret-key"
+    # Credentials are borrowed; the URL/config under test stay from the form.
+    assert captured["config"]["query"] == "new unsaved query"
+
+
+async def test_preview_config_rejects_another_users_source(
+    auth_client, db_client, db_session, monkeypatch
+):
+    """Credentials can only be borrowed from a source the caller owns."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Brave search",
+            "url": "https://search.example",
+            "type": "discovery",
+            "config": {"provider": "brave", "query": "rust"},
+        },
+    )
+    source_id = created.json()["id"]
+
+    called = False
+
+    async def fake_preview(**kwargs):
+        nonlocal called
+        called = True
+        return SourcePreviewResponse(fetched_url=kwargs["url"])
+
+    monkeypatch.setattr("app.routers.sources._run_preview", fake_preview)
+
+    user_b = await create_user(db_session, email="preview-owner@example.com")
+    login = await db_client.post(
+        "/api/auth/login", json={"email": user_b.email, "password": "password123"}
+    )
+    db_client.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
+
+    response = await db_client.post(
+        "/api/sources/preview",
+        json={
+            "url": "https://search.example",
+            "type": "discovery",
+            "config": {"provider": "brave", "query": "rust"},
+            "source_id": source_id,
+        },
+    )
+
+    assert response.status_code == 404
+    assert called is False
 
 
 async def test_preview_stored_source_is_user_scoped(

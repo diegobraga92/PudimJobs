@@ -515,6 +515,15 @@ async def _run_preview(
     except ValueError as exc:
         return SourcePreviewResponse(fetched_url=url, error=str(exc))
 
+    check_credentials = getattr(scraper, "check_credentials", None)
+    if callable(check_credentials):
+        try:
+            # The preview has no source to fall back on, so a keyed provider
+            # without credentials must say so instead of making a doomed request.
+            check_credentials(has_api_key=bool(api_key or getattr(auth, "api_key", None)))
+        except ValueError as exc:
+            return SourcePreviewResponse(fetched_url=url, error=str(exc))
+
     fetch_url = url
     max_samples = settings.scraper_preview_max_jobs
     timeout = settings.scraper_preview_timeout_seconds
@@ -579,11 +588,29 @@ async def _run_preview(
 async def preview_source_config(
     request: Request,
     payload: SourcePreviewRequest,
+    db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Dry-run a URL/type/config so selectors can be tuned before saving."""
+    """Dry-run a URL/type/config so selectors can be tuned before saving.
+
+    When ``source_id`` is sent, its stored credentials are used while the URL
+    and config still come from the request. This is what lets the edit form
+    preview a keyed provider without re-entering the key.
+    """
+    auth = None
+    api_key = None
+    if payload.source_id is not None:
+        await get_owned_source(payload.source_id, user, db)
+        record = await _get_auth_record(payload.source_id, db)
+        if record is not None and record.credentials_encrypted:
+            auth = build_fetch_auth(record)
+            api_key = auth.api_key if auth else None
     return await _run_preview(
-        source_type=payload.type, url=payload.url, config=payload.config or {}
+        source_type=payload.type,
+        url=payload.url,
+        config=payload.config or {},
+        api_key=api_key,
+        auth=auth,
     )
 
 

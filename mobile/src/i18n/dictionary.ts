@@ -265,6 +265,10 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     en: 'Runs the source once and shows the parsed jobs — nothing is saved. robots.txt is checked when the source is scraped, not here.',
     'pt-BR': 'Executa a fonte uma vez e mostra as vagas interpretadas — nada é salvo. O robots.txt é verificado na coleta, não aqui.',
   },
+  'sources.previewNeedsAuth': {
+    en: 'This provider needs a key. Save the source, add it in Authentication, then edit the source and preview again — the saved key is reused.',
+    'pt-BR': 'Este provedor precisa de uma chave. Salve a fonte, adicione-a em Autenticação e edite a fonte para pré-visualizar novamente — a chave salva é reutilizada.',
+  },
   'sources.previewSummary': {
     en: 'HTTP {status} — {count} job(s) parsed',
     'pt-BR': 'HTTP {status} — {count} vaga(s) interpretada(s)',

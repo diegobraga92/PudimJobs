@@ -926,6 +926,20 @@ class SearchApiProvider(TwoStageProvider):
     #: a short leash unless the source asks for more via ``max_results``.
     default_max_results = 5
 
+    @classmethod
+    def validate_config(cls, config: dict, *, has_api_key: bool | None = None) -> None:
+        """Require a key when the caller knows none is stored.
+
+        ``has_api_key=None`` means "unknown": a source is usually created before
+        its key is added, so creation must keep working.
+        """
+        super().validate_config(config, has_api_key=has_api_key)
+        if has_api_key is False:
+            raise ValueError(
+                f"{cls.provider_name} needs an API key — add one in the source's "
+                "Authentication panel"
+            )
+
     def parse_listing(self) -> bool:
         """``parse_listing: true`` (or ``parse_mode: results``) parses the page."""
         if as_flag(self.config.get("parse_listing")):
@@ -939,8 +953,14 @@ class SearchApiProvider(TwoStageProvider):
         if self.key_header and self.api_key:
             headers = dict((auth.headers or {}) if auth else {})
             headers[self.key_header] = self.api_key
-            return await fetch_html(url, auth=FetchAuth(headers=headers))
-        return await fetch_html(url, auth=auth)
+            return await fetch_html(
+                url,
+                auth=FetchAuth(headers=headers, api_key=self.api_key),
+                # Vendors explain rejected queries/keys in the payload (Brave's
+                # missing-header 422, for example); keep the snippet redacted.
+                read_error_body=True,
+            )
+        return await fetch_html(url, auth=auth, read_error_body=True)
 
     def results_url(self) -> str:
         return self.build_results_url()

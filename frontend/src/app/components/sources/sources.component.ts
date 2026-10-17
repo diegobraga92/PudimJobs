@@ -380,17 +380,26 @@ export class SourcesComponent implements OnInit {
     }
     this.previewing = true;
     this.previewResult = null;
-    this.service.preview({ url, type, config: built }).subscribe({
-      next: (result) => {
-        this.previewing = false;
-        this.previewResult = result;
-      },
-      error: () => {
-        this.previewing = false;
-        this.error = this.i18n.t('errors.failedPreviewSource');
-        this.toast.error(this.i18n.t('errors.failedPreviewSource'));
-      },
-    });
+    this.service
+      .preview({
+        url,
+        type,
+        config: built,
+        // While editing, borrow the saved source's credentials (keyed search
+        // providers cannot be previewed otherwise). New sources have none yet.
+        ...(this.editingId ? { source_id: this.editingId } : {}),
+      })
+      .subscribe({
+        next: (result) => {
+          this.previewing = false;
+          this.previewResult = result;
+        },
+        error: () => {
+          this.previewing = false;
+          this.error = this.i18n.t('errors.failedPreviewSource');
+          this.toast.error(this.i18n.t('errors.failedPreviewSource'));
+        },
+      });
   }
 
   refresh(): void {

@@ -173,6 +173,60 @@ describe('SourcesComponent — manual watchlist', () => {
     expect(component.cadenceMax).toBe(MANUAL_METADATA.cadence_days.max);
   });
 
+  // --- Preview: keyed providers borrow the saved source credentials ---------
+
+  const BRAVE_SOURCE: Source = {
+    ...MANUAL_SOURCE,
+    id: 'src-brave',
+    name: 'Brave search',
+    url: 'https://search.example',
+    type: 'discovery',
+    config: { provider: 'brave', query: 'rust remote', count: 20 },
+  };
+
+  const PREVIEW_RESULT = {
+    fetched_url: 'https://api.search.brave.com/res/v1/web/search',
+    status_code: 200,
+    jobs_found: 0,
+    sample_jobs: [],
+    truncated: false,
+    error: null,
+  };
+
+  it('borrows the stored credentials of the source being edited', () => {
+    component.providers = [SEARCH_PROVIDER];
+    component.openEdit(BRAVE_SOURCE);
+
+    component.preview();
+
+    const request = http.expectOne('/api/sources/preview');
+    expect(request.request.body.source_id).toBe('src-brave');
+    expect(request.request.body.config).toEqual({
+      query: 'rust remote',
+      count: 20,
+      provider: 'brave',
+    });
+    request.flush(PREVIEW_RESULT);
+    expect(component.previewResult?.status_code).toBe(200);
+  });
+
+  it('does not borrow credentials when previewing a new source', () => {
+    component.openCreate();
+    component.sourceForm.patchValue({
+      url: 'https://search.example',
+      type: 'discovery',
+    });
+    component.providers = [SEARCH_PROVIDER];
+    component.discoveryProvider = 'brave';
+    component.configJson = '{"query":"rust remote"}';
+
+    component.preview();
+
+    const request = http.expectOne('/api/sources/preview');
+    expect(request.request.body.source_id).toBeUndefined();
+    request.flush(PREVIEW_RESULT);
+  });
+
   it('labels an upcoming due date in days', () => {
     const soon = new Date(Date.now() + 3 * 86_400_000 - 60_000).toISOString();
 
@@ -383,6 +437,7 @@ describe('SourcesComponent — manual watchlist', () => {
       url: 'https://new.example/jobs',
       type: 'career_page',
       rate_limit_seconds: 30,
+      scrape_interval_minutes: null,
       respect_robots_txt: true,
     });
     request.flush(ACTIVE_SOURCE);

@@ -84,6 +84,10 @@ class SourcePreviewRequest(BaseModel):
     url: str = Field(min_length=1, max_length=1024)
     type: SourceType = SourceType.career_page
     config: dict | None = Field(default=None)
+    # Borrow the stored credentials of an owned source while previewing unsaved
+    # form values. The source's URL/config are *not* used: those come from the
+    # request, so edits can be tested before saving.
+    source_id: uuid.UUID | None = None
 
 
 class SourcePreviewResponse(BaseModel):
