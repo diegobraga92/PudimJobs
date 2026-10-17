@@ -46,6 +46,27 @@
         </select>
       </div>
   
+      @if (sourceForm.get('type')?.value !== 'manual') {
+        <div class="form-field">
+          <label for="source-schedule">{{ i18n.t('sources.schedule') }}</label>
+          <select id="source-schedule" class="select" formControlName="scrape_interval_minutes">
+            @for (option of scheduleOptions; track option.value) {
+              <option [ngValue]="option.value">
+                {{ i18n.t(option.labelKey, { minutes: option.value }) }}
+              </option>
+            }
+          </select>
+          <p class="muted xs">
+            {{ i18n.t('sources.scheduleHint') }}
+          </p>
+          @if (isSearchApiProvider) {
+            <p class="muted xs">
+              {{ i18n.t('sources.scheduleSearchApiHint') }}
+            </p>
+          }
+        </div>
+      }
+
       @if (sourceForm.get('type')?.value === 'manual') {
         <p class="muted xs">
           {{ i18n.t('sources.manualHint') }}
@@ -132,7 +153,8 @@
             <select
               id="source-provider"
               class="select"
-              [(ngModel)]="discoveryProvider"
+              [ngModel]="discoveryProvider"
+              (ngModelChange)="onDiscoveryProviderChange($event)"
               [ngModelOptions]="{ standalone: true }"
             >
               <option value="" disabled>{{ i18n.t('sources.chooseProviderOption') }}</option>
@@ -636,6 +658,19 @@
                   · {{ i18n.t('sources.nextCheck') }}: {{ source.next_check_at | date: 'short' }}
                   @if (dueText(source)) {
                     — {{ dueText(source) }}
+                  }
+                </span>
+              }
+              @if (source.type !== 'manual') {
+                <span class="muted xs">
+                  · {{ i18n.t('sources.schedule') }}: {{ scheduleLabel(source) }}
+                  @if (source.scrape_due) {
+                    — {{ i18n.t('sources.dueNow') }}
+                  } @else if (source.next_scrape_at) {
+                    · {{ i18n.t('sources.nextRun') }}:
+                    {{ source.next_scrape_at | date: 'short' }}
+                  } @else {
+                    · {{ i18n.t('sources.nextRun') }}: {{ i18n.t('sources.nextSweep') }}
                   }
                 </span>
               }

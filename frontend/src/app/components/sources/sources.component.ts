@@ -32,6 +32,25 @@ const SOURCE_TYPE_KEYS: Record<string, string> = {
   manual: 'sources.type.manual',
 };
 
+/**
+ * Per-source cadence choices. `null` keeps the global sweep freshness; the rest
+ * deliberately stay at or above the server's 60-minute floor.
+ */
+export const SOURCE_SCHEDULE_OPTIONS: ReadonlyArray<{
+  value: number | null;
+  labelKey: string;
+}> = [
+  { value: null, labelKey: 'sources.schedule.default' },
+  { value: 360, labelKey: 'sources.schedule.6h' },
+  { value: 1440, labelKey: 'sources.schedule.daily' },
+  { value: 4320, labelKey: 'sources.schedule.3d' },
+  { value: 10080, labelKey: 'sources.schedule.weekly' },
+  { value: 20160, labelKey: 'sources.schedule.2w' },
+];
+
+/** Paid search APIs are billed per run, so a new source starts weekly. */
+const SEARCH_API_DEFAULT_INTERVAL = 10080;
+
 /** Columns of the sources table that can be sorted by clicking their header. */
 export type SourceSortKey = 'name' | 'type' | 'jobs' | 'health' | 'last_scraped';
 
@@ -150,6 +169,10 @@ export class SourcesComponent implements OnInit {
         30,
         [Validators.required, Validators.min(0), Validators.max(86400)],
       ],
+      scrape_interval_minutes: [
+        null as number | null,
+        [Validators.min(60), Validators.max(20160)],
+      ],
       respect_robots_txt: [true],
     });
   }
@@ -204,6 +227,43 @@ export class SourcesComponent implements OnInit {
   /** The provider currently selected in the form (for hints/warnings). */
   get selectedProvider(): DiscoveryProvider | undefined {
     return this.providers.find((provider) => provider.name === this.discoveryProvider);
+  }
+
+  /** True for paid search APIs, which are billed once per scrape run. */
+  get isSearchApiProvider(): boolean {
+    return this.selectedProvider?.family === 'search_api';
+  }
+
+  /**
+   * Keep the provider bound while giving paid search APIs a weekly default.
+   * A non-default interval the user already chose is left untouched.
+   */
+  onDiscoveryProviderChange(provider: string): void {
+    this.discoveryProvider = provider;
+    const interval = this.sourceForm.get('scrape_interval_minutes');
+    if (this.isSearchApiProvider && interval && interval.value == null) {
+      interval.setValue(SEARCH_API_DEFAULT_INTERVAL);
+    }
+  }
+
+  /**
+   * Cadence choices for automated sources. A value set through the API that is
+   * not one of the presets is kept as a "Custom" entry instead of disappearing.
+   */
+  get scheduleOptions(): ReadonlyArray<{ value: number | null; labelKey: string }> {
+    const current = this.sourceForm.get('scrape_interval_minutes')?.value as number | null;
+    if (current == null || SOURCE_SCHEDULE_OPTIONS.some((option) => option.value === current)) {
+      return SOURCE_SCHEDULE_OPTIONS;
+    }
+    return [...SOURCE_SCHEDULE_OPTIONS, { value: current, labelKey: 'sources.schedule.custom' }];
+  }
+
+  /** Human label for the source's configured cadence. */
+  scheduleLabel(source: Source): string {
+    const option = SOURCE_SCHEDULE_OPTIONS.find(
+      (item) => item.value === (source.scrape_interval_minutes ?? null)
+    );
+    return this.i18n.t(option?.labelKey ?? 'sources.schedule.default');
   }
 
   /** Human label for a source type (used in the list's Type column). */
@@ -536,6 +596,7 @@ export class SourcesComponent implements OnInit {
       url: '',
       type: 'career_page',
       rate_limit_seconds: 30,
+      scrape_interval_minutes: null,
       respect_robots_txt: true,
     });
     this.adapter = 'generic_html_list';
@@ -558,6 +619,7 @@ export class SourcesComponent implements OnInit {
       url: source.url,
       type: source.type,
       rate_limit_seconds: source.rate_limit_seconds ?? 30,
+      scrape_interval_minutes: source.scrape_interval_minutes ?? null,
       respect_robots_txt: source.respect_robots_txt ?? true,
     });
     this.adapter = (source.config?.['adapter'] as string) ?? 'generic_html_list';
@@ -654,6 +716,7 @@ export class SourcesComponent implements OnInit {
       url: string;
       type: string;
       rate_limit_seconds: number;
+      scrape_interval_minutes: number | null;
       respect_robots_txt: boolean;
     };
     const payload: SourceInput = {
@@ -661,6 +724,8 @@ export class SourcesComponent implements OnInit {
       url: raw.url,
       type: raw.type,
       rate_limit_seconds: raw.rate_limit_seconds,
+      // Manual sources are never fetched; their cadence lives in config.
+      scrape_interval_minutes: raw.type === 'manual' ? null : raw.scrape_interval_minutes,
       respect_robots_txt: raw.respect_robots_txt,
     };
     if (raw.type === 'discovery' && !this.discoveryProvider) {

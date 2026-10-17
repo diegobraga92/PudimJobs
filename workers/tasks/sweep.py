@@ -1,15 +1,15 @@
 """The ``sweep_sources`` periodic task."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import structlog
-from app.config import settings
 from app.database import async_session_factory
 from app.models import Notification, Source
 from app.models.enums import SourceType
+from app.services.source_schedule import is_scrape_due
 from app.services.source_watchlist import is_due, mark_reminded, was_reminded
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from workers.celery_app import celery_app
 from workers.resilience import circuit_breaker_is_open
@@ -59,7 +59,6 @@ async def _remind_manual_sources(now: datetime) -> int:
 
 async def _sweep() -> dict:
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(minutes=settings.scrape_freshness_minutes)
     async with async_session_factory() as session:
         result = await session.execute(
             select(Source).where(
@@ -68,10 +67,11 @@ async def _sweep() -> dict:
                 # Avoided sources are never fetched either (ADR 019): the user
                 # flagged the board as one to stay away from.
                 Source.avoided_at.is_(None),
-                or_(Source.last_scraped.is_(None), Source.last_scraped < cutoff),
             )
         )
-        sources = result.scalars().all()
+        # Per-source cadence can differ, so due-ness is evaluated row by row.
+        # The global freshness remains the floor (see source_schedule).
+        sources = [source for source in result.scalars().all() if is_scrape_due(source, now)]
 
     scheduled = 0
     for source in sources:

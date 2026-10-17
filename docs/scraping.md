@@ -45,6 +45,7 @@ Hard limits of the engine — these decide almost every verdict below:
 | Cadence + notes (manual) | from `GET /sources/manual-metadata` (`cadence_days` 1–365, plus free-form `notes`); the form merges them into the existing `config` |
 | Config JSON | merged into `config` (required/optional keys come from `/sources/providers` and `/sources/adapters`; create/update return 422 on a broken config) |
 | Rate limit (s) | default `30`, per-domain cooldown before every request |
+| Scrape frequency | optional per-source interval (`scrape_interval_minutes`, 60–20160); `null` inherits the global sweep freshness and the global value is always a floor. Hidden for `manual` sources, which use `cadence_days` |
 | Respect robots.txt | default **on** (checked against the URL that gets fetched — the board for renderer providers, see `robots_url` — and each pagination hop) |
 | Auth (optional) | `token` (Bearer) or `api_key` (search providers read `FetchAuth.api_key`, not `token`) |
 
@@ -150,7 +151,12 @@ call, keyed providers cap `max_results` at **5** by default; an explicit
 
 **Verification loop.** `POST /api/admin/sources/{id}/scrape` (admin, 202) enqueues
 a run; otherwise Beat sweeps every 15 min (`SCRAPE_SWEEP_INTERVAL_MINUTES`) for
-sources older than 60 min (`SCRAPE_FRESHNESS_MINUTES`). `POST /api/sources/preview`
+sources whose `last_scraped` is older than `max(SCRAPE_FRESHNESS_MINUTES,
+scrape_interval_minutes)`. A source with no interval keeps the 60-minute default;
+setting a longer cadence (daily, weekly, …) is the intended way to keep paid
+search APIs within their free tier. The API returns `next_scrape_at` and
+`scrape_due` for the source list, and the form seeds new `search_api` providers
+with a weekly interval. `POST /api/sources/preview`
 runs the scraper once and returns sample jobs without persisting anything — the
 *Preview* button on the Sources form. Worker-side alternative:
 

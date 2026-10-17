@@ -14,6 +14,9 @@ class SourceBase(BaseModel):
     # Scraping ethics / politeness: cooldown between requests to the domain and
     # whether to honour robots.txt `Disallow` rules.
     rate_limit_seconds: int = Field(default=30, ge=0, le=86400)
+    # NULL inherits the global sweep cadence. The largest option is two weeks;
+    # longer values are rejected so a typo cannot silently freeze a source.
+    scrape_interval_minutes: int | None = Field(default=None, ge=60, le=20160)
     respect_robots_txt: bool = True
 
 
@@ -27,6 +30,7 @@ class SourceUpdate(BaseModel):
     type: SourceType | None = None
     config: dict | None = None
     rate_limit_seconds: int | None = Field(default=None, ge=0, le=86400)
+    scrape_interval_minutes: int | None = Field(default=None, ge=60, le=20160)
     respect_robots_txt: bool | None = None
     # Soft-avoid flag (ADR 019): stops fetching/reminders, keeps the source listed.
     avoided: bool | None = None
@@ -46,6 +50,10 @@ class SourceResponse(SourceBase):
     id: uuid.UUID
     health: SourceHealth
     last_scraped: datetime | None
+    # Derived schedule fields for automated sources: when the next scrape is
+    # due (null until the first run) and whether the next sweep may enqueue one.
+    next_scrape_at: datetime | None = None
+    scrape_due: bool = False
     created_at: datetime
     jobs_count: int = 0
     # Manual (watchlist) sources only: when the board is next due for a

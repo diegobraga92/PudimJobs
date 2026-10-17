@@ -3,6 +3,7 @@
 Requires PostgreSQL (test DB) and Redis; skipped when unavailable.
 """
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -98,13 +99,15 @@ SAMPLE_JOBS = [
 ]
 
 
-async def _make_source(db_session, user) -> Source:
-    source = Source(
-        user_id=user.id,
-        name="Acme",
-        url="https://acme.example/careers",
-        type="career_page",
-    )
+async def _make_source(db_session, user, **overrides) -> Source:
+    values = {
+        "user_id": user.id,
+        "name": "Acme",
+        "url": "https://acme.example/careers",
+        "type": "career_page",
+    }
+    values.update(overrides)
+    source = Source(**values)
     db_session.add(source)
     await db_session.commit()
     await db_session.refresh(source)
@@ -669,6 +672,59 @@ async def test_sweep_schedules_scraped_sources_and_reminds_manual_ones(
     second = await sweep_module._sweep()
     assert second["reminded"] == 0
     assert len((await db_session.execute(select(Notification))).scalars().all()) == 1
+
+
+async def test_sweep_respects_per_source_scrape_interval(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A weekly source is skipped until its interval elapses; others stay hourly."""
+    from workers.tasks import sweep as sweep_module
+
+    user = await create_user(db_session)
+    now = datetime.now(UTC)
+
+    weekly_recent = await _make_source(
+        db_session,
+        user,
+        name="Weekly recent",
+        scrape_interval_minutes=10080,
+        last_scraped=now - timedelta(days=2),
+    )
+    weekly_stale = await _make_source(
+        db_session,
+        user,
+        name="Weekly stale",
+        scrape_interval_minutes=10080,
+        last_scraped=now - timedelta(days=9),
+    )
+    # No per-source interval: the global 60-minute freshness still applies.
+    await _make_source(
+        db_session,
+        user,
+        name="Default recent",
+        last_scraped=now - timedelta(minutes=30),
+    )
+    default_stale = await _make_source(
+        db_session,
+        user,
+        name="Default stale",
+        last_scraped=now - timedelta(hours=2),
+    )
+    await db_session.commit()
+
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        scrape_module,
+        "scrape_source",
+        SimpleNamespace(delay=lambda source_id: scheduled.append(source_id)),
+    )
+
+    result = await sweep_module._sweep()
+
+    assert result["due"] == 2
+    assert result["scheduled"] == 2
+    assert set(scheduled) == {str(weekly_stale.id), str(default_stale.id)}
+    assert str(weekly_recent.id) not in scheduled
 
 
 async def test_sweep_ignores_manual_sources_that_are_not_due_yet(

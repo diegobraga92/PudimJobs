@@ -24,6 +24,10 @@ class Source(Base):
     # Adapter-specific settings (e.g. aggregator selectors/pagination).
     config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     rate_limit_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    # Optional per-source scrape cadence. NULL means "use the global sweep
+    # freshness"; the global value is always a floor, so a source can only be
+    # scraped *less* often than the sweep default.
+    scrape_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Scraping ethics: honour the target's robots.txt `Disallow` rules before
     # fetching. Off by default only if the operator explicitly opts out.
     respect_robots_txt: Mapped[bool] = mapped_column(

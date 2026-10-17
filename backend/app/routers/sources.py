@@ -40,6 +40,7 @@ from app.services.source_config import (
     provider_metadata,
     validate_source_config,
 )
+from app.services.source_schedule import is_scrape_due, next_scrape_at
 from app.services.source_watchlist import (
     advance_manual_check,
     is_avoided,
@@ -77,13 +78,16 @@ def _attach_counts(sources: list[Source], counts: dict[uuid.UUID, int]) -> list[
 
 
 def _source_response(source: Source, jobs_count: int) -> SourceResponse:
-    """Serialize a source, filling the derived manual-watchlist fields."""
+    """Serialize a source, filling the derived schedule/watchlist fields."""
+    avoided = is_avoided(source)
     return SourceResponse.model_validate(source).model_copy(
         update={
             "jobs_count": jobs_count,
             "next_check_at": next_check_at(source),
             "due": is_due(source),
-            "avoided": is_avoided(source),
+            "next_scrape_at": next_scrape_at(source),
+            "scrape_due": is_scrape_due(source) and not avoided,
+            "avoided": avoided,
         }
     )
 

@@ -140,6 +140,15 @@ export interface Source {
   jobs_count?: number;
   rate_limit_seconds: number;
   respect_robots_txt: boolean;
+  /**
+   * Per-source scrape cadence in minutes. `null` inherits the global sweep
+   * freshness; the API uses the global value as a floor.
+   */
+  scrape_interval_minutes?: number | null;
+  /** Automated sources: when the next scrape becomes due (null = never ran). */
+  next_scrape_at?: string | null;
+  /** Automated, non-avoided sources: true when the next sweep may enqueue a scrape. */
+  scrape_due?: boolean;
   /** Manual (watchlist) sources: when the board is next due for a hand-check. */
   next_check_at?: string | null;
   /** Manual (watchlist) sources: true when the board is due for a hand-check. */
@@ -159,7 +168,10 @@ export type SourceInput = Pick<
   Source,
   'name' | 'url' | 'type' | 'rate_limit_seconds' | 'respect_robots_txt'
 > & { config?: Record<string, unknown> | null } & Partial<
-    Pick<Source, 'id' | 'health' | 'avoided' | 'avoided_at' | 'avoid_reason'>
+    Pick<
+      Source,
+      'id' | 'health' | 'scrape_interval_minutes' | 'avoided' | 'avoided_at' | 'avoid_reason'
+    >
   >;
 
 export type SourceAuthType = 'none' | 'token' | 'api_key';

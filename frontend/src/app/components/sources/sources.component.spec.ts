@@ -5,7 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { I18nService } from '../../services/i18n.service';
-import { ManualMetadata, Source } from '../../services/sources.service';
+import { DiscoveryProvider, ManualMetadata, Source } from '../../services/sources.service';
 import { SourcesComponent } from './sources.component';
 
 /** Exactly what `GET /api/sources/manual-metadata` publishes. */
@@ -16,6 +16,16 @@ const MANUAL_METADATA: ManualMetadata = {
   required_any: [],
   optional_config: ['cadence_days', 'notes'],
   example_config: { cadence_days: 7 },
+};
+
+const SEARCH_PROVIDER: DiscoveryProvider = {
+  name: 'brave',
+  family: 'search_api',
+  requires_key: true,
+  required_config: ['query'],
+  required_any: [],
+  optional_config: ['max_pages'],
+  example_config: { query: 'rust remote latam' },
 };
 
 const MANUAL_SOURCE: Source = {
@@ -104,6 +114,58 @@ describe('SourcesComponent — manual watchlist', () => {
 
     expect(component.cadenceDays).toBe(MANUAL_METADATA.cadence_days.default);
     expect(component.notes).toBe('');
+  });
+
+  // --- Per-source scrape cadence (protects paid search credits) -------------
+
+  it('defaults paid search providers to a weekly cadence', () => {
+    component.openCreate();
+    component.sourceForm.get('type')?.setValue('discovery');
+    component.providers = [SEARCH_PROVIDER];
+
+    component.onDiscoveryProviderChange('brave');
+
+    expect(component.discoveryProvider).toBe('brave');
+    expect(component.sourceForm.get('scrape_interval_minutes')?.value).toBe(10080);
+  });
+
+  it('does not overwrite an explicit cadence when a search provider is chosen', () => {
+    component.openCreate();
+    component.sourceForm.get('scrape_interval_minutes')?.setValue(1440);
+    component.providers = [SEARCH_PROVIDER];
+
+    component.onDiscoveryProviderChange('brave');
+
+    expect(component.sourceForm.get('scrape_interval_minutes')?.value).toBe(1440);
+  });
+
+  it('keeps an API-set custom interval selectable', () => {
+    component.openEdit({
+      ...MANUAL_SOURCE,
+      id: 'src-7',
+      type: 'rss',
+      scrape_interval_minutes: 120,
+    });
+
+    expect(component.scheduleOptions.map((option) => option.value)).toContain(120);
+  });
+
+  it('sends the per-source cadence on create', () => {
+    component.openCreate();
+    component.sourceForm.patchValue({
+      name: 'Weekly board',
+      url: 'https://weekly.example',
+      type: 'rss',
+      scrape_interval_minutes: 10080,
+    });
+
+    component.save();
+
+    const request = http.expectOne('/api/sources');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body.scrape_interval_minutes).toBe(10080);
+    request.flush({ ...MANUAL_SOURCE, id: 'src-6', type: 'rss' });
+    http.expectOne('/api/sources').flush([]);
   });
 
   it('takes the cadence input bounds from the API', () => {

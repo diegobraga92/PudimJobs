@@ -42,11 +42,25 @@ const SOURCE_TYPE_KEYS: Record<string, string> = {
   manual: 'sources.type.manual',
 };
 
+/** Per-source cadence choices; `default` inherits the global sweep freshness. */
+const SCHEDULE_OPTIONS: readonly { value: string; labelKey: string }[] = [
+  { value: 'default', labelKey: 'sources.schedule.default' },
+  { value: '360', labelKey: 'sources.schedule.6h' },
+  { value: '1440', labelKey: 'sources.schedule.daily' },
+  { value: '4320', labelKey: 'sources.schedule.3d' },
+  { value: '10080', labelKey: 'sources.schedule.weekly' },
+  { value: '20160', labelKey: 'sources.schedule.2w' },
+];
+
+/** Paid search APIs are billed per run, so a new source starts weekly. */
+const SEARCH_API_DEFAULT_INTERVAL = '10080';
+
 interface SourceFormState {
   name: string;
   url: string;
   type: string;
   rate_limit_seconds: string;
+  scrape_interval_minutes: string;
   respect_robots_txt: boolean;
   cadence_days: string;
   notes: string;
@@ -60,6 +74,7 @@ const EMPTY_FORM: SourceFormState = {
   url: '',
   type: 'career_page',
   rate_limit_seconds: '30',
+  scrape_interval_minutes: 'default',
   respect_robots_txt: true,
   cadence_days: '7',
   notes: '',
@@ -92,6 +107,8 @@ export function SourcesScreen() {
   const [adapter, setAdapter] = useState('generic_html_list');
   const [configJson, setConfigJson] = useState('');
   const [discoveryProvider, setDiscoveryProvider] = useState('');
+  const selectedProvider = providers.find((provider) => provider.name === discoveryProvider);
+  const isSearchApiProvider = selectedProvider?.family === 'search_api';
   const [authSource, setAuthSource] = useState<Source | null>(null);
   /**
    * `config` of the source being edited. Manual configs are merged with the form
@@ -103,6 +120,15 @@ export function SourcesScreen() {
 
   const update = <K extends keyof SourceFormState>(key: K, value: SourceFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
+
+  /** Keep paid search APIs on a weekly default unless the user chose otherwise. */
+  const onProviderChange = (value: string) => {
+    setDiscoveryProvider(value);
+    const provider = providers.find((item) => item.name === value);
+    if (provider?.family === 'search_api' && form.scrape_interval_minutes === 'default') {
+      update('scrape_interval_minutes', SEARCH_API_DEFAULT_INTERVAL);
+    }
+  };
 
   const openCreate = () => {
     setEditingId(null);
@@ -121,6 +147,8 @@ export function SourcesScreen() {
       url: source.url,
       type: source.type,
       rate_limit_seconds: String(source.rate_limit_seconds ?? 30),
+      scrape_interval_minutes:
+        source.scrape_interval_minutes == null ? 'default' : String(source.scrape_interval_minutes),
       respect_robots_txt: source.respect_robots_txt ?? true,
       cadence_days: String(source.config?.['cadence_days'] ?? cadenceBounds.default),
       notes: String(source.config?.['notes'] ?? ''),
@@ -158,6 +186,14 @@ export function SourcesScreen() {
       toast.error(i18n.t('errors.failedSaveSource'));
       return;
     }
+    const interval =
+      form.type === 'manual' || form.scrape_interval_minutes === 'default'
+        ? null
+        : Number(form.scrape_interval_minutes);
+    if (interval !== null && (!Number.isFinite(interval) || interval < 60 || interval > 20160)) {
+      toast.error(i18n.t('errors.failedSaveSource'));
+      return;
+    }
     const cadence = Number(form.cadence_days);
     if (
       form.type === 'manual' &&
@@ -171,6 +207,7 @@ export function SourcesScreen() {
       url: form.url,
       type: form.type,
       rate_limit_seconds: rate,
+      scrape_interval_minutes: interval,
       respect_robots_txt: form.respect_robots_txt,
     };
     if (form.type === 'aggregator') {
@@ -312,6 +349,24 @@ export function SourcesScreen() {
     return i18n.t('sources.overdueByDays', { days: Math.abs(days) });
   };
 
+  /** Human label for the source's configured scrape cadence. */
+  const scheduleLabel = (source: Source): string => {
+    const value =
+      source.scrape_interval_minutes == null ? 'default' : String(source.scrape_interval_minutes);
+    const option = SCHEDULE_OPTIONS.find((item) => item.value === value);
+    return i18n.t(option?.labelKey ?? 'sources.schedule.default', { minutes: value });
+  };
+
+  /** Preserve an API-set custom interval instead of showing a blank selector. */
+  const scheduleOptions: readonly { value: string; labelKey: string }[] =
+    form.scrape_interval_minutes === 'default' ||
+    SCHEDULE_OPTIONS.some((option) => option.value === form.scrape_interval_minutes)
+      ? SCHEDULE_OPTIONS
+      : [
+          ...SCHEDULE_OPTIONS,
+          { value: form.scrape_interval_minutes, labelKey: 'sources.schedule.custom' },
+        ];
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: theme.colors.bg }]}
@@ -366,6 +421,29 @@ export function SourcesScreen() {
             />
           </FormField>
 
+          {form.type !== 'manual' ? (
+            <>
+              <FormField label={i18n.t('sources.schedule')}>
+                <Select
+                  value={form.scrape_interval_minutes}
+                  options={scheduleOptions.map((option) => ({
+                    value: option.value,
+                    label: i18n.t(option.labelKey, { minutes: option.value }),
+                  }))}
+                  onValueChange={(value) => update('scrape_interval_minutes', value)}
+                />
+              </FormField>
+              <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
+                {i18n.t('sources.scheduleHint')}
+              </Text>
+              {isSearchApiProvider ? (
+                <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
+                  {i18n.t('sources.scheduleSearchApiHint')}
+                </Text>
+              ) : null}
+            </>
+          ) : null}
+
           {form.type === 'aggregator' ? (
             <>
               <FormField label={i18n.t('sources.adapter')}>
@@ -386,12 +464,9 @@ export function SourcesScreen() {
                 />
               </FormField>
               <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
-                {i18n.t('sources.adapterHintPrefix')} <Text style={styles.code}>max_pages</Text>
-                {' '}
-                {i18n.t('sources.adapterHintSuffix')} <Text style={styles.code}>next_page_tpl</Text>
-                {' '}
-                {i18n.t('sources.adapterHintTpl')} <Text style={styles.code}>url_tpl</Text>
-                {' '}
+                {i18n.t('sources.adapterHintPrefix')} <Text style={styles.code}>max_pages</Text>{' '}
+                {i18n.t('sources.adapterHintSuffix')} <Text style={styles.code}>next_page_tpl</Text>{' '}
+                {i18n.t('sources.adapterHintTpl')} <Text style={styles.code}>url_tpl</Text>{' '}
                 {i18n.t('sources.adapterHintUrlTpl')}
               </Text>
             </>
@@ -406,7 +481,7 @@ export function SourcesScreen() {
                     provider.name + (provider.requires_key ? ` · ${i18n.t('common.apiKey')}` : ''),
                   value: provider.name,
                 }))}
-                onValueChange={setDiscoveryProvider}
+                onValueChange={onProviderChange}
                 placeholder={i18n.t('sources.chooseProviderOption')}
               />
             </FormField>
@@ -561,6 +636,9 @@ export function SourcesScreen() {
             {i18n.t(SOURCE_TYPE_KEYS[source.type] ?? source.type)} · {i18n.t('common.jobs')}:{' '}
             {source.jobs_count ?? '—'} · {i18n.t('sources.lastScraped')}:{' '}
             {source.last_scraped ? shortDate(source.last_scraped, dateLocale(i18n.lang)) : '—'}
+            {source.type !== 'manual'
+              ? ` · ${i18n.t('sources.schedule')}: ${scheduleLabel(source)}`
+              : ''}
           </Text>
 
           {source.avoided && source.avoid_reason ? (
@@ -574,6 +652,17 @@ export function SourcesScreen() {
               {i18n.t('sources.nextCheck')}:{' '}
               {shortDate(source.next_check_at, dateLocale(i18n.lang))}
               {dueText(source) ? ` — ${dueText(source)}` : ''}
+            </Text>
+          ) : null}
+
+          {source.type !== 'manual' ? (
+            <Text style={[styles.metaText, { color: theme.colors.textMuted }]}>
+              {i18n.t('sources.nextRun')}:{' '}
+              {source.scrape_due
+                ? i18n.t('sources.dueNow')
+                : source.next_scrape_at
+                  ? shortDate(source.next_scrape_at, dateLocale(i18n.lang))
+                  : i18n.t('sources.nextSweep')}
             </Text>
           ) : null}
 

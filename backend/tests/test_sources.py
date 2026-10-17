@@ -1,6 +1,7 @@
 """Tests for the sources CRUD API."""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from scrapers.aggregator import AGGREGATOR_ADAPTERS
@@ -8,6 +9,7 @@ from scrapers.discovery import DISCOVERY_PROVIDERS
 from scrapers.types import RawJob, ScrapedPage
 
 from app.config import settings
+from app.models import Source
 from app.models.enums import SourceType
 from app.routers.sources import _run_preview
 from app.services.source_config import (
@@ -96,6 +98,77 @@ async def test_scraping_ethics_validation(auth_client):
             },
         )
         assert response.status_code == 422
+
+
+async def test_scrape_interval_roundtrip(auth_client):
+    """Per-source cadence survives create/read/update and can be reset to default."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Weekly search",
+            "url": "https://search.example",
+            "type": "discovery",
+            "config": {"provider": "brave", "query": "rust remote latam"},
+            "scrape_interval_minutes": 10080,
+        },
+    )
+    assert created.status_code == 201
+    body = created.json()
+    assert body["scrape_interval_minutes"] == 10080
+    assert body["next_scrape_at"] is None
+    assert body["scrape_due"] is True
+
+    source_id = body["id"]
+    detail = await client.get(f"/api/sources/{source_id}")
+    assert detail.json()["scrape_interval_minutes"] == 10080
+
+    # Explicit null opts the source back into the global sweep cadence.
+    updated = await client.put(
+        f"/api/sources/{source_id}", json={"scrape_interval_minutes": None}
+    )
+    assert updated.status_code == 200
+    assert updated.json()["scrape_interval_minutes"] is None
+
+
+async def test_scrape_interval_validation(auth_client):
+    """Intervals below the floor or beyond two weeks are rejected."""
+    client, _, _ = auth_client
+    for bad_interval in (59, 20161):
+        response = await client.post(
+            "/api/sources",
+            json={
+                "name": "Bad schedule",
+                "url": "https://bad.example",
+                "type": "rss",
+                "scrape_interval_minutes": bad_interval,
+            },
+        )
+        assert response.status_code == 422
+
+
+async def test_source_response_exposes_next_scrape(auth_client, db_session):
+    """The list shows when a configured source becomes due next."""
+    client, user, _ = auth_client
+    last_scraped = datetime.now(UTC) - timedelta(days=2)
+    source = Source(
+        user_id=user.id,
+        name="Weekly board",
+        url="https://weekly.example",
+        type="rss",
+        scrape_interval_minutes=10080,
+        last_scraped=last_scraped,
+    )
+    db_session.add(source)
+    await db_session.commit()
+
+    response = await client.get("/api/sources")
+
+    assert response.status_code == 200
+    item = next(row for row in response.json() if row["id"] == str(source.id))
+    assert item["scrape_interval_minutes"] == 10080
+    assert item["scrape_due"] is False
+    assert datetime.fromisoformat(item["next_scrape_at"]) > datetime.now(UTC)
 
 
 async def test_crud_roundtrip(auth_client):

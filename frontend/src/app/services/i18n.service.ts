@@ -212,6 +212,28 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     en: 'How often this watchlist source should be checked by hand. A reminder appears when it is due.',
     'pt-BR': 'Com que frequência esta fonte de acompanhamento deve ser revisada manualmente. Um lembrete aparece quando estiver na hora.',
   },
+  'sources.schedule': { en: 'Scrape frequency', 'pt-BR': 'Frequência de coleta' },
+  'sources.schedule.default': { en: 'Global default', 'pt-BR': 'Padrão global' },
+  'sources.schedule.6h': { en: 'Every 6 hours', 'pt-BR': 'A cada 6 horas' },
+  'sources.schedule.daily': { en: 'Daily', 'pt-BR': 'Diariamente' },
+  'sources.schedule.3d': { en: 'Every 3 days', 'pt-BR': 'A cada 3 dias' },
+  'sources.schedule.weekly': { en: 'Weekly', 'pt-BR': 'Semanalmente' },
+  'sources.schedule.2w': { en: 'Every 2 weeks', 'pt-BR': 'A cada 2 semanas' },
+  'sources.schedule.custom': {
+    en: 'Custom ({minutes} min)',
+    'pt-BR': 'Personalizado ({minutes} min)',
+  },
+  'sources.scheduleHint': {
+    en: 'How often this source may be scraped. The global sweep cadence is a floor, so it is never scraped more often than the default.',
+    'pt-BR': 'Com que frequência esta fonte pode ser coletada. A cadência global da varredura é um piso, então ela nunca é coletada com mais frequência que o padrão.',
+  },
+  'sources.scheduleSearchApiHint': {
+    en: 'Search API requests are billed per run. Weekly keeps the free tier usable — shorten it only for priority queries.',
+    'pt-BR': 'Solicitações de API de busca são cobradas por execução. Semanal mantém o plano gratuito viável — reduza apenas para buscas prioritárias.',
+  },
+  'sources.nextRun': { en: 'Next run', 'pt-BR': 'Próxima coleta' },
+  'sources.nextSweep': { en: 'next sweep', 'pt-BR': 'próxima varredura' },
+  'sources.dueNow': { en: 'due now', 'pt-BR': 'agora' },
   'sources.notes': { en: 'Notes', 'pt-BR': 'Notas' },
   'sources.notesHint': {
     en: 'What to look for when you open the board — optional, kept with the source.',
