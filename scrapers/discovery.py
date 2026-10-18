@@ -1,9 +1,10 @@
 """Discovery providers: search-engine and ATS-board job sources."""
 
 import json
+import re
 from abc import ABC, abstractmethod
 from dataclasses import replace
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from xml.etree import ElementTree
 
 import httpx
@@ -31,6 +32,15 @@ from scrapers.utils import (
 #: string, in a header, or as a path segment (Jooble).
 _JSON_AUTH_LOCATIONS = frozenset({"url", "path", "query", "header"})
 _JSON_METHODS = frozenset({"GET", "POST"})
+
+
+#: Remote markers found in a Google Jobs result's title/location/extensions.
+#: ``detected_extensions.work_from_home`` is the authoritative flag; these cover
+#: results where Google omitted it.
+_REMOTE_MARKER_RE = re.compile(
+    r"\b(?:remote|remoto|remota|home[\s-]?office|work\s+from\s+home|anywhere)\b",
+    re.IGNORECASE,
+)
 
 
 def _date_prefix(value: object) -> str | None:
@@ -1065,6 +1075,11 @@ class SerpApiProvider(SearchApiProvider):
         }
         if self.config.get("location"):
             params["location"] = self.config["location"]
+        # Google Jobs localises both the index and the returned board links from
+        # these; without them a "remote" query is answered from the US locale.
+        for key in ("gl", "hl"):
+            if self.config.get(key):
+                params[key] = self.config[key]
         if self.config.get("num"):
             params["num"] = self.config["num"]
         if offset:
@@ -1102,11 +1117,41 @@ class SerpApiProvider(SearchApiProvider):
             candidates = apply_links + google_links
         return next((link for link in candidates if link), None)
 
+    def _via_terms(self) -> list[str]:
+        """Configured board names for ``via_filter`` (empty means no filtering)."""
+        raw = self.config.get("via_filter")
+        if isinstance(raw, bool):
+            return ["glassdoor"] if raw else []
+        return [term.lower() for term in as_tag_list(raw)]
+
+    def _matches_filters(self, item: dict) -> bool:
+        """Apply the optional ``via_filter`` and ``remote_only`` result filters."""
+        via_terms = self._via_terms()
+        if via_terms:
+            sources = [item.get("via")]
+            for option in item.get("apply_options") or []:
+                if isinstance(option, dict):
+                    sources.extend((option.get("title"), option.get("link")))
+            haystack = " ".join(str(value) for value in sources if value).lower()
+            if not any(term in haystack for term in via_terms):
+                return False
+
+        if not as_flag(self.config.get("remote_only")):
+            return True
+        detected = item.get("detected_extensions")
+        if isinstance(detected, dict) and as_flag(detected.get("work_from_home")):
+            return True
+        markers = [item.get("title"), item.get("location")]
+        markers.extend(as_tag_list(item.get("extensions")))
+        return any(
+            _REMOTE_MARKER_RE.search(str(value)) for value in markers if value
+        )
+
     def result_links(self, page: ScrapedPage) -> list[str]:
         data = json.loads(page.html_content)
         links: list[str] = []
         for item in data.get("jobs_results", []):
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) or not self._matches_filters(item):
                 continue
             link = self._job_link(item)
             if link:
@@ -1123,7 +1168,7 @@ class SerpApiProvider(SearchApiProvider):
         data = json.loads(page.html_content or "{}")
         jobs: list[RawJob] = []
         for item in data.get("jobs_results", []):
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) or not self._matches_filters(item):
                 continue
             location = as_optional_str(item.get("location"))
             tags = as_tag_list(item.get("extensions"))
@@ -1163,7 +1208,18 @@ class SerpApiProvider(SearchApiProvider):
 
     def next_page_url(self, page: ScrapedPage) -> str | None:
         data = json.loads(page.html_content)
-        return (data.get("serpapi_pagination") or {}).get("next")
+        next_url = (data.get("serpapi_pagination") or {}).get("next")
+        if not next_url:
+            return None
+        if not self.api_key:
+            return str(next_url)
+        # SerpApi's `next` link omits the key, so following it verbatim returns
+        # 401. Add it only when the vendor did not already include one.
+        parsed = urlparse(str(next_url))
+        query = parse_qsl(parsed.query, keep_blank_values=True)
+        if not any(name == "api_key" for name, _ in query):
+            query.append(("api_key", self.api_key))
+        return urlunparse(parsed._replace(query=urlencode(query)))
 
 
 class BrightDataProvider(SearchApiProvider):
@@ -1469,10 +1525,14 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
         "optional": (
             "engine",
             "location",
+            "gl",
+            "hl",
             "num",
             "parse_mode",
             "parse_listing",
             "link_source",
+            "remote_only",
+            "via_filter",
             "max_results",
             "max_pages",
             "allow_empty",
@@ -1483,6 +1543,8 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
             "engine": "google_jobs",
             "query": "python",
             "location": "Brazil",
+            "gl": "br",
+            "hl": "en",
             "parse_mode": "results",
         },
     },

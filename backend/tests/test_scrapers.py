@@ -1551,7 +1551,7 @@ def test_serpapi_provider_builds_url_and_parses_results():
         "https://www.linkedin.com/jobs/view/2",
     ]
     assert provider.next_page_url(page) == (
-        "https://serpapi.com/search?engine=linkedin_jobs&start=11"
+        "https://serpapi.com/search?engine=linkedin_jobs&start=11&api_key=KEY-1"
     )
 
     indeed = SerpApiProvider({"engine": "indeed", "query": "python"}, "K")
@@ -1612,6 +1612,129 @@ def test_serpapi_results_mode_honours_max_results_and_iso_posts():
     jobs = provider.parse(_json_page(payload))
     assert [job.title for job in jobs] == ["A", "B"]
     assert jobs[0].posted_date == date(2026, 8, 1)
+
+
+def test_serpapi_forwards_locale_params():
+    """`gl`/`hl` pin the Google Jobs locale instead of defaulting to the US."""
+    provider = SerpApiProvider(
+        {"engine": "google_jobs", "query": "golang remote", "gl": "br", "hl": "pt-BR"},
+        "K",
+    )
+    url = provider.results_url()
+    assert "gl=br" in url
+    assert "hl=pt-BR" in url
+
+    # Both are optional, so existing sources keep their previous request.
+    plain = SerpApiProvider({"engine": "google_jobs", "query": "golang remote"}, "K")
+    assert "gl=" not in plain.results_url()
+    assert "hl=" not in plain.results_url()
+
+    # The source form reads these from the published provider contract.
+    metadata = SerpApiProvider.config_metadata()
+    assert {"gl", "hl", "remote_only", "via_filter"} <= set(metadata["optional"])
+
+
+def test_serpapi_next_page_url_keeps_the_api_key():
+    """SerpApi's `next` link omits `api_key`; following it verbatim 401s."""
+    provider = SerpApiProvider({"engine": "google_jobs", "query": "rust"}, "KEY-1")
+    page = _json_page(
+        {
+            "serpapi_pagination": {
+                "next": "https://serpapi.com/search?engine=google_jobs&q=rust&start=10"
+            }
+        }
+    )
+    next_url = provider.next_page_url(page)
+    assert "start=10" in next_url
+    assert "api_key=KEY-1" in next_url
+
+    # A key already present is not duplicated.
+    already_keyed = _json_page(
+        {
+            "serpapi_pagination": {
+                "next": "https://serpapi.com/search?engine=google_jobs&start=20&api_key=OLD"
+            }
+        }
+    )
+    keyed_url = provider.next_page_url(already_keyed)
+    assert keyed_url.count("api_key=") == 1
+    assert "api_key=OLD" in keyed_url
+
+    assert provider.next_page_url(_json_page({})) is None
+
+
+def test_serpapi_remote_only_filters_results():
+    provider = SerpApiProvider(
+        {"query": "golang", "parse_mode": "results", "remote_only": True}, "K"
+    )
+    payload = {
+        "jobs_results": [
+            {
+                "title": "Go Engineer",
+                "apply_options": [{"link": "https://a.example/1"}],
+                "detected_extensions": {"work_from_home": True},
+            },
+            {
+                "title": "C++ Engineer",
+                "location": "Remote, Brazil",
+                "apply_options": [{"link": "https://a.example/2"}],
+            },
+            {
+                "title": "Rust Engineer",
+                "location": "Sao Paulo, Brazil",
+                "extensions": ["Remote"],
+                "apply_options": [{"link": "https://a.example/3"}],
+            },
+            {
+                "title": "Onsite Engineer",
+                "location": "Sao Paulo, Brazil",
+                "apply_options": [{"link": "https://a.example/4"}],
+            },
+        ]
+    }
+    page = _json_page(payload)
+    assert [job.title for job in provider.parse(page)] == [
+        "Go Engineer",
+        "C++ Engineer",
+        "Rust Engineer",
+    ]
+    # The same filter applies when results are followed as links instead.
+    links = provider.result_links(page)
+    assert links == [
+        "https://a.example/1",
+        "https://a.example/2",
+        "https://a.example/3",
+    ]
+
+
+def test_serpapi_via_filter_matches_board_attribution():
+    provider = SerpApiProvider(
+        {"query": "glassdoor", "parse_mode": "results", "via_filter": "glassdoor"}, "K"
+    )
+    payload = {
+        "jobs_results": [
+            {
+                "title": "Go Engineer",
+                "via": "Glassdoor",
+                "apply_options": [{"link": "https://glassdoor.com/jobs/1"}],
+            },
+            {
+                "title": "Rust Engineer",
+                "via": "LinkedIn",
+                "apply_options": [
+                    {"title": "LinkedIn", "link": "https://linkedin.com/jobs/2"}
+                ],
+            },
+            {
+                "title": "C++ Engineer",
+                "apply_options": [
+                    {"title": "Glassdoor", "link": "https://boards.example/jobs/3"}
+                ],
+            },
+        ]
+    }
+    jobs = provider.parse(_json_page(payload))
+    assert [job.title for job in jobs] == ["Go Engineer", "C++ Engineer"]
 
 
 def test_relative_age_parses_serp_labels():

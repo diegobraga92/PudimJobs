@@ -368,6 +368,17 @@ needs `page_tpl` (`{"page_tpl": "{page}0"}` → `start=20` on page 2) plus
 `serpapi` also accepts `link_source: google` to store
 the `google.com/search?ibp=htl;jobs…` link instead of the `apply_options[].link`
 board URL (the default, and the only one that works outside a browser session).
+`gl`/`hl` pin the Google Jobs country and interface language (for example
+`{"gl": "br", "hl": "pt-BR"}`); without them the index is queried from the US
+locale. The provider appends the source's API key to `serpapi_pagination.next`,
+because SerpApi returns that URL without one and page 2+ would otherwise 401 —
+each page is still another billed search, so cap it with `max_pages`.
+`remote_only: true` keeps only results whose `detected_extensions.work_from_home`
+is set (or whose title/location/extensions contain a remote marker such as
+`Remote`, `Remoto`, `Home office`). `via_filter: "glassdoor"` (a string, a list,
+or `true` as shorthand for Glassdoor) keeps results attributed to that board in
+`via`/`apply_options`; leave it off for recall, since Google's attribution is
+incomplete and drops valid Glassdoor jobs.
 
 ## Out of scope (documented, not attempted)
 
