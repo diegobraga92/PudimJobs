@@ -68,6 +68,25 @@ class SourceResponse(SourceBase):
     avoid_reason: str | None = None
 
 
+class SourceDiagnosticsResponse(BaseModel):
+    """Read-only health/data-quality snapshot for one source."""
+
+    source_id: uuid.UUID
+    name: str
+    type: SourceType
+    health: SourceHealth
+    avoided: bool
+    jobs_total: int
+    unknown_company: int
+    short_description: int
+    missing_posted_date: int
+    last_run_status: str | None = None
+    last_run_new_jobs: int | None = None
+    last_run_error: str | None = None
+    config_valid: bool = True
+    config_error: str | None = None
+
+
 class SourcePreviewJob(BaseModel):
     """A normalized job as returned by the source preview."""
 

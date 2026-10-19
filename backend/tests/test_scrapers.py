@@ -216,6 +216,37 @@ def test_rss_include_categories_keeps_every_feed_category():
     assert raw[0].tags == ["Remote", "Full-Time"]
 
 
+def test_rss_company_from_author_strips_jobspresso_location():
+    feed = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel><title>Jobs - Jobspresso</title>
+      <item>
+        <title>Senior Rust Engineer</title>
+        <link>https://jobspresso.co/job/senior-rust-engineer/</link>
+        <author>Algolia&lt;br&gt;⚲&amp;nbsp;United States</author>
+      </item>
+    </channel></rss>
+    """
+    scraper = RSSScraper({"company_from_author": True})
+    raw = scraper.parse(_page(feed))
+    assert raw[0].title == "Senior Rust Engineer"
+    assert raw[0].company == "Algolia"
+
+
+def test_rss_company_from_title_at_splits_last_company_marker():
+    feed = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel><title>Remote Jobs on NoDesk</title>
+      <item>
+        <title>Business Development Representative | UK | Remote at Zipchat AI</title>
+        <link>https://nodesk.co/remote-jobs/zipchat-ai-business-development/</link>
+      </item>
+    </channel></rss>
+    """
+    scraper = RSSScraper({"company_from_title_at": True})
+    raw = scraper.parse(_page(feed))
+    assert raw[0].title == "Business Development Representative | UK | Remote"
+    assert raw[0].company == "Zipchat AI"
+
+
 def test_rss_registry_passes_source_config():
     source = SimpleNamespace(type=SourceType.rss, config={"company_from_title": True})
     scraper = get_scraper(source)
@@ -247,6 +278,28 @@ def test_aggregator_generic_html_list_parses():
     assert raw[1].title == "Data Scientist"
     assert raw[1].url == "https://board.example/jobs/2"
     assert raw[1].description is None
+
+
+def test_aggregator_discover_urls_applies_exclude_pattern():
+    """Detail mode must not fetch cards the list parser would drop."""
+    html = """
+    <html><body>
+      <article class="job"><a href="/jobs/1">Fresh Rust role</a></article>
+      <article class="job"><a href="/jobs/2">Old role</a>
+        <span class="status">Vaga expirada</span></article>
+    </body></html>
+    """
+    scraper = GenericHtmlListScraper(
+        {
+            "detail": True,
+            "item_selector": "article.job",
+            "url_selector": "a",
+            "exclude_pattern": r"\bexpirada\b",
+        }
+    )
+    assert scraper.discover_urls(
+        _aggregator_page(html, "https://programathor.com.br/jobs")
+    ) == ["https://programathor.com.br/jobs/1"]
 
 
 def test_aggregator_exclude_pattern_drops_stale_cards():
@@ -762,6 +815,33 @@ def test_json_ld_identifier_dict_is_coerced():
     """
     jobs = parse_json_ld_jobs(html)
     assert jobs[0].external_id == "req-42"
+
+
+def test_json_ld_tolerates_control_characters_graph_and_list_type():
+    """Real boards emit raw newlines inside strings and wrap nodes in @graph."""
+    html = """
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {"@type": "Organization", "name": "Acme"},
+        {"@type": ["JobPosting", "Thing"],
+         "title": "Rust Engineer",
+         "hiringOrganization": {"@type": "Organization", "name": "Acme"},
+         "datePosted": "2026-10-16",
+         "url": "https://acme.example/jobs/1",
+         "description": "First line
+    second line"}
+      ]
+    }
+    </script>
+    """
+    jobs = parse_json_ld_jobs(html)
+    assert len(jobs) == 1
+    assert jobs[0].title == "Rust Engineer"
+    assert jobs[0].company == "Acme"
+    assert jobs[0].posted_date == date(2026, 10, 16)
+    assert "second line" in jobs[0].description
 
 
 def test_json_ld_falls_back_to_page_url_and_splits_skills():
@@ -1885,6 +1965,62 @@ def test_relative_age_parses_serp_labels():
     assert relative_age("5 hours ago") == date.today().isoformat()
     assert relative_age("last month") is None
     assert relative_age(None) is None
+
+
+def test_relative_age_parses_compact_card_labels():
+    assert relative_age("1D") == (date.today() - timedelta(days=1)).isoformat()
+    assert relative_age("4d") == (date.today() - timedelta(days=4)).isoformat()
+    assert relative_age("3H") == date.today().isoformat()
+    # A title-like value is not a compact age label.
+    assert relative_age("Level 3D") is None
+
+
+def test_relative_age_parses_portuguese_labels():
+    assert relative_age("há 2 horas") == date.today().isoformat()
+    assert relative_age("Há 3 dias") == (date.today() - timedelta(days=3)).isoformat()
+    assert relative_age("2 semanas atrás") == (date.today() - timedelta(days=14)).isoformat()
+    assert relative_age("publicado há 1 mês") == (date.today() - timedelta(days=30)).isoformat()
+    assert relative_age("ontem") == (date.today() - timedelta(days=1)).isoformat()
+    assert relative_age("hoje") == date.today().isoformat()
+
+
+def test_parse_html_list_removes_status_badge_from_title():
+    page = ScrapedPage(
+        html_content=(
+            '<article class="job"><h3>Rust Engineer '
+            '<span class="badge">Nova</span></h3><a href="/jobs/1">Open</a></article>'
+        ),
+        status_code=200,
+        final_url="https://board.example/jobs",
+    )
+    jobs = parse_html_list(
+        page,
+        {
+            "item_selector": "article.job",
+            "title_selector": "h3",
+            "title_exclude_selector": ".badge",
+            "url_selector": "a",
+        },
+    )
+    assert jobs[0].title == "Rust Engineer"
+
+
+def test_parse_html_list_uses_configured_company_when_card_has_none():
+    page = ScrapedPage(
+        html_content='<article class="job"><a href="/jobs/1">Solo Role</a></article>',
+        status_code=200,
+        final_url="https://board.example/jobs",
+    )
+    jobs = parse_html_list(
+        page,
+        {
+            "item_selector": "article.job",
+            "title_selector": "a",
+            "url_selector": "a",
+            "company": "Acme",
+        },
+    )
+    assert jobs[0].company == "Acme"
 
 
 def test_parse_html_list_reads_relative_dates_and_descriptions():

@@ -177,6 +177,16 @@ Adding many sources at once: `POST /api/sources/import` or
 `scripts/import_sources.py --file <private.json> --token <JWT>` (idempotent,
 never imports credentials — keeps the list out of the repo).
 
+### Diagnosing a source
+
+`GET /api/sources/{id}/diagnostics` returns a read-only snapshot for one owned
+source: stored job count, rows with an unknown company / short description /
+missing posting date, the latest `ScrapeRun` status and error, whether the
+stored config still validates, and the avoid/health flags. It answers "is this a
+fetch problem or a parser problem?" without spending a scrape; use
+`POST /api/sources/{id}/preview` when the question is "what does this config
+parse right now?".
+
 ### Repairing sources and stored jobs
 
 Some fixes are data, not code: a feed reshaped its titles, a card gained an
@@ -213,6 +223,36 @@ and a few sample rows. Re-running with `--apply` is idempotent: config merges,
 title splits skip already-split rows, and avoided sources keep their original
 "avoided since" timestamp. Avoided boards are never fetched or reminded about;
 use `--unavoid` to restore one after its parser is fixed.
+
+The same script can repair already-stored rows **without** re-scraping the
+whole source:
+
+```bash
+# Rebuild feed rows from the current feed (WordPress ?paged=N is supported).
+python scripts/repair_sources.py --url-contains jobspresso \
+  --reparse-rss --rss-pages 4 --apply
+
+# Refresh list-mode rows (company/location/date/tags) without fetching details.
+python scripts/repair_sources.py --url-contains aijobs --reparse-list --apply
+
+# Fetch stored detail URLs that are missing company/description/date.
+# Start with --max-jobs 1 as a dry run, then run the full batch with --apply.
+python scripts/repair_sources.py --url-contains nerdin \
+  --refresh-details --max-jobs 1
+python scripts/repair_sources.py --url-contains nerdin \
+  --refresh-details --apply
+
+# Delete rows by text (expired labels, talent pools) or wipe a noisy source.
+python scripts/repair_sources.py --url-contains programathor \
+  --delete-matching '\bVencida\b' --apply
+python scripts/repair_sources.py --url-contains term=golang \
+  --delete-all-jobs --apply
+```
+
+`--refresh-details` only targets incomplete rows by default (missing/short
+description, `Unknown` company or no date); add `--refresh-all` to refetch every
+stored URL. Each request honours `source.respect_robots_txt`, and
+`--rate-limit N` can override the source cooldown for a one-off batch.
 
 Each source is scraped by at most one run at a time: the worker takes a Redis
 lock per source and the sweep skips sources with a live `running` run. A run
@@ -289,12 +329,14 @@ the search page). Remote Habit only feeds interviews/tools → use its HTML
 listing. RemoteOK / Remotive / Working Nomads expose JSON (use `json_list`), not
 job RSS.
 
-Feeds whose metadata describes the *board* rather than the employer support four
+Feeds whose metadata describes the *board* rather than the employer support
 opt-in config flags:
 
 | RSS config key | Meaning | Default |
 |---|---|---|
 | `company_from_title` | split `"Company: Job title"` entries (We Work Remotely) | `false` |
+| `company_from_title_at` | split `"Job title at Company"` entries (NoDesk) | `false` |
+| `company_from_author` | use the entry author as the employer, dropping any `<br>⚲ location` suffix (Jobspresso) | `false` |
 | `include_categories` | add every feed `<category>` to the job tags | `false` |
 | `include_region` | add only region-like categories (Remote, Americas, Brazil, …) plus an explicit `<region>`/`<location>` entry field | `false` |
 | `strip_html` | convert an HTML `<description>`/`<summary>` into plain text | `false` |
@@ -310,6 +352,12 @@ board-shaped feed is configured like this:
 }
 ```
 
+NoDesk uses `{"company_from_title_at": true}` and Jobspresso
+`{"company_from_author": true}` (both feeds already carry the full description
+and date, so no other flag is needed). Relative dates from Brazilian boards
+(`"há 2 horas"`, `"2 semanas atrás"`, `"ontem"`) are parsed by `date_selector` /
+`date_from_node` just like the English forms.
+
 **Server-rendered HTML** (`type = aggregator` + `generic_html_list`): Programathor,
 GeekHunter, Remote.com, aijobs.ai, dev.pro, TrabalhaBrasil, InfoJobs, Nerdin
 (`www.nerdin.com.br/vagas.php`, cards `.vaga-card`, next page `?pagina=2`), MWDN
@@ -324,7 +372,11 @@ Nomads *looks* server-rendered but is AngularJS fed by a JSON API → collect it
 with `json_list` against `https://www.workingnomads.com/api/exposed_jobs/`;
 `jobs.hirewithnear.com/#/` is a hash-route SPA, so it stays `manual` (see below).
 `career.sigma.software` and `remotifyeurope.com` are **not** in this list: both
-return a shell with 0 job rows (see the JS-only shells below).
+return a shell with 0 job rows (see the JS-only shells below). Jobsora is
+collected from its **path** routes (`/empregos-rust`, `/empregos-golang`;
+query-string routes are disallowed by robots.txt) in list mode, and Velozient's
+Elementor careers tabs expose 45 static `li` cards with a configured company
+fallback. Neither needs a detail fetch.
 
 ```json
 {
@@ -344,11 +396,12 @@ that is itself an `<a>` contributes its own `href`, which is how dev.pro's
 `a.position-row` rows parse); a
 listing that only links out with no title/company yields **0 jobs** — add
 `"detail": true` with `detail_*_selector`, or accept an `Unknown` company.
-Optional extras: `date_selector` (a `<time>` node, absolute or relative) and
+Optional extras: `date_selector` (a `<time>` node, absolute or relative),
 `description_selector` (a card snippet, kept alongside the `Location: …` suffix
-built from `location_selector`). Both are shared with search providers in
-listing mode (`parse_listing`), so a working card definition can be reused
-verbatim from a paid provider config.
+built from `location_selector`) and `title_exclude_selector` for a status badge
+rendered inside the title heading (Nerdin's `.vaga-nova-badge`). These are shared
+with search providers in listing mode (`parse_listing`), so a working card
+definition can be reused verbatim from a paid provider config.
 
 Verified card configurations (each parsed live; job counts at the time of
 writing):

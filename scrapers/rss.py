@@ -15,6 +15,14 @@ from scrapers.utils import as_flag, as_tag_list, fetch_html
 # the company.
 _COMPANY_TITLE_RE = re.compile(r"^(?P<company>[^:]{1,80}):\s+(?P<title>.+)$")
 
+# NoDesk uses the opposite title shape ("Senior Rust Engineer at Acme Corp").
+# Split on the *last* " at " so a title containing "at" keeps its words.
+_TITLE_AT_RE = re.compile(r"\s+at\s+", re.IGNORECASE)
+
+# Jobspresso puts the employer and location in the entry author
+# ("Acme<br>⚲&nbsp;Brazil"). Keep only the part before the location marker.
+_AUTHOR_LOCATION_RE = re.compile(r"⚲|\|")
+
 # Category terms that describe a location/arrangement rather than a skill.
 _REGION_RE = re.compile(
     r"\b(?:remote|worldwide|anywhere|americas?|latam|latin america|"
@@ -48,6 +56,9 @@ class RSSScraper(AbstractScraper):
     board rather than the employer:
 
     - ``company_from_title``: split ``"Company: Job title"`` titles.
+    - ``company_from_title_at``: split ``"Job title at Company"`` titles.
+    - ``company_from_author``: use the entry author as the employer, dropping
+      any location marker Jobspresso appends to it.
     - ``include_categories``: add every feed category to ``tags``.
     - ``include_region``: add region-like categories (and an explicit
       ``region``/``location`` entry field) to ``tags``.
@@ -64,14 +75,52 @@ class RSSScraper(AbstractScraper):
     ) -> ScrapedPage:
         return await fetch_html(url, timeout=30.0, auth=auth)
 
+    def _company_from_author(self, entry) -> str | None:
+        """The employer in an entry author, without Jobspresso's location suffix."""
+        author = entry.get("author")
+        if not author:
+            authors = entry.get("authors") or []
+            if authors and isinstance(authors[0], dict):
+                author = authors[0].get("name")
+        if not author:
+            return None
+        # Authors can contain markup (`Acme<br>⚲&nbsp;Brazil`); a newline
+        # separator keeps `<br>` boundaries, then the first line is the company.
+        text = BeautifulSoup(str(author), "lxml").get_text("\n", strip=True)
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        company = _AUTHOR_LOCATION_RE.split(first_line, maxsplit=1)[0].strip()
+        return company or None
+
+    @staticmethod
+    def _company_from_title_at(title: str) -> tuple[str, str] | None:
+        """Split ``"Job title at Company"`` on the last ``at`` separator."""
+        matches = list(_TITLE_AT_RE.finditer(title))
+        if not matches:
+            return None
+        match = matches[-1]
+        job_title = title[: match.start()].strip()
+        company = title[match.end() :].strip()
+        if not job_title or not company:
+            return None
+        return job_title, company
+
     def _title_and_company(self, entry, feed_company: str) -> tuple[str, str]:
         title = entry.get("title", "").strip()
-        if not as_flag(self.config.get("company_from_title")):
-            return title, feed_company
-        match = _COMPANY_TITLE_RE.match(title)
-        if not match:
-            return title, feed_company
-        return match.group("title").strip(), match.group("company").strip()
+        company = feed_company
+        if as_flag(self.config.get("company_from_title")):
+            match = _COMPANY_TITLE_RE.match(title)
+            if match:
+                title = match.group("title").strip()
+                company = match.group("company").strip()
+        elif as_flag(self.config.get("company_from_title_at")):
+            split = self._company_from_title_at(title)
+            if split:
+                title, company = split
+        if as_flag(self.config.get("company_from_author")):
+            author_company = self._company_from_author(entry)
+            if author_company:
+                company = author_company
+        return title, company
 
     def _description(self, entry) -> str | None:
         summary = entry.get("summary") or entry.get("description") or ""

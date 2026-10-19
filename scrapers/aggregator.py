@@ -13,6 +13,7 @@ from scrapers.utils import (
     as_optional_str,
     as_tag_list,
     coerce_date,
+    compile_exclude_pattern,
     date_from_node,
     fetch_html,
     filter_excluded_jobs,
@@ -143,8 +144,13 @@ class GenericHtmlListScraper(AggregatorScraper):
         soup = BeautifulSoup(page.html_content, "lxml")
         item_selector = self.config.get("item_selector", "article")
         url_selector = self.config.get("url_selector", "a")
+        exclude_pattern = compile_exclude_pattern(self.config)
         links: list[str] = []
         for item in soup.select(item_selector):
+            # Detail mode must drop stale cards here too; otherwise the worker
+            # fetches (and stores) a detail page that `parse` would have filtered.
+            if exclude_pattern and exclude_pattern.search(item.get_text(" ", strip=True)):
+                continue
             node = item.select_one(url_selector)
             if node is None and item.name == "a":
                 # The row *is* the link (`a.position-row` on dev.pro): soupsieve
@@ -378,6 +384,7 @@ _ADAPTER_CONFIG_METADATA: dict[str, dict] = {
         "optional": (
             "item_selector",
             "title_selector",
+            "title_exclude_selector",
             "url_selector",
             "company_selector",
             "location_selector",

@@ -6,12 +6,13 @@ import random
 import re
 import socket
 import time
+import warnings
 from datetime import UTC, date, datetime, timedelta
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 from app.config import settings
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
@@ -316,22 +317,64 @@ def as_optional_str(value: object) -> str | None:
     return text or None
 
 
-_RELATIVE_AGE_RE = re.compile(r"(\d+)\s*\+?\s*(minute|hour|day|week|month)s?\s*ago", re.IGNORECASE)
-_RELATIVE_AGE_DAYS = {"minute": 0, "hour": 0, "day": 1, "week": 7, "month": 30}
+_RELATIVE_AGE_RE = re.compile(
+    r"(?:(?:h[aá]|faz)\s*)?(\d+)\s*\+?\s*"
+    r"(minute|hour|day|week|month|year|minuto|hora|dia|semana|m[eê]s(?:es)?|ano)s?"
+    r"\s*(?:ago|atr[aá]s)?",
+    re.IGNORECASE,
+)
+# Compact card labels such as AI Jobs' "1D"/"4D" (h=hour, d=day, w=week,
+# m=month, y=year). Only accept the whole label so a title like "Level 3D"
+# cannot become a date.
+_RELATIVE_SHORT_RE = re.compile(r"^\s*(\d+)\s*([hdwmy])\s*$", re.IGNORECASE)
+_RELATIVE_SHORT_DAYS = {"h": 0, "d": 1, "w": 7, "m": 30, "y": 365}
+_RELATIVE_AGE_DAYS = {
+    "minute": 0,
+    "hour": 0,
+    "day": 1,
+    "week": 7,
+    "month": 30,
+    "year": 365,
+    "minuto": 0,
+    "hora": 0,
+    "dia": 1,
+    "semana": 7,
+    "mês": 30,
+    "mes": 30,
+    "meses": 30,
+    "ano": 365,
+}
+_RELATIVE_TODAY = {
+    "just posted",
+    "just now",
+    "today",
+    "today's",
+    "hoje",
+    "agora",
+    "agora mesmo",
+}
+_RELATIVE_YESTERDAY = {"yesterday", "ontem"}
 
 
 def relative_age(value: object) -> str | None:
-    """Turn a human age ("3 days ago", "Just posted") into ``YYYY-MM-DD``.
+    """Turn a human age ("3 days ago", "há 2 horas") into ``YYYY-MM-DD``.
 
     Search APIs (Google Jobs via SerpApi, indeed/linkedin engines) and many
     listing cards report the posting date as a relative label rather than a
-    timestamp.
+    timestamp. Brazilian boards commonly use Portuguese labels, so those are
+    parsed as well instead of leaving the row undated.
     """
     text = str(value or "").strip().lower()
     if not text:
         return None
-    if text in {"just posted", "just now", "today", "today's"}:
+    if text in _RELATIVE_TODAY:
         return datetime.now(UTC).date().isoformat()
+    if text in _RELATIVE_YESTERDAY:
+        return (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
+    short = _RELATIVE_SHORT_RE.match(text)
+    if short:
+        days = _RELATIVE_SHORT_DAYS[short.group(2).lower()] * int(short.group(1))
+        return (datetime.now(UTC).date() - timedelta(days=days)).isoformat()
     match = _RELATIVE_AGE_RE.search(text)
     if not match:
         return None
@@ -401,6 +444,36 @@ def date_from_node(node: object) -> date | None:
     return coerce_date(raw) or coerce_date(text) or coerce_date(relative_age(text))
 
 
+def _json_ld_type_names(value: object) -> set[str]:
+    """The lower-cased ``@type`` names in a JSON-LD node (string or list)."""
+    if isinstance(value, str):
+        return {value.lower()}
+    if isinstance(value, list):
+        return {str(item).lower() for item in value if item is not None}
+    return set()
+
+
+def _json_ld_job_postings(data: object):
+    """Yield every ``JobPosting`` in a JSON-LD payload, including ``@graph``.
+
+    Publishers wrap their nodes in ``@graph``, put several nodes in a list, and
+    sometimes declare ``@type`` as a list. All three shapes are legal JSON-LD and
+    appear on real boards, so recurse through graph/list containers instead of
+    accepting only a top-level object whose ``@type`` is the literal string.
+    """
+    if isinstance(data, list):
+        for item in data:
+            yield from _json_ld_job_postings(item)
+        return
+    if not isinstance(data, dict):
+        return
+    if "jobposting" in _json_ld_type_names(data.get("@type")):
+        yield data
+    graph = data.get("@graph")
+    if graph is not None and graph is not data:
+        yield from _json_ld_job_postings(graph)
+
+
 def parse_json_ld_jobs(
     html_content: str, fallback_url: str | None = None
 ) -> list[RawJob]:
@@ -409,19 +482,26 @@ def parse_json_ld_jobs(
     Some boards omit ``url``/``@id`` from their ``JobPosting`` payload, so a
     detail page would otherwise lose the job during normalization. ``fallback_url``
     (typically the fetched page's final URL) supplies the job URL in that case.
+
+    ``json.loads`` is called with ``strict=False`` because several boards embed
+    literal newlines/tabs inside string values; strict JSON rejects the whole
+    block and loses otherwise valid title/company/date data.
     """
-    soup = BeautifulSoup(html_content, "lxml")
+    # The worker calls this on every page, including RSS feeds; parsing XML with
+    # the HTML parser is intentional (and harmless), so don't log a warning for it.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
+        soup = BeautifulSoup(html_content, "lxml")
     jobs: list[RawJob] = []
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
         try:
-            data = json.loads(script.string or "")
-        except (json.JSONDecodeError, AttributeError):
+            data = json.loads(script.string or script.get_text() or "", strict=False)
+        except (json.JSONDecodeError, AttributeError, TypeError):
             continue
-        items = data if isinstance(data, list) else [data]
-        for item in items:
-            if not isinstance(item, dict) or item.get("@type") != "JobPosting":
-                continue
+        for item in _json_ld_job_postings(data):
             company_obj = item.get("hiringOrganization") or {}
+            if isinstance(company_obj, list):
+                company_obj = company_obj[0] if company_obj else {}
             company = company_obj.get("name") if isinstance(company_obj, dict) else ""
             identifier = item.get("identifier")
             if isinstance(identifier, dict):
@@ -494,6 +574,7 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
     items = soup.select(config.get("item_selector") or "article")
     date_selector = config.get("date_selector")
     description_selector = config.get("description_selector")
+    title_exclude_selectors = _split_selectors(config.get("title_exclude_selector")) or []
     exclude_pattern = compile_exclude_pattern(config)
     jobs: list[RawJob] = []
     for item in items:
@@ -507,6 +588,16 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
             # dev.pro). soupsieve has no `:scope`, so read the href off the row.
             url_node = item
         title = title_node.get_text(" ", strip=True) if title_node else None
+        if title and title_node:
+            # Status badges are sometimes rendered inside the title heading
+            # ("Vaga X <span>Nova</span>"); remove their text before storing.
+            for exclude_selector in title_exclude_selectors:
+                for badge in title_node.select(exclude_selector):
+                    badge_text = badge.get_text(" ", strip=True)
+                    if badge_text and title.endswith(badge_text):
+                        title = title[: -len(badge_text)].strip()
+                    elif badge_text:
+                        title = title.replace(badge_text, "", 1).strip()
         url = url_node.get("href") if url_node else None
         if not title or not url:
             continue
@@ -528,7 +619,9 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
         jobs.append(
             RawJob(
                 title=title,
-                company=company or "",
+                # Company-specific boards often have no company element on a
+                # card; the configured name keeps those rows out of "Unknown".
+                company=company or str(config.get("company") or ""),
                 url=urljoin(page.final_url, str(url)),
                 posted_date=date_from_node(date_node),
                 description=description,

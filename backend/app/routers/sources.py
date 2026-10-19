@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from scrapers.utils import is_allowed_by_robots, redact_sensitive
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import log_audit
@@ -15,6 +15,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.enums import SourceAuthType, SourceType
 from app.models.job import Job
+from app.models.scrape_run import ScrapeRun
 from app.models.source import Source
 from app.models.source_auth import SourceAuth
 from app.models.user import User
@@ -22,6 +23,7 @@ from app.ratelimit import auth_key, limiter
 from app.schemas.source import (
     SourceAvoidRequest,
     SourceCreate,
+    SourceDiagnosticsResponse,
     SourceImportRequest,
     SourceImportResponse,
     SourceImportResult,
@@ -239,6 +241,73 @@ async def get_source(
     source = await get_owned_source(source_id, user, db)
     counts = await _job_counts(db, user)
     return _source_response(source, counts.get(source.id, 0))
+
+
+@router.get("/{source_id}/diagnostics", response_model=SourceDiagnosticsResponse)
+async def source_diagnostics(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Read-only snapshot: stored job gaps, last run and config validity.
+
+    This is the fast way to tell a *parser/config* regression from a *fetch*
+    failure: ``jobs_total``/quality counts describe what was stored, while
+    ``last_run_*`` and ``config_error`` explain why the next run may not help.
+    """
+    source = await get_owned_source(source_id, user, db)
+    missing_company = or_(
+        Job.company.is_(None),
+        func.trim(Job.company) == "",
+        func.lower(func.trim(Job.company)) == "unknown",
+    )
+    short_description = or_(
+        Job.description.is_(None),
+        func.length(func.trim(Job.description)) < 40,
+    )
+    counts = (
+        await db.execute(
+            select(
+                func.count(Job.id),
+                func.count(Job.id).filter(missing_company),
+                func.count(Job.id).filter(short_description),
+                func.count(Job.id).filter(Job.posted_date.is_(None)),
+            ).where(Job.source_id == source.id, Job.user_id == user.id)
+        )
+    ).one()
+    last_run = (
+        await db.execute(
+            select(ScrapeRun)
+            .where(ScrapeRun.source_id == source.id)
+            .order_by(ScrapeRun.started_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    config_valid = True
+    config_error = None
+    try:
+        validate_source_config(source.type, source.config)
+    except ValueError as exc:
+        config_valid = False
+        config_error = str(exc)
+
+    return SourceDiagnosticsResponse(
+        source_id=source.id,
+        name=source.name,
+        type=source.type,
+        health=source.health,
+        avoided=is_avoided(source),
+        jobs_total=counts[0] or 0,
+        unknown_company=counts[1] or 0,
+        short_description=counts[2] or 0,
+        missing_posted_date=counts[3] or 0,
+        last_run_status=last_run.status if last_run else None,
+        last_run_new_jobs=last_run.new_jobs if last_run else None,
+        last_run_error=last_run.error if last_run else None,
+        config_valid=config_valid,
+        config_error=config_error,
+    )
 
 
 @router.put("/{source_id}", response_model=SourceResponse)

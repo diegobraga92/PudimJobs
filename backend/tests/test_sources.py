@@ -50,6 +50,39 @@ async def test_create_source(auth_client):
     assert body["respect_robots_txt"] is True
 
 
+async def test_source_diagnostics_reports_job_gaps(auth_client):
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Diagnostic board",
+            "url": "https://diag.example/jobs",
+            "type": "career_page",
+        },
+    )
+    source_id = created.json()["id"]
+    job = await client.post(
+        "/api/jobs",
+        json={
+            "title": "Rust Engineer",
+            "company": "Unknown",
+            "description": "short",
+            "source_id": source_id,
+        },
+    )
+    assert job.status_code == 201
+
+    response = await client.get(f"/api/sources/{source_id}/diagnostics")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["jobs_total"] == 1
+    assert body["unknown_company"] == 1
+    assert body["short_description"] == 1
+    assert body["missing_posted_date"] == 1
+    assert body["last_run_status"] is None
+    assert body["config_valid"] is True
+
+
 async def test_scraping_ethics_roundtrip(auth_client):
     """Per-source ethics settings survive create, read and update."""
     client, _, _ = auth_client
