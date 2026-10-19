@@ -481,7 +481,7 @@ async def _discover_detail_urls(scraper, page) -> list[str]:
     return list(result or [])
 
 
-def _robots_target(scraper, fetch_url: str) -> str:
+def _robots_target(scraper, fetch_url: str) -> str | None:
     """The URL whose robots.txt applies to a fetch (see the scrape worker)."""
     hook = getattr(scraper, "robots_url", None)
     return hook(fetch_url) if callable(hook) else fetch_url
@@ -532,7 +532,12 @@ async def _run_preview(
         # (e.g. a missing `tenant`) surfaces here and must be reported, not
         # raised: the preview is how users discover such mistakes.
         fetch_url = getattr(scraper, "first_fetch_url", lambda value: value)(url)
-        if respect_robots and not is_allowed_by_robots(_robots_target(scraper, fetch_url)):
+        robots_target = _robots_target(scraper, fetch_url)
+        if (
+            respect_robots
+            and robots_target is not None
+            and not is_allowed_by_robots(robots_target)
+        ):
             return SourcePreviewResponse(
                 fetched_url=fetch_url, error="robots.txt disallows this source"
             )
@@ -541,8 +546,11 @@ async def _run_preview(
         detail_urls = await _discover_detail_urls(scraper, page)
         if detail_urls:
             for detail_url in detail_urls[:max_samples]:
-                if respect_robots and not is_allowed_by_robots(
-                    _robots_target(scraper, detail_url)
+                detail_target = _robots_target(scraper, detail_url)
+                if (
+                    respect_robots
+                    and detail_target is not None
+                    and not is_allowed_by_robots(detail_target)
                 ):
                     continue
                 detail_page = await asyncio.wait_for(

@@ -310,6 +310,13 @@ class _StubScraper:
         ]
 
 
+class _ApiExemptScraper(_StubScraper):
+    """Scraper whose first fetch is a vendor API call, not a page fetch."""
+
+    def robots_url(self, url: str) -> str | None:
+        return None if url.startswith("https://api.example/") else url
+
+
 def _stub_registry(monkeypatch, scraper):
     monkeypatch.setattr("scrapers.registry.get_scraper", lambda source, api_key=None: scraper)
     return scraper
@@ -403,6 +410,26 @@ async def test_run_preview_honours_robots_when_asked(monkeypatch):
         source_type=SourceType.career_page, url="https://acme.example", config={}
     )
     assert allowed.jobs_found == 1
+
+
+async def test_run_preview_skips_robots_for_api_fetches(monkeypatch):
+    """An API endpoint exempted by the provider does not need a robots lookup."""
+    _stub_registry(monkeypatch, _ApiExemptScraper())
+    consulted: list[str] = []
+    monkeypatch.setattr(
+        "app.routers.sources.is_allowed_by_robots",
+        lambda url: consulted.append(url) or False,
+    )
+
+    response = await _run_preview(
+        source_type=SourceType.discovery,
+        url="https://api.example/search",
+        config={"provider": "serpapi", "query": "c++ remote"},
+        respect_robots=True,
+    )
+
+    assert response.jobs_found == 1
+    assert consulted == []
 
 
 async def test_run_preview_times_out(monkeypatch):

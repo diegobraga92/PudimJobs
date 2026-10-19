@@ -36,11 +36,13 @@ class AbstractScraper(ABC):
         """The URL fetched on the first page of a run (default: the source URL)."""
         return source_url
 
-    def robots_url(self, fetch_url: str) -> str:
+    def robots_url(self, fetch_url: str) -> str | None:
         """The URL whose robots.txt governs a fetch of ``fetch_url``.
 
         Scrapers that fetch through a third-party renderer (Bright Data)
         override this with the real board URL, so the robots check stays honest.
+        Providers whose fetch is an API call rather than a page fetch may return
+        ``None`` to exempt that call; detail-page URLs are still checked.
         """
         return fetch_url
 

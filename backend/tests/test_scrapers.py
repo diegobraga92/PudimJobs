@@ -1634,6 +1634,23 @@ def test_serpapi_forwards_locale_params():
     assert {"gl", "hl", "remote_only", "via_filter"} <= set(metadata["optional"])
 
 
+def test_serpapi_robots_url_exempts_the_vendor_api_only():
+    """`serpapi.com/robots.txt` disallows `/search?`, but that is our API call."""
+    provider = SerpApiProvider({"engine": "google_jobs", "query": "c++ remote"}, "K")
+    assert provider.robots_url(provider.results_url()) is None
+    assert provider.robots_url("https://serpapi.com/search?engine=google_jobs&start=10") is None
+
+    # Board/detail links are real pages and keep their normal robots check.
+    board = "https://www.glassdoor.com/job-listing/cpp-engineer-acme-JV_1.htm"
+    assert provider.robots_url(board) == board
+    assert provider.robots_url("https://notserpapi.com/search?q=cpp") == (
+        "https://notserpapi.com/search?q=cpp"
+    )
+
+    scraper = DiscoveryScraper("serpapi", {"engine": "google_jobs", "query": "rust"}, "K")
+    assert scraper.robots_url(provider.results_url()) is None
+
+
 def test_serpapi_next_page_url_keeps_the_api_key():
     """SerpApi's `next` link omits `api_key`; following it verbatim 401s."""
     provider = SerpApiProvider({"engine": "google_jobs", "query": "rust"}, "KEY-1")

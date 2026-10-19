@@ -125,11 +125,12 @@ class DiscoveryProvider(ABC):
         """
         return False
 
-    def robots_url(self, url: str) -> str:
+    def robots_url(self, url: str) -> str | None:
         """The URL whose robots.txt governs a fetch of ``url``.
 
         Third-party renderers (Bright Data) fetch the *target* board on our
         behalf, so the target is what must be checked, not their API endpoint.
+        A pure API call (SerpApi) is exempt and returns ``None``.
         """
         return url
 
@@ -1086,6 +1087,19 @@ class SerpApiProvider(SearchApiProvider):
             params["start"] = offset
         return "https://serpapi.com/search?" + urlencode(params)
 
+    def robots_url(self, url: str) -> str | None:
+        """SerpApi is an API: its own robots.txt does not govern our queries.
+
+        SerpApi serves ``/search`` with ``Disallow: /search?``; checking that
+        path would skip every scheduled run even though we are calling a paid
+        API, not crawling a page. Board/detail URLs (``apply_options[].link``)
+        are still real pages and keep their normal robots check.
+        """
+        host = (urlparse(url).hostname or "").lower()
+        if host == "serpapi.com" or host.endswith(".serpapi.com"):
+            return None
+        return url
+
     def _results_mode(self) -> bool:
         return str(self.config.get("parse_mode") or "").strip().lower() == "results"
 
@@ -1657,7 +1671,7 @@ class DiscoveryScraper(AbstractScraper):
     ) -> ScrapedPage:
         return await self.provider.fetch(url, auth=auth)
 
-    def robots_url(self, url: str) -> str:
+    def robots_url(self, url: str) -> str | None:
         return self.provider.robots_url(url)
 
     def check_credentials(self, has_api_key: bool) -> None:

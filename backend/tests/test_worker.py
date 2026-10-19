@@ -378,6 +378,33 @@ async def test_scrape_ignores_robots_when_disabled(
     assert consulted == []
 
 
+async def test_scrape_skips_robots_check_for_vendor_api_calls(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A provider may exempt its API endpoint while detail pages stay checked."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    detail_urls = ["https://a.example/j1", "https://b.example/j2"]
+
+    class ApiExemptScraper(FakeDiscoveryScraper):
+        def robots_url(self, url: str) -> str | None:
+            return None if url.startswith("https://engine.example") else url
+
+    fake = ApiExemptScraper(detail_urls)
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    consulted: list[str] = []
+    monkeypatch.setattr(
+        scrape_module, "is_allowed_by_robots", lambda url: consulted.append(url) or True
+    )
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["new"] == 2
+    # The API endpoint is exempt; every detail page was still checked.
+    assert consulted == detail_urls
+
+
 async def test_scrape_fetches_discovered_detail_pages(
     test_engine, db_session, monkeypatch, redis_client
 ):

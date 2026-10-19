@@ -71,19 +71,24 @@ async def _finalize_run(
     await session.commit()
 
 
-def _robots_allowed(source: Source, url: str) -> bool:
-    """Robots.txt gate: always allowed unless the source opts in to checks."""
-    if not source.respect_robots_txt:
+def _robots_allowed(source: Source, url: str | None) -> bool:
+    """Robots.txt gate: always allowed unless the source opts in to checks.
+
+    ``url`` is ``None`` when the fetch is a vendor API call rather than a page
+    fetch (SerpApi); robots.txt does not govern those calls.
+    """
+    if url is None or not source.respect_robots_txt:
         return True
     return is_allowed_by_robots(url)
 
 
-def _robots_target(scraper, fetch_url: str) -> str:
+def _robots_target(scraper, fetch_url: str) -> str | None:
     """The URL whose robots.txt applies to a fetch.
 
     Providers that fetch through a third-party renderer expose ``robots_url``
     (e.g. Bright Data renders LinkedIn on our behalf, so LinkedIn's rules — not
-    Bright Data's API endpoint — are the ones that apply).
+    Bright Data's API endpoint — are the ones that apply). Providers that call a
+    vendor API return ``None`` to exempt the call.
     """
     hook = getattr(scraper, "robots_url", None)
     return hook(fetch_url) if callable(hook) else fetch_url

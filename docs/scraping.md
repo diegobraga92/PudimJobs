@@ -380,10 +380,15 @@ needs `page_tpl` (`{"page_tpl": "{page}0"}` → `start=20` on page 2) plus
 the `google.com/search?ibp=htl;jobs…` link instead of the `apply_options[].link`
 board URL (the default, and the only one that works outside a browser session).
 `gl`/`hl` pin the Google Jobs country and interface language (for example
-`{"gl": "br", "hl": "pt-BR"}`); without them the index is queried from the US
-locale. The provider appends the source's API key to `serpapi_pagination.next`,
-because SerpApi returns that URL without one and page 2+ would otherwise 401 —
-each page is still another billed search, so cap it with `max_pages`.
+`{"gl": "us", "hl": "en"}` for broad English-language remote searches). Country
+indexes differ sharply: a Brazil-localised query for `c++ remote` can return
+`Fully empty` even though the same query from the US index returns dozens of
+`Anywhere` roles. For worldwide remote coverage, omit `location` (Google rejects
+`Worldwide` as a location) and use `gl: "us"`; review work-authorization and
+clearance requirements in the results. The provider appends the source's API key
+to `serpapi_pagination.next`, because SerpApi returns that URL without one and
+page 2+ would otherwise 401 — each page is still another billed search, so cap
+it with `max_pages`.
 `remote_only: true` keeps only results whose `detected_extensions.work_from_home`
 is set (or whose title/location/extensions contain a remote marker such as
 `Remote`, `Remoto`, `Home office`). `via_filter: "glassdoor"` (a string, a list,
@@ -433,20 +438,24 @@ incomplete and drops valid Glassdoor jobs.
 
 ## Compliance, maintenance
 
-`respect_robots_txt` is on by default and applies to every real fetch (paid
-provider calls and detail pages included); disallowed sources are recorded as
+`respect_robots_txt` is on by default and applies to every real page fetch (paid
+renderer calls and detail pages included); disallowed sources are recorded as
 `skipped` and never trip the circuit breaker. For renderer providers the check
 follows `robots_url` back to the **board** that is being rendered (LinkedIn,
 Indeed), not to the vendor's API host — the vendor's endpoint is not the site we
-are scraping. `rate_limit_seconds` is a per-domain cooldown before *every*
-request, so 30 sources at the default is deliberately slow. Third-party keys are
-stored encrypted and billed per query — hence `parse_listing` (`serpapi`:
+are scraping. A pure API provider (SerpApi) returns `None` from `robots_url` for
+its own `/search` endpoint, so its `Disallow: /search?` cannot skip every
+scheduled run; the board/detail links it discovers are still checked normally.
+`rate_limit_seconds` is a per-domain cooldown before *every* request, so 30
+sources at the default is deliberately slow. Third-party keys are stored
+encrypted and billed per query — hence `parse_listing` (`serpapi`:
 `parse_mode: results`) and `page_tpl` breadcrumbs above: one render per page
 instead of one per job.
 
 | Symptom | Likely cause | Action |
 |---|---|---|
 | `parse produced 0 jobs` | selectors drifted / site became JS-rendered | re-inspect; fix selectors or drop the source |
+| SerpApi returns `Fully empty` / 0 raw results | query or country index too narrow (e.g. `gl=br` + `location=Brazil`) | remove `location`, use `gl: "us"`/`hl: "en"`, and preview again |
 | `authentication failed (HTTP 401/403)` | expired/incorrect API key | re-save the key on the source |
 | `skipped: robots.txt disallows` | disallowed path | do not bypass; use a provider instead |
 | Repeated failures | circuit breaker open | fix the root cause, then let the breaker close |
