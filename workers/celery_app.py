@@ -1,9 +1,14 @@
 """Celery application for PudimJobs workers."""
 
 from app.config import settings
+from app.logging_config import silence_httpx_request_logs
 from app.telemetry import init_telemetry
 from celery import Celery
 from kombu import Exchange, Queue
+
+# The worker does not call configure_logging (Celery owns its handlers), but
+# httpx would otherwise log full vendor URLs including API keys.
+silence_httpx_request_logs()
 
 # OpenTelemetry for task execution (no-op when no collector is configured).
 init_telemetry("pudimjobs-worker")

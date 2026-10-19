@@ -3,8 +3,21 @@ import logging
 import structlog
 
 
+def silence_httpx_request_logs() -> None:
+    """Keep vendor API keys out of logs.
+
+    httpx logs every request URL at INFO, and paid providers put their key in
+    the query string (SerpApi's ``api_key``, Google CSE's ``key``). Those logs
+    would persist a live secret, so vendor HTTP request logging stays at
+    WARNING (errors still surface).
+    """
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
 def configure_logging(log_level: str = "DEBUG") -> None:
     """Configure structured JSON logging with structlog."""
+    silence_httpx_request_logs()
     timestamper = structlog.processors.TimeStamper(fmt="iso")
 
     shared_processors = [
