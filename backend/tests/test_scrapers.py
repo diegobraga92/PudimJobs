@@ -1651,6 +1651,31 @@ def test_serpapi_robots_url_exempts_the_vendor_api_only():
     assert scraper.robots_url(provider.results_url()) is None
 
 
+def test_serpapi_hashes_long_google_job_ids_for_the_external_id_column():
+    """Google's base64 job_id is longer than jobs.external_id (255)."""
+    long_id = "A" * 350
+    provider = SerpApiProvider(
+        {"engine": "google_jobs", "query": "c++ remote", "parse_mode": "results"}, "K"
+    )
+    payload = {
+        "jobs_results": [
+            {
+                "title": "C++ Engineer",
+                "company_name": "Acme",
+                "job_id": long_id,
+                "apply_options": [{"link": "https://acme.example/jobs/1"}],
+            }
+        ]
+    }
+
+    job = provider.parse(_json_page(payload))[0]
+
+    assert job.external_id.startswith("serpapi:")
+    assert len(job.external_id) <= 255
+    # Stable naming across runs, so deduplication keeps working.
+    assert job.external_id == provider.parse(_json_page(payload))[0].external_id
+
+
 def test_serpapi_next_page_url_keeps_the_api_key():
     """SerpApi's `next` link omits `api_key`; following it verbatim 401s."""
     provider = SerpApiProvider({"engine": "google_jobs", "query": "rust"}, "KEY-1")

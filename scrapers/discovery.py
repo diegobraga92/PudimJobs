@@ -1,5 +1,6 @@
 """Discovery providers: search-engine and ATS-board job sources."""
 
+import hashlib
 import json
 import re
 from abc import ABC, abstractmethod
@@ -1177,6 +1178,20 @@ class SerpApiProvider(SearchApiProvider):
             return self._jobs_from_results(page)
         return super().parse(page)
 
+    def _external_id(self, item: dict) -> str | None:
+        """A database-safe external id from SerpApi's ``job_id``.
+
+        Google Jobs returns a base64 payload of ~350 characters, which exceeds
+        ``jobs.external_id VARCHAR(255)`` and aborted every insert. Hash only
+        the over-long values so short/readable ids stay unchanged.
+        """
+        job_id = as_optional_str(item.get("job_id"))
+        if not job_id:
+            return None
+        if len(job_id) <= 255:
+            return job_id
+        return "serpapi:" + hashlib.sha256(job_id.encode()).hexdigest()
+
     def _jobs_from_results(self, page: ScrapedPage) -> list[RawJob]:
         """Build ``RawJob``s from the results payload (no detail fetches)."""
         data = json.loads(page.html_content or "{}")
@@ -1201,7 +1216,7 @@ class SerpApiProvider(SearchApiProvider):
                     ),
                     description=description,
                     tags=tags,
-                    external_id=as_optional_str(item.get("job_id")),
+                    external_id=self._external_id(item),
                 )
             )
         jobs = [job for job in jobs if job.title and job.url]
