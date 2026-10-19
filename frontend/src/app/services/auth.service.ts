@@ -15,6 +15,25 @@ export interface User {
   role: string;
 }
 
+interface JwtPayload {
+  exp?: number;
+}
+
+/** Decodes a JWT payload without validating its signature; the API does that. */
+function decodeJwtPayload(token: string): JwtPayload | null {
+  const payload = token.split('.')[1];
+  if (!payload) {
+    return null;
+  }
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    return JSON.parse(atob(padded)) as JwtPayload;
+  } catch {
+    return null;
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   constructor(private http: HttpClient) {}
@@ -39,7 +58,21 @@ export class AuthService {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
 
+  /**
+   * A stored token is only a session until it expires. Clearing stale tokens
+   * here keeps route guards from rendering protected pages that can only fail
+   * with 401 responses.
+   */
   isAuthenticated(): boolean {
-    return !!this.getToken();
+    const token = this.getToken();
+    if (!token) {
+      return false;
+    }
+    const payload = decodeJwtPayload(token);
+    if (!payload?.exp || payload.exp * 1000 <= Date.now()) {
+      this.logout();
+      return false;
+    }
+    return true;
   }
 }
