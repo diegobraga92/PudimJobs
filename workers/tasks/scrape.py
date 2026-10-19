@@ -8,6 +8,15 @@ from datetime import UTC, datetime
 
 import httpx
 import structlog
+from api.events.producer import publish_job_new
+from api.events.schemas import JobNewEvent
+from celery import Task
+from celery.exceptions import SoftTimeLimitExceeded
+from scrapers.registry import get_scraper
+from scrapers.utils import is_allowed_by_robots, parse_json_ld_jobs, redact_sensitive
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
 from app.config import settings
 from app.database import async_session_factory
 from app.models import Job, ScrapeRun, Source
@@ -15,15 +24,6 @@ from app.models.enums import SourceHealth, SourceType
 from app.models.source_auth import SourceAuth
 from app.services.source_auth import build_fetch_auth
 from app.services.source_watchlist import is_avoided
-from celery import Task
-from celery.exceptions import SoftTimeLimitExceeded
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-
-from api.events.producer import publish_job_new
-from api.events.schemas import JobNewEvent
-from scrapers.registry import get_scraper
-from scrapers.utils import is_allowed_by_robots, redact_sensitive
 from workers.celery_app import celery_app
 from workers.metrics import SCRAPE_DURATION, SCRAPES_TOTAL
 from workers.resilience import (
@@ -126,6 +126,40 @@ async def _discover(scraper, page) -> list[str]:
     if inspect.isawaitable(result):
         result = await result
     return result or []
+
+
+def _enrich_with_json_ld(raw_jobs: list, page) -> list:
+    """Merge a page's JSON-LD into parsed rows instead of appending duplicates.
+
+    Listing pages often carry a complete ``JobPosting`` block for each card
+    while the card parser only captures title/company/URL.  Appending both sets
+    would store every job twice (once bare, once rich); matching on URL or
+    external id fills the missing fields in place.  When the card parser found
+    nothing, the JSON-LD records are the fallback.
+    """
+    json_ld = parse_json_ld_jobs(page.html_content, page.final_url)
+    if not raw_jobs:
+        return json_ld
+    if not json_ld:
+        return raw_jobs
+
+    by_url = {job.url.rstrip("/"): job for job in json_ld if job.url}
+    by_external_id = {job.external_id: job for job in json_ld if job.external_id}
+    for raw in raw_jobs:
+        match = None
+        if raw.url:
+            match = by_url.get(raw.url.rstrip("/"))
+        if match is None and raw.external_id:
+            match = by_external_id.get(raw.external_id)
+        if match is None:
+            continue
+        raw.title = raw.title or match.title
+        raw.company = raw.company or match.company
+        raw.description = raw.description or match.description
+        raw.posted_date = raw.posted_date or match.posted_date
+        raw.tags = raw.tags or list(match.tags)
+        raw.external_id = raw.external_id or match.external_id
+    return raw_jobs
 
 
 async def _store_jobs(
@@ -294,10 +328,10 @@ async def _run_scrape(source_id: str) -> dict:
                         await asyncio.sleep(wait)
                     rate_limit_mark(detail_url, source.rate_limit_seconds)
                     detail_page = await scraper.fetch(detail_url, auth=auth)
-                    raw_jobs.extend(scraper.parse(detail_page))
+                    raw_jobs.extend(_enrich_with_json_ld(scraper.parse(detail_page), detail_page))
                     detail_fetched += 1
             else:
-                raw_jobs.extend(scraper.parse(page))
+                raw_jobs.extend(_enrich_with_json_ld(scraper.parse(page), page))
 
             if pages_fetched >= max_pages:
                 break

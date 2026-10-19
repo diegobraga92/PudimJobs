@@ -23,6 +23,7 @@ from app.database import Base
 _SEARCH_VECTOR_EXPR = (
     "setweight(to_tsvector('english', coalesce(title, '')), 'A') || "
     "setweight(to_tsvector('english', coalesce(company, '')), 'B') || "
+    "setweight(to_tsvector('english', coalesce(tags::text, '')), 'B') || "
     "setweight(to_tsvector('english', coalesce(description, '')), 'C')"
 )
 
@@ -36,6 +37,8 @@ class Job(Base):
         UniqueConstraint("source_id", "external_id", name="uq_jobs_source_external_id"),
         # Full-text search index (PostgreSQL FTS, Phase 5).
         Index("ix_jobs_search_vector", "search_vector", postgresql_using="gin"),
+        # Exact JSONB tag membership (`tags ?| array[...]`).
+        Index("ix_jobs_tags", "tags", postgresql_using="gin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

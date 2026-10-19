@@ -34,6 +34,7 @@ export interface JobFilters {
   date_to?: string;
   tags?: string;
   source_id?: string;
+  created_after?: string;
   include_hidden?: boolean;
   hide_applied?: boolean;
 }

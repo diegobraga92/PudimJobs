@@ -122,6 +122,13 @@
   color: var(--color-text-muted);
 }
 
+.job-new-badge {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.2rem;
+}
+
 .job-title {
   display: flex;
   align-items: flex-start;

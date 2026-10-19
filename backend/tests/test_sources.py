@@ -736,6 +736,21 @@ async def test_create_source_rejects_invalid_config(auth_client):
     assert "provider" in response.json()["detail"]
 
 
+async def test_create_aggregator_rejects_invalid_exclude_pattern(auth_client):
+    client, _, _ = auth_client
+    response = await client.post(
+        "/api/sources",
+        json={
+            "name": "Bad regex board",
+            "url": "https://acme.example/jobs",
+            "type": "aggregator",
+            "config": {"item_selector": "article", "exclude_pattern": "(["},
+        },
+    )
+    assert response.status_code == 422
+    assert "exclude_pattern" in response.json()["detail"]
+
+
 async def test_update_source_validates_the_effective_config(auth_client):
     client, _, _ = auth_client
     created = await client.post(

@@ -1,6 +1,6 @@
 """Tests for the admin API (RBAC + reprocessing endpoints)."""
 
-from app.models import ScrapeRun, Source
+from app.models import Job, ScrapeQuality, ScrapeRun, Source
 from tests.helpers import create_user
 
 
@@ -44,6 +44,44 @@ async def test_admin_source_health(db_client, db_session):
     response = await db_client.get("/api/admin/sources/health")
     assert response.status_code == 200
     assert response.json()[0]["name"] == "Acme"
+
+
+async def test_quality_by_source_reports_issue_counts(db_client, db_session):
+    await _make_admin(db_client, db_session)
+    owner = await create_user(db_session, email="quality-owner@example.com")
+    source = Source(
+        user_id=owner.id, name="Acme feed", url="https://acme.example/feed", type="rss"
+    )
+    db_session.add(source)
+    await db_session.flush()
+
+    jobs = [
+        Job(user_id=owner.id, source_id=source.id, title="Bare", company="Acme"),
+        Job(user_id=owner.id, source_id=source.id, title="Tagged", company="Acme"),
+        Job(user_id=owner.id, source_id=source.id, title="Clean", company="Acme"),
+    ]
+    db_session.add_all(jobs)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ScrapeQuality(
+                job_id=jobs[0].id,
+                completeness_score=0.2,
+                issues=["no tags", "short description"],
+            ),
+            ScrapeQuality(job_id=jobs[1].id, completeness_score=0.8, issues=["no tags"]),
+            ScrapeQuality(job_id=jobs[2].id, completeness_score=1.0, issues=[]),
+        ]
+    )
+    await db_session.commit()
+
+    response = await db_client.get("/api/admin/quality/by-source")
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["source"] == "Acme feed"
+    assert row["jobs"] == 3
+    assert row["jobs_with_issues"] == 2
+    assert row["issue_counts"] == {"no tags": 2, "short description": 1}
 
 
 async def test_replay_failed_run(db_client, db_session, monkeypatch):

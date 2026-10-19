@@ -83,6 +83,112 @@ async def test_job_search_filters(auth_client):
     assert no_match.json() == []
 
 
+async def test_keyword_search_handles_go_cpp_and_tags(auth_client):
+    """``go``/``c++`` survive Postgres tokenization, and tags are searchable."""
+    client, _, _ = auth_client
+    for payload in [
+        {
+            "title": "C++ Systems Engineer",
+            "company": "Acme",
+            "description": "Low-latency C++ services (cpp).",
+            "tags": ["c++", "cpp"],
+        },
+        {
+            "title": "Go Platform Engineer",
+            "company": "Beta",
+            "description": "APIs written in Go.",
+            "tags": ["golang"],
+        },
+        {
+            "title": "Goiás Sales Lead",
+            "company": "Gamma",
+            # "go-to-market" must not be mistaken for the Go language.
+            "description": "Own our go-to-market strategy.",
+            "tags": ["sales"],
+        },
+        {
+            "title": "Embedded Engineer",
+            "company": "Delta",
+            "description": "Systems programming.",
+            # The only occurrence of the term is the tag.
+            "tags": ["Rust"],
+        },
+    ]:
+        response = await client.post("/api/jobs", json=payload)
+        assert response.status_code == 201
+
+    async def titles_for(query: str) -> list[str]:
+        response = await client.get("/api/jobs", params={"q": query})
+        assert response.status_code == 200
+        return [job["title"] for job in response.json()]
+
+    assert await titles_for("c++") == ["C++ Systems Engineer"]
+    assert await titles_for("cpp") == ["C++ Systems Engineer"]
+    assert await titles_for("go") == ["Go Platform Engineer"]
+    assert await titles_for("golang") == ["Go Platform Engineer"]
+    # Tags now contribute to search_vector, including mixed-case rows.
+    assert await titles_for("rust") == ["Embedded Engineer"]
+    # A stopword-only query still matches nothing rather than everything.
+    assert await titles_for("the") == []
+
+
+async def test_tag_filter_is_case_insensitive(auth_client):
+    client, _, _ = auth_client
+    await _create_job(client, title="Rust Engineer", tags=["Rust"])
+    await _create_job(client, title="Python Engineer", tags=["python"])
+
+    for tag_filter in ("rust", "RUST", " Rust "):
+        response = await client.get("/api/jobs", params={"tags": tag_filter})
+        assert response.status_code == 200
+        assert [job["title"] for job in response.json()] == ["Rust Engineer"]
+
+    # Multiple tags keep their OR semantics, still case-insensitively.
+    response = await client.get("/api/jobs", params={"tags": "RUST,PYTHON"})
+    assert {job["title"] for job in response.json()} == {
+        "Rust Engineer",
+        "Python Engineer",
+    }
+
+
+async def test_created_after_filters_by_when_the_job_was_added(auth_client, db_session):
+    client, _, _ = auth_client
+    old = await _create_job(client, title="Old Backend")
+    recent = await _create_job(client, title="Recent Backend")
+    await _create_job(client, title="Recent Frontend")
+    await _backdate(db_session, old["id"], days=5)
+
+    cutoff = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    response = await client.get("/api/jobs", params={"created_after": cutoff})
+    assert response.status_code == 200
+    assert {job["title"] for job in response.json()} == {
+        "Recent Backend",
+        "Recent Frontend",
+    }
+
+    # The filter combines with the keyword search.
+    combined = await client.get(
+        "/api/jobs", params={"q": "backend", "created_after": cutoff}
+    )
+    assert [job["title"] for job in combined.json()] == [recent["title"]]
+
+    # Without it, the default feed still includes older jobs.
+    default = await client.get("/api/jobs")
+    assert len(default.json()) == 3
+
+
+async def test_created_after_accepts_a_naive_timestamp(auth_client):
+    """FastAPI parses a timestamp without an offset; treat it as UTC."""
+    client, _, _ = auth_client
+    await _create_job(client, title="Fresh")
+
+    naive_cutoff = (datetime.now(UTC) - timedelta(hours=1)).replace(tzinfo=None)
+    response = await client.get(
+        "/api/jobs", params={"created_after": naive_cutoff.isoformat()}
+    )
+    assert response.status_code == 200
+    assert [job["title"] for job in response.json()] == ["Fresh"]
+
+
 async def test_list_jobs_filters_by_source(auth_client, db_session):
     """``source_id`` narrows the list to one board's jobs, and never leaks others'."""
     client, _, _ = auth_client

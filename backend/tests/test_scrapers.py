@@ -108,6 +108,27 @@ RSS_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 </rss>
 """
 
+# Board-shaped feeds (We Work Remotely) put the employer in each title and use
+# categories for region/contract type; the channel title is the board name.
+RSS_BOARD_SHAPED_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>We Work Remotely</title>
+    <link>https://weworkremotely.com/remote-jobs.rss</link>
+    <item>
+      <title>Acme Corp: Senior Rust Engineer</title>
+      <link>https://weworkremotely.com/jobs/1</link>
+      <pubDate>Fri, 01 Aug 2026 10:00:00 GMT</pubDate>
+      <description><![CDATA[<p>Build and ship Rust services.</p>]]></description>
+      <category>Remote</category>
+      <category>Full-Time</category>
+      <region>Americas</region>
+      <guid>wwr-1</guid>
+    </item>
+  </channel>
+</rss>
+"""
+
 AGGREGATOR_HTML = """
 <html><body>
 <ul>
@@ -170,6 +191,38 @@ def test_rss_parses_feed_entries():
     assert raw[0].external_id == "acme-100"
 
 
+def test_rss_board_flags_split_company_and_enrich_tags():
+    scraper = RSSScraper(
+        {
+            "company_from_title": True,
+            "include_region": True,
+            "strip_html": True,
+        }
+    )
+    raw = scraper.parse(_page(RSS_BOARD_SHAPED_FEED))
+
+    assert len(raw) == 1
+    assert raw[0].title == "Senior Rust Engineer"
+    assert raw[0].company == "Acme Corp"
+    assert raw[0].description == "Build and ship Rust services."
+    # Only the region-like category and the explicit <region> are kept.
+    assert raw[0].tags == ["Remote", "Americas"]
+
+
+def test_rss_include_categories_keeps_every_feed_category():
+    scraper = RSSScraper({"include_categories": True})
+    raw = scraper.parse(_page(RSS_BOARD_SHAPED_FEED))
+
+    assert raw[0].tags == ["Remote", "Full-Time"]
+
+
+def test_rss_registry_passes_source_config():
+    source = SimpleNamespace(type=SourceType.rss, config={"company_from_title": True})
+    scraper = get_scraper(source)
+    assert isinstance(scraper, RSSScraper)
+    assert scraper.config == {"company_from_title": True}
+
+
 def test_aggregator_generic_html_list_parses():
     scraper = GenericHtmlListScraper(
         {
@@ -194,6 +247,48 @@ def test_aggregator_generic_html_list_parses():
     assert raw[1].title == "Data Scientist"
     assert raw[1].url == "https://board.example/jobs/2"
     assert raw[1].description is None
+
+
+def test_aggregator_exclude_pattern_drops_stale_cards():
+    html = """
+    <html><body>
+      <article class="job"><a href="/jobs/1">Fresh Rust role</a></article>
+      <article class="job"><a href="/jobs/2">Old role</a>
+        <span class="status">Vaga expirada</span></article>
+    </body></html>
+    """
+    scraper = GenericHtmlListScraper(
+        {
+            "item_selector": "article.job",
+            "title_selector": "a",
+            "url_selector": "a",
+            "exclude_pattern": r"\bexpirada\b",
+        }
+    )
+    raw = scraper.parse(_aggregator_page(html, "https://programathor.com.br/jobs"))
+    assert [job.title for job in raw] == ["Fresh Rust role"]
+
+
+def test_aggregator_reports_a_bad_exclude_pattern():
+    scraper = GenericHtmlListScraper(
+        {"item_selector": "article", "exclude_pattern": "(["}
+    )
+    with pytest.raises(ValueError, match="exclude_pattern"):
+        scraper.parse(_aggregator_page(AGGREGATOR_HTML))
+
+
+def test_embedded_json_exclude_pattern_filters_items():
+    scraper = EmbeddedJsonListScraper(
+        {
+            "items_path": "props.pageProps.jobs",
+            "title_path": "title",
+            "url_path": "slug",
+            "company_path": "company.name",
+            "exclude_pattern": "nuxt",
+        }
+    )
+    raw = scraper.parse(_aggregator_page(NEXT_DATA_HTML))
+    assert [job.title for job in raw] == ["Next.js Engineer"]
 
 
 def test_aggregator_next_page_url():

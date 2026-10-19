@@ -1,5 +1,7 @@
 """Source config contracts: form metadata plus fail-fast validation."""
 
+import re
+
 from app.models.enums import SourceType
 
 #: Config contract of ``manual`` (watchlist) sources. ``cadence_days`` and
@@ -99,6 +101,14 @@ def validate_source_config(source_type: SourceType, config: dict | None) -> None
                 f"unknown aggregator adapter {name!r} (known: {_known(AGGREGATOR_ADAPTERS)})"
             )
         _check_contract(scraper_cls.config_metadata(), config, f"adapter {name!r}")
+        pattern = config.get("exclude_pattern")
+        if pattern:
+            try:
+                re.compile(str(pattern), re.IGNORECASE)
+            except re.error as exc:
+                raise ValueError(
+                    f"aggregator config['exclude_pattern'] is not a valid regex: {exc}"
+                ) from exc
     elif source_type == SourceType.manual:
         # Watchlist sources are checked by hand; the only config that drives
         # behaviour is the re-check cadence, which must be a positive integer

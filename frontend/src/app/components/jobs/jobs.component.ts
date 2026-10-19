@@ -21,6 +21,14 @@ import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
 
 const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
+/** First successful feed load records the visit for the "since last visit" filter. */
+const LAST_VISIT_KEY = 'pudimjobs_jobs_last_visit';
+const NEW_BADGE_WINDOW_MS = 48 * 60 * 60 * 1000;
+const ADDED_WINDOWS_MS: Record<string, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+};
 
 @Component({
   selector: 'app-jobs',
@@ -53,6 +61,13 @@ export class JobsComponent implements OnInit {
   /** When on, soft-hidden (dismissed) jobs are included so they can be restored. */
   showHidden = false;
 
+  /**
+   * Timestamp of the previous successful visit. Read once when the component
+   * mounts so the first "since last visit" search still sees the old moment.
+   */
+  private previousVisit: string | null = localStorage.getItem(LAST_VISIT_KEY);
+  private visitRecorded = false;
+
   /** Bulk cleanup dialog (ADR 023): the form, the last preview and its sources. */
   showCleanup = false;
   cleanupForm;
@@ -84,6 +99,7 @@ export class JobsComponent implements OnInit {
       date_to: [''],
       tags: [''],
       source_id: [''],
+      added: [''],
     });
     this.jobForm = this.fb.group({
       title: ['', Validators.required],
@@ -184,6 +200,7 @@ export class JobsComponent implements OnInit {
       date_to: string;
       tags: string;
       source_id: string;
+      added: string;
     };
     const filters: JobFilters = {
       q: value.q || undefined,
@@ -192,6 +209,7 @@ export class JobsComponent implements OnInit {
       date_to: value.date_to || undefined,
       tags: value.tags || undefined,
       source_id: value.source_id || undefined,
+      created_after: this.addedCutoff(value.added),
       include_hidden: this.showHidden || undefined,
       hide_applied: this.hideApplied || undefined,
     };
@@ -199,12 +217,41 @@ export class JobsComponent implements OnInit {
       next: (jobs) => {
         this.jobs = jobs;
         this.loading = false;
+        this.recordVisit();
       },
       error: () => {
         this.error = this.i18n.t('errors.failedLoadJobs');
         this.loading = false;
       },
     });
+  }
+
+  /**
+   * Translate the "Added" select into the API's ``created_after`` cutoff. All
+   * windows are anchored to now; "last visit" uses the timestamp captured when
+   * the component mounted (before this visit overwrites it).
+   */
+  private addedCutoff(added: string): string | undefined {
+    if (added === 'last_visit') {
+      return this.previousVisit || undefined;
+    }
+    const windowMs = ADDED_WINDOWS_MS[added];
+    return windowMs ? new Date(Date.now() - windowMs).toISOString() : undefined;
+  }
+
+  /** A job is "new" for 48 hours after the scraper stored it. */
+  isNew(job: JobSummary): boolean {
+    const age = Date.now() - Date.parse(job.created_at);
+    return Number.isFinite(age) && age < NEW_BADGE_WINDOW_MS;
+  }
+
+  /** Persist this visit once per mount; later searches keep the same baseline. */
+  private recordVisit(): void {
+    if (this.visitRecorded) {
+      return;
+    }
+    this.visitRecorded = true;
+    localStorage.setItem(LAST_VISIT_KEY, new Date().toISOString());
   }
 
   /** Jobs visible on the current page. */

@@ -206,7 +206,7 @@ async def quality_by_source(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Per-source data quality breakdown."""
+    """Per-source data quality breakdown, including recurring issue labels."""
     rows = (
         await db.execute(
             select(Source.name, func.count(Job.id), func.avg(ScrapeQuality.completeness_score))
@@ -216,11 +216,43 @@ async def quality_by_source(
             .order_by(Source.name)
         )
     ).all()
+
+    flagged_rows = (
+        await db.execute(
+            select(Source.name, func.count(func.distinct(ScrapeQuality.id)))
+            .join(Job, Job.source_id == Source.id)
+            .join(ScrapeQuality, ScrapeQuality.job_id == Job.id)
+            .where(func.jsonb_array_length(ScrapeQuality.issues) > 0)
+            .group_by(Source.name)
+        )
+    ).all()
+    flagged = {name: count for name, count in flagged_rows}
+
+    issue_rows = (
+        await db.execute(
+            select(
+                Source.name,
+                func.jsonb_array_elements_text(ScrapeQuality.issues).label("issue"),
+            )
+            .join(Job, Job.source_id == Source.id)
+            .join(ScrapeQuality, ScrapeQuality.job_id == Job.id)
+            .where(func.jsonb_array_length(ScrapeQuality.issues) > 0)
+        )
+    ).all()
+    issue_counts: dict[str, dict[str, int]] = {}
+    for name, issue in issue_rows:
+        counts = issue_counts.setdefault(name, {})
+        counts[issue] = counts.get(issue, 0) + 1
+
     return [
         {
             "source": name,
             "jobs": jobs,
             "avg_completeness": round(float(score or 0.0), 3),
+            "jobs_with_issues": flagged.get(name, 0),
+            "issue_counts": dict(
+                sorted(issue_counts.get(name, {}).items(), key=lambda item: (-item[1], item[0]))
+            ),
         }
         for name, jobs, score in rows
     ]

@@ -23,12 +23,12 @@ def job_matches_rule(job: Job, rule: AlertRule) -> bool:
     ):
         return False
 
-    if rule.tags and not (set(rule.tags) & set(job.tags)):
+    if rule.tags and not (
+        {tag.lower() for tag in rule.tags} & {tag.lower() for tag in job.tags}
+    ):
         return False
 
-    if rule.remote_only and not re.search(
-        r"\bremote\b", (f"{job.title} {job.description or ''}").lower()
-    ):
+    if rule.remote_only and not re.search(r"\bremote\b", haystack.lower()):
         return False
 
     if rule.min_years_experience is not None:

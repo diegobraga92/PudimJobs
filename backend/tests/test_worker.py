@@ -23,7 +23,7 @@ from workers.resilience import (
     skip_backoff_mark,
 )
 from workers.tasks import scrape as scrape_module
-from workers.tasks.scrape import _run_scrape
+from workers.tasks.scrape import _enrich_with_json_ld, _run_scrape
 
 from app.config import settings
 from app.models import Job, Notification, ScrapeRun, Source, SourceAuth
@@ -134,6 +134,41 @@ async def _install_fake_scraper(monkeypatch, jobs, *, fail=False):
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
     monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
     return fake
+
+
+def test_json_ld_enriches_parsed_rows_without_appending_duplicates():
+    html = """
+    <script type="application/ld+json">
+    {"@type": "JobPosting", "title": "Rust Engineer",
+     "hiringOrganization": {"name": "Acme"},
+     "url": "https://board.example/jobs/1",
+     "datePosted": "2026-10-18",
+     "description": "Build Rust services.",
+     "skills": ["rust", "tokio"]}
+    </script>
+    """
+    page = ScrapedPage(
+        html_content=html, status_code=200, final_url="https://board.example/jobs"
+    )
+    parsed = [
+        RawJob(
+            title="Rust Engineer",
+            company="",
+            url="https://board.example/jobs/1",
+        )
+    ]
+
+    enriched = _enrich_with_json_ld(parsed, page)
+
+    # One listing row stays one job; JSON-LD only fills its empty fields.
+    assert len(enriched) == 1
+    assert enriched[0].company == "Acme"
+    assert enriched[0].description == "Build Rust services."
+    assert enriched[0].posted_date.isoformat() == "2026-10-18"
+    assert enriched[0].tags == ["rust", "tokio"]
+
+    # When the card parser found nothing, JSON-LD is the fallback.
+    assert len(_enrich_with_json_ld([], page)) == 1
 
 
 async def test_scrape_pipeline_stores_jobs_and_records_run(

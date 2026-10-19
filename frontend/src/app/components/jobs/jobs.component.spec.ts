@@ -58,6 +58,7 @@ describe('JobsComponent (bulk cleanup, ADR 023)', () => {
     }).compileComponents();
 
     TestBed.inject(I18nService).setLanguage('en');
+    localStorage.removeItem('pudimjobs_jobs_last_visit');
     http = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(JobsComponent);
     component = fixture.componentInstance;
@@ -78,6 +79,60 @@ describe('JobsComponent (bulk cleanup, ADR 023)', () => {
     component.openCleanup();
     http.expectOne((c) => c.url === '/api/sources').flush([SOURCE]);
   }
+
+  it('does not narrow the default feed by created_after', () => {
+    flushInit();
+
+    component.searchForm.patchValue({ added: '' });
+    component.search();
+    const list = http.expectOne((c) => c.url === '/api/jobs');
+
+    expect(list.request.params.has('created_after')).toBeFalse();
+    list.flush([]);
+  });
+
+  it('translates the Added window into an ISO created_after cutoff', () => {
+    flushInit();
+
+    component.searchForm.patchValue({ added: '24h' });
+    const before = Date.now();
+    component.search();
+    const list = http.expectOne((c) => c.url === '/api/jobs');
+
+    const cutoff = Date.parse(list.request.params.get('created_after') ?? '');
+    expect(Number.isFinite(cutoff)).toBeTrue();
+    expect(Math.abs(before - 24 * 60 * 60 * 1000 - cutoff)).toBeLessThan(5000);
+    list.flush([]);
+  });
+
+  it('uses the visit captured on mount for since-last-visit', () => {
+    flushInit();
+    const previous = '2026-10-01T12:00:00.000Z';
+    (component as unknown as { previousVisit: string | null }).previousVisit = previous;
+
+    component.searchForm.patchValue({ added: 'last_visit' });
+    component.search();
+    const list = http.expectOne((c) => c.url === '/api/jobs');
+
+    expect(list.request.params.get('created_after')).toBe(previous);
+    list.flush([]);
+  });
+
+  it('records a last-visit timestamp after the first successful load', () => {
+    const before = Date.now();
+    flushInit();
+
+    const stored = Date.parse(localStorage.getItem('pudimjobs_jobs_last_visit') ?? '');
+    expect(Number.isFinite(stored)).toBeTrue();
+    expect(stored).toBeGreaterThanOrEqual(before);
+  });
+
+  it('marks jobs added in the last 48 hours as new', () => {
+    flushInit();
+
+    expect(component.isNew({ ...JOB, created_at: new Date().toISOString() })).toBeTrue();
+    expect(component.isNew(JOB)).toBeFalse();
+  });
 
   it('previews with dry_run and deletes nothing', () => {
     flushInit();
@@ -214,6 +269,7 @@ describe('JobsComponent — source filter', () => {
     }).compileComponents();
 
     TestBed.inject(I18nService).setLanguage('en');
+    localStorage.removeItem('pudimjobs_jobs_last_visit');
     http = TestBed.inject(HttpTestingController);
     const fixture = TestBed.createComponent(JobsComponent);
     fixture.detectChanges();

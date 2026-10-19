@@ -67,6 +67,22 @@
     />
   </div>
 
+  <!-- New-postings window, anchored to Job.created_at (when the scraper stored
+       the row) rather than posted_date, which many feeds omit. -->
+  <div class="search-field">
+    <select
+      class="select"
+      formControlName="added"
+      [attr.aria-label]="i18n.t('jobs.aria.filterAdded')"
+    >
+      <option value="">{{ i18n.t('jobs.added.any') }}</option>
+      <option value="24h">{{ i18n.t('jobs.added.24h') }}</option>
+      <option value="7d">{{ i18n.t('jobs.added.7d') }}</option>
+      <option value="30d">{{ i18n.t('jobs.added.30d') }}</option>
+      <option value="last_visit">{{ i18n.t('jobs.added.lastVisit') }}</option>
+    </select>
+  </div>
+
   <!-- Board the jobs were scraped from. Only boards that can own jobs are
        listed: manual watchlists are never fetched. -->
   <div class="search-field">
@@ -310,6 +326,9 @@
         <div class="job-card-head">
           <div class="job-title">
             {{ job.title }}
+            @if (isNew(job)) {
+              <span class="badge badge-success job-new-badge">{{ i18n.t('jobs.newBadge') }}</span>
+            }
             @if (pipeline[job.id]) {
               <span class="badge pipeline-badge" [class]="pipelineBadge(pipeline[job.id])">
                 {{ pipelineLabel(pipeline[job.id]) }}
@@ -339,6 +358,10 @@
             {{ i18n.t('jobs.postedPrefix') }} {{ job.posted_date | date: 'mediumDate' }}
           </div>
         }
+        <div class="job-date">
+          <app-icon name="clock" [size]="12" />
+          {{ i18n.t('jobs.addedPrefix') }} {{ job.created_at | date: 'mediumDate' }}
+        </div>
         @if (job.tags.length > 0) {
           <div class="job-tags">
             @for (tag of job.tags; track tag) {

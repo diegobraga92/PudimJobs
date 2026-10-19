@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import ARRAY, String, cast, delete, func, select
+from sqlalchemy import ARRAY, String, bindparam, delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,7 @@ from app.schemas.job import (
     JobUpdate,
 )
 from app.services.llm_config import get_llm_config, llm_variant_wanted
+from app.services.search import keyword_filters
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -62,6 +63,7 @@ async def list_jobs(
     date_to: date | None = None,
     tags: str | None = None,
     source_id: uuid.UUID | None = None,
+    created_after: datetime | None = None,
     include_hidden: bool = False,
     hide_applied: bool = False,
     db: AsyncSession = Depends(get_db),
@@ -69,12 +71,17 @@ async def list_jobs(
 ):
     """Search and filter jobs using PostgreSQL full-text search."""
     has_keyword = bool(q and q.strip())
+    tsquery = None
     if has_keyword:
-        query = func.plainto_tsquery("english", q.strip())
-        rank = func.ts_rank(Job.search_vector, query)
-        stmt = select(Job, rank.label("score")).where(
-            Job.user_id == user.id, Job.search_vector.op("@@")(query)
-        )
+        predicates, tsquery = keyword_filters(q.strip())
+        conditions = [Job.user_id == user.id, *predicates]
+        if tsquery is not None:
+            rank = func.ts_rank(Job.search_vector, tsquery)
+            stmt = select(Job, rank.label("score")).where(*conditions)
+        else:
+            # The query was made only of special terms (``c++``/``go``), so
+            # there is no tsquery to rank against.
+            stmt = select(Job).where(*conditions)
     else:
         stmt = select(Job).where(Job.user_id == user.id)
 
@@ -106,20 +113,38 @@ async def list_jobs(
     if date_to:
         stmt = stmt.where(Job.posted_date <= date_to)
     if tags:
-        tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        # Stored tags have mixed casing ("Rust", "Brazil"), while users type
+        # lower-case filters.  Compare lowered values; JSONB `?|` is exact and
+        # would silently miss those rows.
+        tag_list = sorted({tag.strip().lower() for tag in tags.split(",") if tag.strip()})
         if tag_list:
-            # JSONB `?|` requires a text[] operand; cast the Python list explicitly.
-            stmt = stmt.where(Job.tags.op("?|")(cast(tag_list, ARRAY(String))))
+            stmt = stmt.where(
+                text(
+                    "EXISTS (SELECT 1 FROM jsonb_array_elements_text(jobs.tags) AS tag "
+                    "WHERE lower(tag) = ANY(:tag_values))"
+                ).bindparams(
+                    bindparam("tag_values", value=tag_list, type_=ARRAY(String))
+                )
+            )
     if source_id is not None:
         stmt = stmt.where(Job.source_id == source_id)
+    if created_after is not None:
+        # "Added" is Job.created_at (when the scraper stored the row), not the
+        # employer's posted_date, which is often absent on scraped jobs.
+        cutoff = created_after
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=UTC)
+        stmt = stmt.where(Job.created_at >= cutoff)
 
-    if has_keyword:
-        stmt = stmt.order_by(func.ts_rank(Job.search_vector, query).desc(), Job.created_at.desc())
+    if tsquery is not None:
+        stmt = stmt.order_by(
+            func.ts_rank(Job.search_vector, tsquery).desc(), Job.created_at.desc()
+        )
     else:
         stmt = stmt.order_by(Job.created_at.desc())
 
     result = await db.execute(stmt)
-    if has_keyword:
+    if tsquery is not None:
         # select(Job, rank) returns tuples; rehydrate summaries with scores.
         return [
             JobSummary.model_validate(job).model_copy(update={"score": round(float(score), 4)})

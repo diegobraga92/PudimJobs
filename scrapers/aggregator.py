@@ -15,6 +15,7 @@ from scrapers.utils import (
     coerce_date,
     date_from_node,
     fetch_html,
+    filter_excluded_jobs,
     parse_html_list,
     parse_job_detail,
     parse_json_ld_jobs,
@@ -130,8 +131,10 @@ class GenericHtmlListScraper(AggregatorScraper):
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         if as_flag(self.config.get("detail")):
-            return self._parse_detail(page)
-        return self._parse_list(page)
+            jobs = self._parse_detail(page)
+        else:
+            jobs = self._parse_list(page)
+        return filter_excluded_jobs(jobs, self.config)
 
     def discover_urls(self, page: ScrapedPage) -> list[str]:
         """Job *detail* URLs for every listing row (only in ``detail`` mode)."""
@@ -295,6 +298,7 @@ class EmbeddedJsonListScraper(AggregatorScraper):
             if isinstance(item, dict)
         ]
         jobs = [job for job in jobs if job.title and job.url]
+        jobs = filter_excluded_jobs(jobs, self.config)
         max_results = int(self.config.get("max_results") or 0)
         return jobs[:max_results] if max_results > 0 else jobs
 
@@ -379,6 +383,7 @@ _ADAPTER_CONFIG_METADATA: dict[str, dict] = {
             "location_selector",
             "date_selector",
             "description_selector",
+            "exclude_pattern",
             "next_page_selector",
             "next_page_tpl",
             "url_tpl",
@@ -417,6 +422,7 @@ _ADAPTER_CONFIG_METADATA: dict[str, dict] = {
             "date_path",
             "tags_path",
             "description_path",
+            "exclude_pattern",
             "next_page_tpl",
             "max_pages",
             "max_results",

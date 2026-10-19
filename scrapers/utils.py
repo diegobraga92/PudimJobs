@@ -346,6 +346,46 @@ def as_flag(value: object) -> bool:
     return bool(value)
 
 
+def compile_exclude_pattern(config: dict | None) -> re.Pattern[str] | None:
+    """Compile the optional ``exclude_pattern`` (case-insensitive regex).
+
+    Board cards sometimes carry labels that announce a stale row ("Vaga
+    expirada") while still linking to a page; matching card/job text is a
+    config-only way to drop them. A bad regex fails the run with an actionable
+    message instead of silently keeping every row.
+    """
+    raw = (config or {}).get("exclude_pattern")
+    if not raw:
+        return None
+    try:
+        return re.compile(str(raw), re.IGNORECASE)
+    except re.error as exc:
+        raise ValueError(f"exclude_pattern is not a valid regex: {exc}") from exc
+
+
+def filter_excluded_jobs(jobs: list[RawJob], config: dict | None) -> list[RawJob]:
+    """Drop jobs whose title/company/description/tags match ``exclude_pattern``."""
+    pattern = compile_exclude_pattern(config)
+    if pattern is None:
+        return jobs
+    kept: list[RawJob] = []
+    for job in jobs:
+        haystack = " ".join(
+            filter(
+                None,
+                [
+                    job.title,
+                    job.company,
+                    job.description,
+                    " ".join(job.tags),
+                ],
+            )
+        )
+        if not pattern.search(haystack):
+            kept.append(job)
+    return kept
+
+
 def date_from_node(node: object) -> date | None:
     """A date from a ``<time datetime=...>`` node, falling back to its text.
 
@@ -454,8 +494,12 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
     items = soup.select(config.get("item_selector") or "article")
     date_selector = config.get("date_selector")
     description_selector = config.get("description_selector")
+    exclude_pattern = compile_exclude_pattern(config)
     jobs: list[RawJob] = []
     for item in items:
+        # Check the whole card: stale labels often live outside title/company.
+        if exclude_pattern and exclude_pattern.search(item.get_text(" ", strip=True)):
+            continue
         title_node = item.select_one(config.get("title_selector") or "h2")
         url_node = item.select_one(config.get("url_selector") or "a")
         if url_node is None and item.name == "a":

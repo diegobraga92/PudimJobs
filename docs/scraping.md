@@ -59,6 +59,7 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `url_tpl` | `generic_html_list` / `json_list`: page 1 is built from this template instead of the stored URL (`{page}` = 1 here, plus every other config key), so a term or locale can live in the config. In `embedded_json_list` the same key means the *job* URL (`{url}` from `url_path`) | — |
 | `max_results` | detail pages fetched / jobs returned | `20` (keyed search APIs lower it to `5`) |
 | `allow_empty` | do not fail when the parse yields 0 jobs | `false` |
+| `exclude_pattern` | case-insensitive regex tested against a card/job's text (aggregator adapters). Use it for stale labels such as `\bexpirad[ao]s?\b`; matching rows are dropped before storage | — |
 | `parse_listing` | parse the *results page itself* instead of fetching each job (search providers: one paid call per run) | `false` |
 
 **URL arguments and search terms.** A stored `url` is fetched **verbatim** by
@@ -176,6 +177,43 @@ Adding many sources at once: `POST /api/sources/import` or
 `scripts/import_sources.py --file <private.json> --token <JWT>` (idempotent,
 never imports credentials — keeps the list out of the repo).
 
+### Repairing sources and stored jobs
+
+Some fixes are data, not code: a feed reshaped its titles, a card gained an
+"expired" label, or selectors stopped matching. `scripts/repair_sources.py`
+patches those rows **dry-run first** (it writes only with `--apply`):
+
+```bash
+# We Work Remotely titles/companies + HTML in descriptions (historical rows too)
+python scripts/repair_sources.py --url-contains weworkremotely \
+  --set-config company_from_title=true --set-config strip_html=true \
+  --fix-rss-titles
+
+# Programathor: never store cards labelled as expired
+python scripts/repair_sources.py --url-contains programathor \
+  --set-config 'exclude_pattern=\bexpirad[ao]s?\b'
+
+# Gupy: filter unwanted embedded-JSON rows (title/description/tag text)
+python scripts/repair_sources.py --url-contains gupy \
+  --set-config 'exclude_pattern=\b(talent pool|banco de talentos)\b'
+
+# Stop fetching boards whose selectors no longer work (reversible)
+python scripts/repair_sources.py --url-contains infojobs --avoid \
+  --avoid-reason "listing cards are client-rendered"
+python scripts/repair_sources.py --url-contains toughbyte --avoid \
+  --avoid-reason "selectors no longer match"
+
+# RemoteYeah: drop rows stored bare before detail/JSON-LD enrichment
+python scripts/repair_sources.py --url-contains remoteyeah \
+  --delete-bare-jobs --bare-company Unknown
+```
+
+Every command previews the matching source(s), config diff, affected job count
+and a few sample rows. Re-running with `--apply` is idempotent: config merges,
+title splits skip already-split rows, and avoided sources keep their original
+"avoided since" timestamp. Avoided boards are never fetched or reminded about;
+use `--unavoid` to restore one after its parser is fixed.
+
 Each source is scraped by at most one run at a time: the worker takes a Redis
 lock per source and the sweep skips sources with a live `running` run. A run
 older than `SCRAPE_RUN_STALE_MINUTES` (30) is marked `failed` by the next sweep,
@@ -250,6 +288,27 @@ carries **0** jobs), RemoteYeah, Dexian Brasil, Rangertech (feed href declared i
 the search page). Remote Habit only feeds interviews/tools → use its HTML
 listing. RemoteOK / Remotive / Working Nomads expose JSON (use `json_list`), not
 job RSS.
+
+Feeds whose metadata describes the *board* rather than the employer support four
+opt-in config flags:
+
+| RSS config key | Meaning | Default |
+|---|---|---|
+| `company_from_title` | split `"Company: Job title"` entries (We Work Remotely) | `false` |
+| `include_categories` | add every feed `<category>` to the job tags | `false` |
+| `include_region` | add only region-like categories (Remote, Americas, Brazil, …) plus an explicit `<region>`/`<location>` entry field | `false` |
+| `strip_html` | convert an HTML `<description>`/`<summary>` into plain text | `false` |
+
+The flags are opt-in so an existing feed keeps the rows it had before. A
+board-shaped feed is configured like this:
+
+```json
+{
+  "company_from_title": true,
+  "include_region": true,
+  "strip_html": true
+}
+```
 
 **Server-rendered HTML** (`type = aggregator` + `generic_html_list`): Programathor,
 GeekHunter, Remote.com, aijobs.ai, dev.pro, TrabalhaBrasil, InfoJobs, Nerdin
@@ -344,6 +403,13 @@ blob is missing entirely the adapter falls back to JSON-LD on the same page. A
 localised route can carry a *marketing sample* instead of the listing (Remote
 Rocketship's `/br/` exposes a 5-job `jobsSample`; the real list is
 `/remote-jobs/`), so confirm `items_path` against the page you actually store.
+
+When a listing page embeds a `JobPosting` JSON-LD block per card, the worker
+**enriches** the rows produced by the card parser (matching by URL or external
+id) instead of appending a second copy: missing company, description, date and
+skills are filled from JSON-LD in place. If the card parser returns nothing, the
+JSON-LD records become the fallback. A row that only exists in the card stays a
+card-only row; a row that only exists in JSON-LD is not duplicated.
 
 **Root-array JSON APIs.** `json_list`'s contract demands a non-empty
 `items_path`, but `"."` resolves to the payload itself — that is how Working

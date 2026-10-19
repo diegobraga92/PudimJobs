@@ -55,6 +55,11 @@ def test_matches_by_tags():
     assert job_matches_rule(_job(), _rule(keywords=[], tags=["python"]))
 
 
+def test_tag_matching_is_case_insensitive():
+    assert job_matches_rule(_job(tags=["Python"]), _rule(keywords=[], tags=["python"]))
+    assert job_matches_rule(_job(tags=["python"]), _rule(keywords=[], tags=["PYTHON"]))
+
+
 def test_tag_mismatch_blocks_match():
     assert not job_matches_rule(_job(), _rule(keywords=[], tags=["java"]))
 
@@ -63,6 +68,13 @@ def test_remote_only_requires_remote():
     assert not job_matches_rule(_job(), _rule(keywords=[], remote_only=True))
     assert job_matches_rule(
         _job(description="Remote friendly FastAPI role"), _rule(keywords=[], remote_only=True)
+    )
+
+
+def test_remote_only_accepts_a_remote_tag():
+    assert job_matches_rule(
+        _job(description="FastAPI role", tags=["Remote"]),
+        _rule(keywords=[], remote_only=True),
     )
 
 
