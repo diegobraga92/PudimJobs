@@ -308,8 +308,8 @@ describe('SourcesComponent — manual watchlist', () => {
 
     expect(component.sourceFilter).toBe('manual');
     expect(component.visibleSources.map((source) => source.id)).toEqual([
-      MANUAL_SOURCE.id,
       ACTIVE_SOURCE.id,
+      MANUAL_SOURCE.id,
     ]);
   });
 
@@ -484,24 +484,43 @@ describe('SourcesComponent — manual watchlist', () => {
 
   // --- Column sorting: clicking a header toggles ascending/descending ---
 
-  it('sorts ascending on the first header click and descending on the next', () => {
+  it('starts sorted alphabetically by name (A → Z)', () => {
+    component.sources = [
+      { ...ACTIVE_SOURCE, id: 'charlie', name: 'Charlie board' },
+      { ...ACTIVE_SOURCE, id: 'alpha', name: 'Alpha board' },
+      { ...ACTIVE_SOURCE, id: 'bravo', name: 'Bravo board' },
+    ];
+
+    expect(component.sortKey).toBe('name');
+    expect(component.sortDirection).toBe('asc');
+    expect(component.ariaSort('name')).toBe('ascending');
+    expect(component.visibleSources.map((source) => source.id)).toEqual([
+      'alpha',
+      'bravo',
+      'charlie',
+    ]);
+  });
+
+  it('toggles the default name sort between descending and ascending', () => {
     component.sources = [
       { ...ACTIVE_SOURCE, id: 'sort-b', name: 'Beta board' },
       { ...ACTIVE_SOURCE, id: 'sort-a', name: 'Alpha board' },
     ];
 
-    component.sortBy('name');
-    expect(component.sortKey).toBe('name');
-    expect(component.sortDirection).toBe('asc');
+    // The list opens alphabetically, so the first click reverses it.
     expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-a', 'sort-b']);
 
     component.sortBy('name');
+    expect(component.sortKey).toBe('name');
     expect(component.sortDirection).toBe('desc');
     expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-b', 'sort-a']);
+
+    component.sortBy('name');
+    expect(component.sortDirection).toBe('asc');
+    expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-a', 'sort-b']);
   });
 
   it('starts a newly chosen column ascending', () => {
-    component.sortBy('name');
     component.sortBy('name');
     expect(component.sortDirection).toBe('desc');
 
@@ -592,8 +611,7 @@ describe('SourcesComponent — manual watchlist', () => {
       { ...ACTIVE_SOURCE, id: 'active-a', name: 'Aaa active' },
     ];
 
-    component.sortBy('name');
-    component.sortBy('name'); // descending would otherwise put Zzz first
+    component.sortBy('name'); // the default is ascending, so this reverses it
 
     expect(component.visibleSources.map((source) => source.id)).toEqual([
       'active-a',
@@ -602,14 +620,14 @@ describe('SourcesComponent — manual watchlist', () => {
   });
 
   it('reports the sort direction through aria-sort', () => {
-    expect(component.ariaSort('name')).toBeNull();
-
-    component.sortBy('name');
     expect(component.ariaSort('name')).toBe('ascending');
-    expect(component.ariaSort('jobs')).toBeNull();
 
     component.sortBy('name');
     expect(component.ariaSort('name')).toBe('descending');
+    expect(component.ariaSort('jobs')).toBeNull();
+
+    component.sortBy('name');
+    expect(component.ariaSort('name')).toBe('ascending');
   });
 
   it('sorts when a column header is clicked', () => {
@@ -625,7 +643,7 @@ describe('SourcesComponent — manual watchlist', () => {
     fixture.detectChanges();
 
     expect(component.sortKey).toBe('name');
-    expect(header.nativeElement.getAttribute('aria-sort')).toBe('ascending');
-    expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-a', 'sort-b']);
+    expect(header.nativeElement.getAttribute('aria-sort')).toBe('descending');
+    expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-b', 'sort-a']);
   });
 });

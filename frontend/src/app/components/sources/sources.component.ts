@@ -133,8 +133,8 @@ export class SourcesComponent implements OnInit {
   /** Quick filter applied to the list (single-select chip row). `''` = All. */
   sourceFilter: SourceQuickFilter = '';
 
-  /** Sort applied by clicking a column header; `null` keeps the API order. */
-  sortKey: SourceSortKey | null = null;
+  /** Active sort column; the table opens alphabetically by source name (A → Z). */
+  sortKey: SourceSortKey = 'name';
   sortDirection: SortDirection = 'asc';
   /** Header cells rendered by the template; the Actions column is not sortable. */
   readonly sortableColumns = SORTABLE_COLUMNS;
@@ -458,9 +458,6 @@ export class SourcesComponent implements OnInit {
       return avoided;
     }
     const key = this.sortKey;
-    if (!key) {
-      return 0;
-    }
     const direction = this.sortDirection === 'asc' ? 1 : -1;
     switch (key) {
       case 'name':
