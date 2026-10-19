@@ -176,6 +176,17 @@ Adding many sources at once: `POST /api/sources/import` or
 `scripts/import_sources.py --file <private.json> --token <JWT>` (idempotent,
 never imports credentials — keeps the list out of the repo).
 
+Each source is scraped by at most one run at a time: the worker takes a Redis
+lock per source and the sweep skips sources with a live `running` run. A run
+older than `SCRAPE_RUN_STALE_MINUTES` (30) is marked `failed` by the next sweep,
+so a killed worker cannot leave a source "running" forever. Queued tasks carry
+`SCRAPE_TASK_EXPIRES_SECONDS` (30 min) and Celery's soft/hard limits are 20/25
+min, deliberately below RabbitMQ's `consumer_timeout`; a scrape that overruns is
+failed on its `ScrapeRun` instead of taking the worker's consumer down. A source
+skipped because of robots.txt or a missing key is retried once a day rather than
+every sweep, and its health becomes `degraded` so the UI does not report it as
+healthy.
+
 ## Manual watchlist sources (`type = manual`)
 
 For a board the engine must not (or cannot) fetch — login-walled candidate

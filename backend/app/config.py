@@ -63,6 +63,25 @@ class Settings(BaseSettings):
     worker_concurrency: int = 4
     worker_prefetch_multiplier: int = 1
 
+    # Scrape task runtime limits. RabbitMQ only acknowledges a task when it
+    # finishes (task_acks_late=True); if a run outlives the broker's
+    # consumer_timeout the broker kills the worker's connection and the queue
+    # stalls. Celery therefore fails the task first, below the broker timeout
+    # (see infra/rabbitmq/rabbitmq.conf), so the failure is recorded on the
+    # ScrapeRun instead of silently orphaning the consumer.
+    scrape_task_soft_time_limit_seconds: int = 1200  # 20 min
+    scrape_task_time_limit_seconds: int = 1500  # 25 min
+    # Stop stale queued work: a task that waited longer than this is redundant
+    # because the next sweep has already rebuilt the due list.
+    scrape_task_expires_seconds: int = 1800  # 30 min
+    # A run left in "running" after this long is orphaned (worker killed or it
+    # lost the broker connection); the sweep fails it and schedules fresh work.
+    scrape_run_stale_minutes: int = 30
+    # After a source is skipped (robots.txt, missing API key, ...), do not
+    # re-enqueue it on every sweep. The backoff expires on its own; an explicit
+    # "Scrape now" still runs immediately.
+    scrape_skip_backoff_minutes: int = 1440  # 24 h
+
     # Scraping defaults
     circuit_breaker_threshold: int = 5
     circuit_breaker_ttl_seconds: int = 3600  # pause for 1h when open

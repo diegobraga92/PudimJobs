@@ -10,15 +10,22 @@ import pytest
 from scrapers.types import RawJob, ScrapedPage
 from sqlalchemy import select
 from workers.resilience import (
+    CircuitBreakerOpenError,
+    acquire_scrape_lock,
     circuit_breaker_is_open,
     circuit_breaker_record_failure,
     circuit_breaker_reset,
     rate_limit_mark,
     rate_limit_wait,
+    release_scrape_lock,
+    skip_backoff_active,
+    skip_backoff_clear,
+    skip_backoff_mark,
 )
 from workers.tasks import scrape as scrape_module
 from workers.tasks.scrape import _run_scrape
 
+from app.config import settings
 from app.models import Job, Notification, ScrapeRun, Source, SourceAuth
 from app.services.secrets import encrypt_secret
 from tests.helpers import create_user
@@ -105,6 +112,9 @@ async def _make_source(db_session, user, **overrides) -> Source:
         "name": "Acme",
         "url": "https://acme.example/careers",
         "type": "career_page",
+        # The rate-limit primitive has its own test; pipeline tests should not
+        # sleep 30s before every page/detail fetch.
+        "rate_limit_seconds": 0,
     }
     values.update(overrides)
     source = Source(**values)
@@ -265,11 +275,56 @@ async def test_circuit_breaker_opens_after_threshold(redis_client):
     assert circuit_breaker_is_open(source_id) is False
 
 
+def test_scrape_task_does_not_autoretry_deterministic_errors():
+    """Celery must fail fast on parse errors / open breakers, not retry 3x."""
+    excluded = scrape_module.scrape_source.dont_autoretry_for
+    assert scrape_module.EmptyScrapeError in excluded
+    assert CircuitBreakerOpenError in excluded
+
+
+def test_skip_backoff_marks_and_clears(redis_client):
+    source_id = "22222222-2222-2222-2222-222222222222"
+    assert skip_backoff_active(source_id) is False
+
+    skip_backoff_mark(source_id)
+    assert skip_backoff_active(source_id) is True
+
+    skip_backoff_clear(source_id)
+    assert skip_backoff_active(source_id) is False
+
+
+def test_scrape_lock_is_exclusive_and_owner_released(redis_client):
+    source_id = "33333333-3333-3333-3333-333333333333"
+    first = acquire_scrape_lock(source_id)
+    assert first is not None
+    assert acquire_scrape_lock(source_id) is None
+
+    # A non-owner must not be able to delete the lock.
+    release_scrape_lock(source_id, "not-the-owner")
+    assert acquire_scrape_lock(source_id) is None
+
+    release_scrape_lock(source_id, first)
+    second = acquire_scrape_lock(source_id)
+    assert second is not None
+    release_scrape_lock(source_id, second)
+
+
 async def test_rate_limit_mark_and_wait(redis_client):
     url = "https://acme.example/careers"
     assert rate_limit_wait(url, cooldown_seconds=60) == 0.0
     rate_limit_mark(url, cooldown_seconds=60)
     assert rate_limit_wait(url, cooldown_seconds=60) > 0.0
+
+
+async def test_rate_limit_zero_disables_the_cooldown(redis_client):
+    """``rate_limit_seconds=0`` is allowed by the API and means "no wait"."""
+    url = "https://no-cooldown.example/careers"
+    rate_limit_mark(url, cooldown_seconds=60)
+    assert rate_limit_wait(url, cooldown_seconds=0) > 0.0
+
+    # A zero cooldown clears the previous mark instead of failing on EX 0.
+    rate_limit_mark(url, cooldown_seconds=0)
+    assert rate_limit_wait(url, cooldown_seconds=0) == 0.0
 
 
 async def test_scrape_skips_when_robots_disallows(
@@ -293,6 +348,10 @@ async def test_scrape_skips_when_robots_disallows(
     assert len(runs) == 1
     assert runs[0].status == "skipped"
     assert "robots.txt" in runs[0].error
+
+    # A board the engine may not fetch is not healthy: surface the skip.
+    await db_session.refresh(source)
+    assert source.health == "degraded"
 
     jobs = (await db_session.execute(select(Job))).scalars().all()
     assert jobs == []
@@ -658,7 +717,7 @@ async def test_sweep_schedules_scraped_sources_and_reminds_manual_ones(
 
     first = await sweep_module._sweep()
 
-    assert first == {"due": 1, "scheduled": 1, "reminded": 1}
+    assert first == {"due": 1, "scheduled": 1, "skipped": 0, "reminded": 1}
     # Only the scrapeable source is enqueued: the manual one is hand-checked.
     assert scheduled == [str(scrapeable.id)]
 
@@ -727,6 +786,95 @@ async def test_sweep_respects_per_source_scrape_interval(
     assert str(weekly_recent.id) not in scheduled
 
 
+async def test_sweep_skips_a_source_with_a_live_run(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A source whose run is still in flight is not enqueued twice."""
+    from workers.tasks import sweep as sweep_module
+
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    db_session.add(
+        ScrapeRun(
+            source_id=source.id,
+            status="running",
+            started_at=datetime.now(UTC),
+        )
+    )
+    await db_session.commit()
+
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        scrape_module,
+        "scrape_source",
+        SimpleNamespace(delay=lambda source_id: scheduled.append(source_id)),
+    )
+
+    result = await sweep_module._sweep()
+
+    assert result == {"due": 1, "scheduled": 0, "skipped": 1, "reminded": 0}
+    assert scheduled == []
+
+
+async def test_sweep_reaps_a_stale_run_and_reschedules_the_source(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """An orphaned running row is failed so its source is not stuck forever."""
+    from workers.tasks import sweep as sweep_module
+
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    stale_run = ScrapeRun(
+        source_id=source.id,
+        status="running",
+        started_at=(
+            datetime.now(UTC)
+            - timedelta(minutes=settings.scrape_run_stale_minutes + 1)
+        ),
+    )
+    db_session.add(stale_run)
+    await db_session.commit()
+
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        scrape_module,
+        "scrape_source",
+        SimpleNamespace(delay=lambda source_id: scheduled.append(source_id)),
+    )
+
+    result = await sweep_module._sweep()
+
+    assert result == {"due": 1, "scheduled": 1, "skipped": 0, "reminded": 0}
+    assert scheduled == [str(source.id)]
+    await db_session.refresh(stale_run)
+    assert stale_run.status == "failed"
+    assert "stale run" in stale_run.error
+    assert stale_run.finished_at is not None
+
+
+async def test_sweep_respects_skip_backoff(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A permanently skipped source is retried daily, not on every sweep."""
+    from workers.tasks import sweep as sweep_module
+
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    skip_backoff_mark(str(source.id))
+
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        scrape_module,
+        "scrape_source",
+        SimpleNamespace(delay=lambda source_id: scheduled.append(source_id)),
+    )
+
+    result = await sweep_module._sweep()
+
+    assert result == {"due": 1, "scheduled": 0, "skipped": 1, "reminded": 0}
+    assert scheduled == []
+
+
 async def test_sweep_ignores_manual_sources_that_are_not_due_yet(
     test_engine, db_session, monkeypatch, redis_client
 ):
@@ -744,7 +892,7 @@ async def test_sweep_ignores_manual_sources_that_are_not_due_yet(
 
     result = await sweep_module._sweep()
 
-    assert result == {"due": 0, "scheduled": 0, "reminded": 0}
+    assert result == {"due": 0, "scheduled": 0, "skipped": 0, "reminded": 0}
     assert (await db_session.execute(select(Notification))).scalars().all() == []
     await db_session.refresh(manual)
     assert manual.config.get("reminded_at") is None
@@ -806,7 +954,7 @@ async def test_sweep_never_reminds_an_avoided_source(
 
     avoided_sweep = await sweep_module._sweep()
 
-    assert avoided_sweep == {"due": 0, "scheduled": 0, "reminded": 0}
+    assert avoided_sweep == {"due": 0, "scheduled": 0, "skipped": 0, "reminded": 0}
     assert (await db_session.execute(select(Notification))).scalars().all() == []
     await db_session.refresh(manual)
     # No reminder was recorded either, so nothing is deduplicated away.

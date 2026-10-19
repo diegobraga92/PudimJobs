@@ -165,17 +165,206 @@ Verify: health `healthy`, DLQ stops growing, new jobs appear, quality recovers.
 ### RabbitMQ queue backlog
 
 *Symptoms:* `matching.job.new`/`celery` queues grow (RabbitMQ UI `:9672`);
-notifications lag.
+notifications lag; the worker is "Up" but a scrape never starts.
 
-1. Inspect depth (`curl -u pudimjobs:pudimjobs_dev .../api/queues/%2F`).
+1. Inspect depth and consumers:
+   `docker compose exec rabbitmq rabbitmqctl list_queues name messages consumers`.
+   A `celery` queue with `messages > 0` and `consumers = 0` means the worker
+   lost its broker consumer; restarting it while stale tasks still occupy its
+   slots does not help.
 2. Check the consumer: `docker compose ps event-consumer` + logs.
 3. **Consumer down** → `docker compose up -d event-consumer` (durable queues
    buffer events; no loss).
 4. **Saturated workers** → `docker compose up -d --scale worker=4`.
-5. **Poison messages** → purge the `celery` queue only after confirming no
+5. **Worker lost its consumer** (logs mention a delivery acknowledgement
+   timeout) → `docker compose kill worker` (do not wait for a warm shutdown on
+   a long run), purge the stale `celery` queue, then start the worker again.
+   The sweep rebuilds the due list; purge only after confirming the queued work
+   is stale. Scrapes now fail at `SCRAPE_TASK_SOFT_TIME_LIMIT_SECONDS` (20 min)
+   / hard limit 25 min, below RabbitMQ's `consumer_timeout` (2h in
+   `infra/rabbitmq/rabbitmq.conf`), so the broker only kills the consumer if the
+   worker itself is wedged.
+6. **Poison messages** → purge the `celery` queue only after confirming no
    legitimate work is queued.
 
+The sweep also fails `running` rows older than `SCRAPE_RUN_STALE_MINUTES` (30),
+skips sources with a live run, and backs off permanently skipped sources for
+`SCRAPE_SKIP_BACKOFF_MINUTES` (24h). If the Sources page still shows "Due now"
+after a restart, check `scrape_runs` for orphaned rows and the worker logs.
+
 Verify: depths return to ~0, notifications arrive, Grafana shows no backlog.
+
+#### Celery consumer stall — copy-paste triage
+
+Run these on the Docker host (`ssh 192.168.3.99`, then `cd ~/PudimJobs`).
+Define the helpers once in the shell. The `WORKER_METRICS_PORT=0` /
+`OTLP_ENDPOINT=` overrides are required for any extra process that imports
+`workers.celery_app`; otherwise it tries to bind the worker's metrics port 9100
+and exits with `Address already in use`.
+
+```bash
+cd ~/PudimJobs
+celeryw() { docker compose exec -T -e WORKER_METRICS_PORT=0 -e OTLP_ENDPOINT= worker celery -A workers.celery_app "$@"; }
+pyw()     { docker compose exec -T -e WORKER_METRICS_PORT=0 -e OTLP_ENDPOINT= worker python "$@"; }
+psqlw()   { docker compose exec -T postgres psql -U pudimjobs -d pudimjobs "$@"; }
+redisw()  { docker compose exec -T redis redis-cli "$@"; }
+rabbitw() { docker compose exec -T rabbitmq rabbitmqctl "$@"; }
+```
+
+If you put these in a non-interactive script or heredoc, append `</dev/null` to
+each `docker compose exec` call; otherwise `-T` can consume the rest of the
+script as stdin.
+
+**1. Triage (read-only).**
+
+```bash
+docker compose ps worker beat event-consumer backend
+docker inspect -f 'worker status={{.State.Status}} exit={{.State.ExitCode}} restarts={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' pudimjobs-worker-1
+rabbitw list_queues name messages messages_ready messages_unacknowledged consumers
+celeryw inspect ping --timeout 10
+celeryw inspect active --timeout 10
+celeryw inspect reserved --timeout 10
+psqlw -c "SELECT s.name, r.id, r.started_at, now()-r.started_at AS age
+          FROM scrape_runs r JOIN sources s ON s.id=r.source_id
+          WHERE r.status='running' ORDER BY r.started_at;"
+```
+
+The stall signature is the **`celery`** queue with `messages > 0` and
+`consumers = 0`. `messages_unacknowledged` counts active/reserved work; up to
+`worker_concurrency` (4) is normal. `matching.job.new` belongs to the event
+consumer, not the worker. `restart: unless-stopped` restarts an exited worker,
+but **does not** restart a container that is merely unhealthy; the queue's
+consumer count is the definitive check. `inspect ping` can still answer through
+the separate pidbox consumer, so do not rely on it alone.
+
+**2. Confirm the timeout and the worker's limits.**
+
+```bash
+rabbitw eval 'application:get_env(rabbit, consumer_timeout).'   # expect {ok,7200000}
+docker compose exec -T rabbitmq cat /etc/rabbitmq/rabbitmq.conf
+pyw -c "from workers.tasks.scrape import scrape_source as t; print('soft', t.soft_time_limit, 'hard', t.time_limit, 'expires', t.expires, 'no-retry', t.dont_autoretry_for)"
+docker compose logs --since 2h worker | grep -Ei \
+  'PRECONDITION_FAILED|delivery acknowledgement|consumer_timeout|timed out|StreamLostError|WorkerLostError|SoftTimeLimitExceeded|ready'
+docker compose logs --since 2h rabbitmq | grep -Ei 'consumer_timeout|timed out|closing AMQP connection'
+```
+
+`delivery acknowledgement ... timed out. Timeout value used: 1800000 ms` means
+a task outlived the broker's `consumer_timeout`. `SoftTimeLimitExceeded` means
+the worker's own 20-minute guard fired first (expected for a slow source). If
+`consumer_timeout` is missing or still 1800000, the config mount is wrong;
+recreating the broker re-reads it (the `rabbitmq_data` volume is preserved):
+
+```bash
+docker compose up -d --force-recreate rabbitmq
+docker compose up -d worker beat event-consumer backend
+rabbitw eval 'application:get_env(rabbit, consumer_timeout).'
+```
+
+**3. Inspect queued task names before deleting anything.** The management API
+is on `http://127.0.0.1:9672` (default credentials `pudimjobs` /
+`pudimjobs_dev`; use the remote host/IP if not running locally).
+`ack_requeue_true` peeks without removing messages:
+
+```bash
+curl -fsS -u pudimjobs:pudimjobs_dev -H 'content-type: application/json' \
+  -X POST 'http://127.0.0.1:9672/api/queues/%2F/celery/get' \
+  -d '{"count":5,"ackmode":"ack_requeue_true","encoding":"auto","truncate":50000}' \
+  | python3 -c 'import json,sys
+for m in json.load(sys.stdin):
+    h = (m.get("properties") or {}).get("headers") or {}
+    print(h.get("task"), (m.get("payload") or "")[:160])'
+```
+
+If the queue contains only stale `workers.tasks.scrape.scrape_source` /
+`sweep_sources` messages, purging is safe because the sweep rebuilds the due
+list. If it also contains `jd_parse`, `match_job`, `quality` or `tailor` tasks,
+do not purge blindly — start the worker and let those drain first.
+
+**4. Recover a lost consumer.** Stop the worker with `stop` (not `kill`) so
+`unless-stopped` does not immediately restart it; update **all** `running` rows
+only after the worker is down, and clear the per-source locks while nothing can
+be running:
+
+```bash
+docker compose stop beat
+docker compose stop -t 5 worker
+docker compose ps worker                         # must show Exited before continuing
+rabbitw purge_queue celery                       # only after step 3
+psqlw -c "UPDATE scrape_runs SET status='failed', finished_at=now(),
+          error='orphaned: worker stopped for consumer recovery'
+          WHERE status='running';"
+docker compose exec -T redis sh -c \
+  'redis-cli --scan --pattern "scrape:lock:*" | while read k; do redis-cli DEL "$k"; done'
+docker compose up -d worker
+for _ in $(seq 1 30); do
+  [ "$(docker inspect -f '{{.State.Health.Status}}' pudimjobs-worker-1)" = healthy ] && break
+  sleep 2
+done
+docker inspect -f '{{.State.Health.Status}}' pudimjobs-worker-1
+rabbitw list_queues name messages messages_ready messages_unacknowledged consumers
+celeryw inspect ping --timeout 10
+docker compose up -d beat
+pyw -c "from workers.tasks.sweep import sweep_sources; print(sweep_sources.delay().id)"
+docker compose logs --tail=100 worker | grep -E 'sweep_complete|scrape_'
+```
+
+The sweep itself reaps rows older than `SCRAPE_RUN_STALE_MINUTES` (30). If you
+did not stop the worker, use the 30-minute guard instead of updating all
+`running` rows. Beat's first automatic sweep can be up to one interval (15 min)
+after a restart, hence the manual `.delay()` above. If beat starts but never
+logs `Sending due task sweep-sources`, reset its ephemeral schedule:
+
+```bash
+docker compose up -d --force-recreate beat
+```
+
+**5. Unstick one source** (open breaker / 24h skip backoff / stale lock).
+These keys live in Redis **DB 0** (the app's `REDIS_URL`), not the Celery result
+backend DB 1:
+
+```bash
+SRC=<source-uuid>
+psqlw -c "SELECT id, name, health, last_scraped, rate_limit_seconds FROM sources ORDER BY name;"
+psqlw -c "SELECT status, started_at, finished_at, left(error,160)
+          FROM scrape_runs WHERE source_id='$SRC' ORDER BY started_at DESC LIMIT 5;"
+redisw GET "cb:$SRC";            redisw TTL "cb:$SRC"
+redisw GET "skip:$SRC";          redisw TTL "skip:$SRC"
+redisw GET "scrape:lock:$SRC";   redisw TTL "scrape:lock:$SRC"
+```
+
+`TTL` `-2` means the key is absent. The breaker opens after 5 failures and
+expires after 1h; the skip backoff lasts 24h. Clear them only after fixing the
+cause. Clear the lock only when no run for that source is active:
+
+```bash
+redisw DEL "cb:$SRC" "skip:$SRC"
+redisw DEL "scrape:lock:$SRC"    # only with no running row / active task
+pyw -c "from workers.tasks.scrape import scrape_source; print(scrape_source.delay('$SRC').id)"
+```
+
+Or use Admin → “Scrape now”. A failed scrape can also be replayed with
+`POST /api/admin/dlq/<run_id>/replay`. Lower a slow source's pacing (takes
+effect on the next run, no restart):
+
+```bash
+psqlw -c "UPDATE sources SET rate_limit_seconds=12 WHERE id='$SRC';"
+```
+
+**6. Find sources that can exceed the 10-minute budget.**
+
+```bash
+psqlw -c "SELECT name, rate_limit_seconds,
+                 COALESCE((config->>'max_results')::int, 20) AS max_results,
+                 rate_limit_seconds * COALESCE((config->>'max_results')::int, 20) AS worst_case_seconds
+          FROM sources WHERE type <> 'manual'
+          ORDER BY worst_case_seconds DESC LIMIT 15;"
+```
+
+Keep `worst_case_seconds` ≤600. That leaves 10 minutes before the 20-minute
+soft limit and 15 before the 25-minute hard limit. Lower `rate_limit_seconds`
+or `max_results` for the top offenders; `rate_limit_seconds=0` means no
+cooldown (and is valid). `max_results` defaults to 20 here, but some adapters
+default higher, so treat the query as a lower bound.
 
 ### Data quality degradation
 

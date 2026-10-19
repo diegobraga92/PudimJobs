@@ -8,29 +8,35 @@ from datetime import UTC, datetime
 
 import httpx
 import structlog
-from api.events.producer import publish_job_new
-from api.events.schemas import JobNewEvent
-from celery import Task
-from scrapers.registry import get_scraper
-from scrapers.utils import is_allowed_by_robots, redact_sensitive
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-
+from app.config import settings
 from app.database import async_session_factory
 from app.models import Job, ScrapeRun, Source
 from app.models.enums import SourceHealth, SourceType
 from app.models.source_auth import SourceAuth
 from app.services.source_auth import build_fetch_auth
 from app.services.source_watchlist import is_avoided
+from celery import Task
+from celery.exceptions import SoftTimeLimitExceeded
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from api.events.producer import publish_job_new
+from api.events.schemas import JobNewEvent
+from scrapers.registry import get_scraper
+from scrapers.utils import is_allowed_by_robots, redact_sensitive
 from workers.celery_app import celery_app
 from workers.metrics import SCRAPE_DURATION, SCRAPES_TOTAL
 from workers.resilience import (
     CircuitBreakerOpenError,
+    acquire_scrape_lock,
     circuit_breaker_is_open,
     circuit_breaker_record_failure,
     circuit_breaker_reset,
     rate_limit_mark,
     rate_limit_wait,
+    release_scrape_lock,
+    skip_backoff_clear,
+    skip_backoff_mark,
 )
 
 logger = structlog.get_logger(__name__)
@@ -85,8 +91,20 @@ def _robots_target(scraper, fetch_url: str) -> str:
 
 async def _skip_run(source_id: str, run: ScrapeRun, reason: str) -> dict:
     """Record the run as *skipped* (never trips the circuit breaker)."""
+    # Retry a permanently skipped source once a day rather than every sweep.
+    skip_backoff_mark(source_id)
     async with async_session_factory() as session:
         run_row = await session.get(ScrapeRun, run.id)
+        source_row = await session.get(Source, run.source_id)
+        # A source skipped by the engine cannot produce jobs until the cause
+        # (robots.txt, missing API key, ...) is fixed. Manual and avoided
+        # sources are skipped by design, so leave their health alone.
+        if (
+            source_row is not None
+            and source_row.type != SourceType.manual
+            and not is_avoided(source_row)
+        ):
+            source_row.health = SourceHealth.degraded
         await _finalize_run(
             session, run_row, status="skipped", new_jobs=0, error=reason
         )
@@ -233,6 +251,10 @@ async def _run_scrape(source_id: str) -> dict:
         if not _robots_allowed(source, _robots_target(scraper, current_url)):
             return await _skip_run(source_id, run, "robots.txt disallows this source")
 
+        # The source is reachable again: drop any skip backoff so the next
+        # sweep does not wait for its TTL to expire.
+        skip_backoff_clear(source_id)
+
         wait = rate_limit_wait(current_url, source.rate_limit_seconds)
         if wait > 0:
             await asyncio.sleep(wait)
@@ -353,14 +375,40 @@ async def _run_scrape(source_id: str) -> dict:
     bind=True,
     name="workers.tasks.scrape.scrape_source",
     autoretry_for=(Exception,),
-    exclude_autoretry_for=(CircuitBreakerOpenError, ValueError, EmptyScrapeError),
+    # Celery's option is `dont_autoretry_for`; `exclude_autoretry_for` was
+    # silently ignored, which retried deterministic parse failures and
+    # circuit-breaker skips three times each.
+    dont_autoretry_for=(
+        CircuitBreakerOpenError,
+        ValueError,
+        EmptyScrapeError,
+        SoftTimeLimitExceeded,
+    ),
     max_retries=3,
     default_retry_delay=60,
     retry_backoff=True,
     retry_backoff_max=600,
+    # Fail inside the worker before RabbitMQ's consumer_timeout kills the
+    # consumer, and let stale queued work expire instead of scraping it twice.
+    soft_time_limit=settings.scrape_task_soft_time_limit_seconds,
+    time_limit=settings.scrape_task_time_limit_seconds,
+    expires=settings.scrape_task_expires_seconds,
 )
 def scrape_source(self: Task, source_id: str) -> dict:
     """Celery entry point; wraps the async pipeline with ``asyncio.run``."""
+    # One run per source at a time: a second concurrent run would duplicate
+    # HTTP traffic, occupy another worker slot and can outlive the broker's
+    # acknowledgement timeout. The lock TTL releases it if the worker dies.
+    lock_token = acquire_scrape_lock(source_id)
+    if lock_token is None:
+        SCRAPES_TOTAL.labels(source_id=source_id, status="skipped").inc()
+        logger.info("scrape_skip_already_running", source_id=source_id)
+        return {
+            "source_id": source_id,
+            "skipped": True,
+            "reason": "scrape already running",
+        }
+
     started = time.monotonic()
     try:
         result = asyncio.run(_run_scrape(source_id))
@@ -373,5 +421,6 @@ def scrape_source(self: Task, source_id: str) -> dict:
         SCRAPES_TOTAL.labels(source_id=source_id, status="failed").inc()
         raise
     finally:
+        release_scrape_lock(source_id, lock_token)
         SCRAPE_DURATION.labels(source_id=source_id).observe(time.monotonic() - started)
 

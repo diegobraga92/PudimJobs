@@ -21,6 +21,12 @@ services:
     # console is exposed on a configurable host port.
     ports:
       - "${PJ_RABBITMQ_MGMT_PORT:-9672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      # Raise consumer_timeout above the worker's hard task limit. Celery uses
+      # task_acks_late=True, so RabbitMQ otherwise kills the worker's consumer
+      # when a single scrape runs longer than the 30-minute default.
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     environment:
       RABBITMQ_DEFAULT_USER: pudimjobs
       RABBITMQ_DEFAULT_PASS: pudimjobs_dev
@@ -118,6 +124,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+    # `inspect ping` fails when the worker has no live broker consumer (the
+    # failure mode behind a stalled queue). Disable the side-effectful metrics
+    # server and exporter for this short-lived CLI process.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - WORKER_METRICS_PORT=0 OTLP_ENDPOINT= celery -A workers.celery_app inspect ping --timeout 10 >/dev/null 2>&1
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
 
   beat:
     build:
@@ -137,6 +155,7 @@ services:
       PYTHONPATH: /app/backend:/app/workers:/app
       LOG_LEVEL: DEBUG
     command: celery -A workers.celery_app beat --loglevel=info
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -220,3 +239,4 @@ services:
 
 volumes:
   postgres_data:
+  rabbitmq_data:
