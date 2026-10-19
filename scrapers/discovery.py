@@ -1570,11 +1570,11 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
         ),
         "example": {
             "engine": "google_jobs",
-            "query": "python",
-            "location": "Brazil",
-            "gl": "br",
+            "query": "python remote",
+            "gl": "us",
             "hl": "en",
             "parse_mode": "results",
+            "remote_only": True,
         },
     },
     "brightdata": {

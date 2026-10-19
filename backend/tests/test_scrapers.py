@@ -1632,6 +1632,10 @@ def test_serpapi_forwards_locale_params():
     # The source form reads these from the published provider contract.
     metadata = SerpApiProvider.config_metadata()
     assert {"gl", "hl", "remote_only", "via_filter"} <= set(metadata["optional"])
+    # The example is what the form pre-fills: do not steer users into the
+    # Brazil-localised index that returns `Fully empty` for global remote jobs.
+    assert metadata["example"]["gl"] == "us"
+    assert "location" not in metadata["example"]
 
 
 def test_serpapi_robots_url_exempts_the_vendor_api_only():
