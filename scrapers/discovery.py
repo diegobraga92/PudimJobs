@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import logging
 import re
+import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import replace
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
@@ -12,6 +14,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
+from scrapers.ats_boards import AtsBoard, resolve_ats_board
 from scrapers.base import AbstractScraper
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
 from scrapers.utils import (
@@ -33,6 +36,34 @@ from scrapers.utils import (
 #: string, in a header, or as a path segment (Jooble).
 _JSON_AUTH_LOCATIONS = frozenset({"url", "path", "query", "header"})
 _JSON_METHODS = frozenset({"GET", "POST"})
+
+logger = logging.getLogger(__name__)
+
+
+def _term_pattern(term: str) -> re.Pattern[str]:
+    """Compile a case-insensitive, word-aware term matcher.
+
+    ``\\b`` is not enough for terms such as ``c++`` (the trailing character is
+    not a word character, so the boundary can never match) and it happily
+    matches ``rust`` inside ``trust`` when the leading boundary is omitted.
+    Explicit alphanumeric lookarounds cover both cases.
+    """
+    if not term.strip():
+        return re.compile(r"(?!x)x")
+    escaped = re.escape(term)
+    prefix = r"(?<![A-Za-z0-9_])" if term[:1].isalnum() or term[:1] == "_" else ""
+    suffix = r"(?![A-Za-z0-9_])" if term[-1:].isalnum() or term[-1:] == "_" else ""
+    return re.compile(prefix + escaped + suffix, re.IGNORECASE)
+
+
+def _fold_text(value: str) -> str:
+    """Case- and accent-insensitive text used for location matching."""
+    decomposed = unicodedata.normalize("NFKD", value)
+    return "".join(char for char in decomposed if not unicodedata.combining(char)).casefold()
+
+
+def _matches_any(patterns: list[re.Pattern[str]], text: str) -> bool:
+    return any(pattern.search(text) for pattern in patterns)
 
 
 #: Remote markers found in a Google Jobs result's title/location/extensions.
@@ -72,9 +103,13 @@ def _tags(*values: object) -> list[str]:
 
 
 def _label(container: object) -> str | None:
-    """The ``label`` of an ATS facet payload (e.g. ``{"label": "Full-time"}``)."""
+    """The display name of an ATS facet payload.
+
+    SmartRecruiters facets carry ``{"label": "Full-time"}`` while Greenhouse
+    departments use ``{"id": 1, "name": "Engineering"}``; both shapes occur.
+    """
     if isinstance(container, dict):
-        return as_optional_str(container.get("label"))
+        return as_optional_str(container.get("label") or container.get("name"))
     return None
 
 
@@ -210,6 +245,27 @@ class AshbyProvider(ATSProvider):
         jobs: list[RawJob] = []
         for item in data.get("jobs", []):
             description = item.get("descriptionHtml")
+            address = item.get("address") if isinstance(item.get("address"), dict) else {}
+            postal = (
+                address.get("postalAddress")
+                if isinstance(address.get("postalAddress"), dict)
+                else {}
+            )
+            secondary = [
+                as_optional_str(entry.get("location"))
+                if isinstance(entry, dict)
+                else as_optional_str(entry)
+                for entry in item.get("secondaryLocations") or []
+            ]
+            tags = _tags(
+                item.get("location"),
+                *secondary,
+                postal.get("addressCountry"),
+                item.get("department"),
+                item.get("team"),
+                item.get("employmentType"),
+                item.get("workplaceType"),
+            )
             jobs.append(
                 RawJob(
                     title=item.get("title") or "",
@@ -217,7 +273,8 @@ class AshbyProvider(ATSProvider):
                     url=item.get("jobUrl") or item.get("url"),
                     posted_date=_date_prefix(item.get("publishedAt")),
                     description=_strip_html(description) or None,
-                    tags=_tags(item.get("department"), item.get("employmentType")),
+                    tags=list(dict.fromkeys(tags)),
+                    external_id=str(item["id"]) if item.get("id") else None,
                 )
             )
         return [j for j in jobs if j.title and j.url]
@@ -227,11 +284,25 @@ class GreenhouseProvider(ATSProvider):
     provider_name = "greenhouse"
     endpoint_tpl = "https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs"
 
+    def results_url(self) -> str:
+        """The board API, honouring the EU host used by European boards."""
+        try:
+            token = self.config["board_token"]
+        except KeyError as exc:
+            raise ValueError(
+                "greenhouse requires a 'board_token' entry in source config"
+            ) from exc
+        host = self.config.get("api_host") or "boards-api.greenhouse.io"
+        return f"https://{host}/v1/boards/{token}/jobs"
+
     def _jobs_from_payload(self, data):
         jobs: list[RawJob] = []
         for item in data.get("jobs", []):
             location = _location_name(item.get("location"))
             description = _strip_html(item.get("content"))
+            departments = [
+                _label(entry) for entry in item.get("departments") or [] if _label(entry)
+            ]
             jobs.append(
                 RawJob(
                     title=item.get("title") or "",
@@ -241,7 +312,8 @@ class GreenhouseProvider(ATSProvider):
                     url=item.get("absolute_url"),
                     posted_date=_date_prefix(item.get("updated_at")),
                     description=description[:2000] if description else None,
-                    tags=_tags(location) if location else [],
+                    tags=_tags(location, *departments),
+                    external_id=str(item["id"]) if item.get("id") else None,
                 )
             )
         return [j for j in jobs if j.title and j.url]
@@ -250,6 +322,24 @@ class GreenhouseProvider(ATSProvider):
 class LeverProvider(ATSProvider):
     provider_name = "lever"
     endpoint_tpl = "https://api.lever.co/v0/postings/{company}?mode=json"
+
+    def results_url(self) -> str:
+        """The board API, optionally paged and pointed at Lever's EU host.
+
+        A large Lever board can easily exceed the 2 MB response cap when it
+        returns every description; ``limit=100`` keeps the listing inside it.
+        """
+        try:
+            company = self.config["company"]
+        except KeyError as exc:
+            raise ValueError("lever requires a 'company' entry in source config") from exc
+        host = self.config.get("api_host") or "api.lever.co"
+        url = f"https://{host}/v0/postings/{company}?mode=json"
+        try:
+            limit = int(self.config.get("limit") or 0)
+        except (TypeError, ValueError):
+            limit = 0
+        return f"{url}&limit={limit}" if limit > 0 else url
 
     def _jobs_from_payload(self, data):
         jobs: list[RawJob] = []
@@ -268,8 +358,11 @@ class LeverProvider(ATSProvider):
                     tags=_tags(
                         cats.get("commitment"),
                         cats.get("location"),
+                        *as_tag_list(cats.get("allLocations")),
+                        cats.get("team"),
                         item.get("workplaceType"),
                     ),
+                    external_id=str(item["id"]) if item.get("id") else None,
                 )
             )
         return [j for j in jobs if j.title and j.url]
@@ -938,6 +1031,30 @@ class SearchApiProvider(TwoStageProvider):
     #: a short leash unless the source asks for more via ``max_results``.
     default_max_results = 5
 
+    def __init__(self, config: dict | None = None, api_key: str | None = None):
+        super().__init__(config, api_key)
+        self._offset = 0
+        self._query_index = 0
+
+    def _queries(self) -> list[str]:
+        """The configured query list, falling back to the single ``query`` key."""
+        raw = self.config.get("queries")
+        if isinstance(raw, (list, tuple)):
+            queries = [str(query).strip() for query in raw if str(query).strip()]
+            if queries:
+                return queries
+        query = str(self.config.get("query") or "").strip()
+        return [query] if query else []
+
+    def current_query(self) -> str:
+        queries = self._queries()
+        if not queries:
+            return ""
+        return queries[min(self._query_index, len(queries) - 1)]
+
+    def _has_more_queries(self) -> bool:
+        return self._query_index + 1 < len(self._queries())
+
     @classmethod
     def validate_config(cls, config: dict, *, has_api_key: bool | None = None) -> None:
         """Require a key when the caller knows none is stored.
@@ -946,11 +1063,31 @@ class SearchApiProvider(TwoStageProvider):
         its key is added, so creation must keep working.
         """
         super().validate_config(config, has_api_key=has_api_key)
+        queries = config.get("queries")
+        if queries is not None:
+            if not isinstance(queries, (list, tuple)):
+                raise ValueError("config['queries'] must be a list of query strings")
+            if any(not isinstance(query, str) or not query.strip() for query in queries):
+                raise ValueError("config['queries'] must contain only non-empty strings")
         if has_api_key is False:
             raise ValueError(
                 f"{cls.provider_name} needs an API key — add one in the source's "
                 "Authentication panel"
             )
+
+    def next_page_url(self, page: ScrapedPage) -> str | None:
+        """Continue the current query, then move on to the next one."""
+        next_offset = self._next_offset(page)
+        if next_offset:
+            self._offset = int(next_offset)
+            return self.build_results_url(int(next_offset))
+        if not self._has_more_queries():
+            return None
+        self._query_index += 1
+        self._offset = 0
+        if hasattr(self, "_page"):
+            self._page = 1
+        return self.build_results_url()
 
     def parse_listing(self) -> bool:
         """``parse_listing: true`` (or ``parse_mode: results``) parses the page."""
@@ -985,7 +1122,7 @@ class GoogleCseProvider(SearchApiProvider):
         params = {
             "key": self.api_key or "",
             "cx": self.config.get("cx", ""),
-            "q": self.config.get("query", ""),
+            "q": self.current_query(),
         }
         if offset:
             params["start"] = offset
@@ -1013,7 +1150,7 @@ class BingProvider(SearchApiProvider):
 
     def build_results_url(self, offset: int | None = None) -> str:
         params = {
-            "q": self.config.get("query", ""),
+            "q": self.current_query(),
             "count": int(self.config.get("count") or 10),
         }
         if offset:
@@ -1044,11 +1181,17 @@ class BraveProvider(SearchApiProvider):
 
     def build_results_url(self, offset: int | None = None) -> str:
         params = {
-            "q": self.config.get("query", ""),
+            "q": self.current_query(),
             "count": int(self.config.get("count") or 10),
         }
+        # Brave's `offset` is a *page* number (0-9), not a result index.  Its
+        # `next_offset` field also reports the following page, so passing that
+        # value straight through used to jump two pages or overshoot the cap.
         if offset:
             params["offset"] = offset
+        for key in ("country", "search_lang", "freshness", "safesearch"):
+            if self.config.get(key):
+                params[key] = self.config[key]
         return "https://api.search.brave.com/res/v1/web/search?" + urlencode(params)
 
     def result_links(self, page: ScrapedPage) -> list[str]:
@@ -1061,7 +1204,11 @@ class BraveProvider(SearchApiProvider):
 
     def _next_offset(self, page: ScrapedPage) -> int | None:
         data = json.loads(page.html_content)
-        return data.get("web", {}).get("next_offset")
+        query = data.get("query") if isinstance(data.get("query"), dict) else {}
+        if not query.get("more_results_available"):
+            return None
+        next_page = int(getattr(self, "_offset", 0) or 0) + 1
+        return next_page if next_page <= 9 else None
 
 
 class SerpApiProvider(SearchApiProvider):
@@ -1420,6 +1567,18 @@ class BrightDataProvider(SearchApiProvider):
         return "a[href*='/jobs/view']"
 
 
+#: Knobs shared by every search provider that can sweep ATS boards.
+_SWEEP_OPTIONS = (
+    "sweep_ats",
+    "keywords",
+    "exclude_keywords",
+    "locations",
+    "max_boards",
+    "max_jobs",
+    "allow_empty",
+)
+
+
 _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
     "ashby": {
         "required": ("org",),
@@ -1428,12 +1587,12 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
     },
     "greenhouse": {
         "required": ("board_token",),
-        "optional": ("company", "max_results"),
+        "optional": ("company", "api_host", "max_results"),
         "example": {"board_token": "acme", "company": "Acme"},
     },
     "lever": {
         "required": ("company",),
-        "optional": ("max_results",),
+        "optional": ("api_host", "limit", "max_results"),
         "example": {"company": "acme"},
     },
     "workable": {
@@ -1535,18 +1694,52 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
         "example": {"query": "python developer in Brazil", "date_posted": "week"},
     },
     "google_cse": {
-        "required": ("query", "cx"),
-        "optional": ("count", "max_results", "detail_strategy", "selectors"),
+        "required": ("cx",),
+        "required_any": (("query", "queries"),),
+        "optional": (
+            "query",
+            "queries",
+            "count",
+            "max_pages",
+            "max_results",
+            "detail_strategy",
+            "selectors",
+            *_SWEEP_OPTIONS,
+        ),
         "example": {"query": "site:jobs.example python", "cx": "0123456789:abc"},
     },
     "bing": {
-        "required": ("query",),
-        "optional": ("count", "max_results", "detail_strategy", "selectors"),
+        "required": (),
+        "required_any": (("query", "queries"),),
+        "optional": (
+            "query",
+            "queries",
+            "count",
+            "max_pages",
+            "max_results",
+            "detail_strategy",
+            "selectors",
+            *_SWEEP_OPTIONS,
+        ),
         "example": {"query": "site:jobs.example python", "count": 20},
     },
     "brave": {
-        "required": ("query",),
-        "optional": ("count", "max_results", "detail_strategy", "selectors"),
+        "required": (),
+        "required_any": (("query", "queries"),),
+        "optional": (
+            "query",
+            "queries",
+            "count",
+            "max_pages",
+            "max_results",
+            "country",
+            "search_lang",
+            "freshness",
+            "safesearch",
+            "detail_strategy",
+            "selectors",
+            *_SWEEP_OPTIONS,
+        ),
         "example": {"query": "site:jobs.example python", "count": 20},
     },
     "serpapi": {
@@ -1658,7 +1851,19 @@ def get_discovery_provider(
 
 
 class DiscoveryScraper(AbstractScraper):
-    """Adapter exposing a ``DiscoveryProvider`` through the scraper contract."""
+    """Adapter exposing a ``DiscoveryProvider`` through the scraper contract.
+
+    A search provider normally yields *job* links that are fetched one by one.
+    With ``sweep_ats`` enabled it instead turns the search results into public
+    ATS board APIs (Ashby, Lever, Greenhouse, SmartRecruiters) and reads those
+    directly.  The worker's existing two-stage loop already fetches each
+    discovered URL and calls :meth:`parse`, so no pipeline change is needed.
+
+    The sweep filters locally because a board returns every job, not just the
+    ones a search query would have found: ``keywords``/``exclude_keywords``
+    match title, tags and description, and ``locations`` matches the title,
+    location tags and description (case/accent-insensitive).
+    """
 
     def __init__(
         self,
@@ -1667,6 +1872,40 @@ class DiscoveryScraper(AbstractScraper):
         api_key: str | None = None,
     ):
         self.provider = get_discovery_provider(provider_name, config, api_key)
+        self._sweep = as_flag(self.provider.config.get("sweep_ats")) and isinstance(
+            self.provider, TwoStageProvider
+        )
+        # Registered board API URL -> provider; the trailing slash is stripped
+        # so a redirect (`/jobs` -> `/jobs/`) still finds its parser.
+        self._board_providers: dict[str, DiscoveryProvider] = {}
+        self._board_keys: set[tuple[str, str]] = set()
+        self._jobs_emitted = 0
+        self._keyword_patterns = [
+            _term_pattern(term)
+            for term in as_tag_list(self.provider.config.get("keywords"))
+            if term.strip()
+        ]
+        self._exclude_patterns = [
+            _term_pattern(term)
+            for term in as_tag_list(self.provider.config.get("exclude_keywords"))
+            if term.strip()
+        ]
+        self._locations = [
+            _fold_text(term)
+            for term in as_tag_list(self.provider.config.get("locations"))
+            if term.strip()
+        ]
+
+    @property
+    def sweep_enabled(self) -> bool:
+        return self._sweep
+
+    @property
+    def allow_empty(self) -> bool:
+        """A sweep can legitimately find no matching jobs on a given day."""
+        if "allow_empty" in self.provider.config:
+            return as_flag(self.provider.config["allow_empty"])
+        return self._sweep
 
     def first_fetch_url(self, source_url: str) -> str:
         return self.provider.results_url()
@@ -1678,15 +1917,52 @@ class DiscoveryScraper(AbstractScraper):
 
     @property
     def default_max_results(self) -> int:
-        """The provider's own cap for paid detail fetches (see the scrape task)."""
+        """The cap for detail fetches: boards in a sweep, paid calls otherwise."""
+        if self._sweep:
+            return self._max_boards()
         return int(getattr(self.provider, "default_max_results", 20))
+
+    def _config_int(self, key: str, default: int) -> int:
+        try:
+            return int(self.provider.config.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    def _max_boards(self) -> int:
+        return max(1, self._config_int("max_boards", 40))
+
+    def _max_jobs(self) -> int:
+        return max(0, self._config_int("max_jobs", 0))
+
+    def _register_board(self, board: AtsBoard) -> str:
+        provider = get_discovery_provider(board.ats, dict(board.config))
+        url = provider.results_url()
+        self._board_providers[url.rstrip("/")] = provider
+        return url
+
+    def _board_for(self, url: str) -> DiscoveryProvider | None:
+        return self._board_providers.get(url.rstrip("/"))
 
     async def fetch(
         self, url: str, *, auth: FetchAuth | None = None
     ) -> ScrapedPage:
-        return await self.provider.fetch(url, auth=auth)
+        provider = self._board_for(url)
+        if provider is None:
+            return await self.provider.fetch(url, auth=auth)
+        # Board APIs are public and keyless: never forward the search provider's
+        # credential to a third-party ATS.  One broken board must not sink the
+        # sweep, so 404s, size caps and network errors become an empty page.
+        try:
+            return await provider.fetch(url)
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("ats_board_fetch_failed", extra={"url": url, "error": str(exc)})
+            return ScrapedPage(html_content="", status_code=0, final_url=url)
 
     def robots_url(self, url: str) -> str | None:
+        # A public JSON board API is not a page crawl; the search provider still
+        # decides whether its own results endpoint is governed by robots.txt.
+        if self._sweep and self._board_for(url) is not None:
+            return None
         return self.provider.robots_url(url)
 
     def check_credentials(self, has_api_key: bool) -> None:
@@ -1698,13 +1974,91 @@ class DiscoveryScraper(AbstractScraper):
         has_api_key = has_api_key or bool(self.provider.api_key)
         type(self.provider).validate_config(self.provider.config, has_api_key=has_api_key)
 
+    def _filter_jobs(self, jobs: list[RawJob]) -> list[RawJob]:
+        """Apply the local keyword/location filters and the ``max_jobs`` cap."""
+        if not (self._keyword_patterns or self._exclude_patterns or self._locations):
+            kept = list(jobs)
+        else:
+            kept = []
+            for job in jobs:
+                tags = " ".join(job.tags or [])
+                haystack = " ".join(
+                    part for part in (job.title, tags, job.description or "") if part
+                )
+                if self._exclude_patterns and _matches_any(self._exclude_patterns, haystack):
+                    continue
+                if self._keyword_patterns and not _matches_any(
+                    self._keyword_patterns, haystack
+                ):
+                    continue
+                if self._locations:
+                    folded = _fold_text(haystack)
+                    if not any(location in folded for location in self._locations):
+                        continue
+                kept.append(job)
+
+        max_jobs = self._max_jobs()
+        if max_jobs > 0:
+            remaining = max_jobs - self._jobs_emitted
+            kept = kept[: max(0, remaining)]
+        self._jobs_emitted += len(kept)
+        return kept
+
     def parse(self, page: ScrapedPage) -> list[RawJob]:
-        return self.provider.parse(page)
+        provider = self._board_for(page.final_url)
+        if provider is None:
+            return self.provider.parse(page)
+        if not page.html_content:
+            return []
+        try:
+            jobs = provider.parse(page)
+        except (ValueError, TypeError, AttributeError, KeyError) as exc:
+            logger.warning(
+                "ats_board_parse_failed",
+                extra={"url": page.final_url, "error": str(exc)},
+            )
+            return []
+        if not self._sweep:
+            return jobs
+        return self._filter_jobs(jobs)
 
     async def discover_urls(self, page: ScrapedPage) -> list[str]:
-        return self.provider.discover_urls(page)
+        if not self._sweep or not isinstance(self.provider, TwoStageProvider):
+            return self.provider.discover_urls(page)
+        # The worker asks every fetched page for detail URLs, including the
+        # board pages themselves.  Those payloads are a board JSON object or a
+        # bare array, not search results, and must not be fed back to
+        # `result_links` (a list has no `.get`).
+        if self._board_for(page.final_url) is not None:
+            return []
+
+        # `result_links` is used directly because a source may also set
+        # `parse_listing`; that flag only affects the non-sweep path.
+        urls: list[str] = []
+        for link in self.provider.result_links(page):
+            if len(self._board_keys) >= self._max_boards():
+                break
+            board = resolve_ats_board(link)
+            if board is None or board.key in self._board_keys:
+                continue
+            try:
+                url = self._register_board(board)
+            except ValueError as exc:
+                logger.warning(
+                    "ats_board_config_failed",
+                    extra={"url": link, "error": str(exc)},
+                )
+                continue
+            self._board_keys.add(board.key)
+            urls.append(url)
+        return urls
 
     def next_page_url(self, page: ScrapedPage) -> str | None:
+        # Search APIs are billed per request.  Once the board budget is spent no
+        # later results page can add a board, so stop instead of paying for
+        # pages whose links would only be discarded.
+        if self._sweep and len(self._board_keys) >= self._max_boards():
+            return None
         return self.provider.next_page_url(page)
 
     def normalize(self, raw_jobs: list[RawJob]) -> list[dict]:

@@ -263,7 +263,9 @@ async def test_providers_endpoint_lists_discovery_providers(auth_client):
     search = next(provider for provider in body if provider["name"] == "google_cse")
     assert search["family"] == "search_api"
     assert search["requires_key"] is True
-    assert search["required_config"] == ["query", "cx"]
+    assert search["required_config"] == ["cx"]
+    assert search["required_any"] == [["query", "queries"]]
+    assert "sweep_ats" in search["optional_config"]
 
     json_list = next(provider for provider in body if provider["name"] == "json_list")
     assert json_list["required_any"] == [["url", "url_tpl"]]

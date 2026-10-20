@@ -287,7 +287,10 @@ fetch → parse → normalize → dedup insert → publish `job.new` → update 
 health. Discovery sources (`scrapers/discovery.py`) cover ATS JSON boards
 (Ashby, Greenhouse, Lever, Workable, SmartRecruiters, Recruitee, Personio,
 Workday), generic JSON APIs and search providers (Google CSE, Bing, Brave,
-SerpApi, Bright Data — the paid route to LinkedIn/Indeed). Reprocessing is
+SerpApi, Bright Data — the paid route to LinkedIn/Indeed). Search providers can
+run an ATS **sweep** (`config.sweep_ats`): results that point at an Ashby,
+Lever, Greenhouse or SmartRecruiters board are re-read through the board's live
+public API instead of the stale search snippet. Reprocessing is
 backed by the durable `scrape_runs` failed-run log with admin DLQ list + replay.
 Versioned `job.new` events live in `api/events/` (JSON on a topic exchange).
 

@@ -12,6 +12,7 @@ from scrapers.aggregator import (
     GenericHtmlListScraper,
     get_aggregator_adapter,
 )
+from scrapers.ats_boards import resolve_ats_board
 from scrapers.career_page import CareerPageScraper
 from scrapers.discovery import (
     AdzunaProvider,
@@ -23,6 +24,7 @@ from scrapers.discovery import (
     JoobleProvider,
     JSearchProvider,
     JsonListProvider,
+    LeverProvider,
     PersonioProvider,
     RecruiteeProvider,
     SerpApiProvider,
@@ -904,6 +906,7 @@ GREENHOUSE_PAYLOAD = {
             "absolute_url": "https://boards.greenhouse.io/acme/jobs/1",
             "updated_at": "2026-08-01T10:00:00Z",
             "content": "<p>Build APIs with Python.</p>",
+            "departments": [{"id": 7, "name": "Engineering"}],
         }
     ]
 }
@@ -934,11 +937,61 @@ def test_greenhouse_provider_parses_jobs():
     assert jobs[0].url == "https://boards.greenhouse.io/acme/jobs/1"
     assert jobs[0].company == "Acme"
     assert "Build APIs" in jobs[0].description
+    # Greenhouse departments are ``{id, name}``, unlike SmartRecruiters' labels.
+    assert jobs[0].tags == ["Remote, Brazil", "Engineering"]
 
 
 def test_ats_provider_missing_config_raises():
     with pytest.raises(ValueError):
         GreenhouseProvider({}).results_url()
+
+
+def test_ats_board_resolver_recognises_public_job_urls():
+    """A search result is enough to identify a board; site chrome is not."""
+    assert resolve_ats_board("https://jobs.ashbyhq.com/acme/123").config == {
+        "org": "acme",
+        "company": "acme",
+    }
+    assert resolve_ats_board("https://jobs.lever.co/Acme/abc").config == {
+        "company": "Acme",
+        "limit": 100,
+    }
+    assert resolve_ats_board("https://jobs.eu.lever.co/acme/abc").config["api_host"] == (
+        "api.eu.lever.co"
+    )
+    assert resolve_ats_board("https://boards.greenhouse.io/acme/jobs/1").config == {
+        "board_token": "acme",
+        "company": "acme",
+    }
+    assert resolve_ats_board("https://job-boards.eu.greenhouse.io/acme/jobs/1").config[
+        "api_host"
+    ] == "boards-api.eu.greenhouse.io"
+    assert resolve_ats_board("https://jobs.smartrecruiters.com/Acme/123").config == {
+        "company": "Acme"
+    }
+
+    # Board-host roots, ATS chrome paths and unrelated sites are not boards.
+    assert resolve_ats_board("https://jobs.ashbyhq.com/") is None
+    assert resolve_ats_board("https://boards.greenhouse.io/jobs/1") is None
+    assert resolve_ats_board("https://example.com/acme/jobs/1") is None
+    assert resolve_ats_board("ftp://jobs.lever.co/acme/1") is None
+
+
+def test_eu_board_hosts_and_lever_limit_are_honoured():
+    assert (
+        GreenhouseProvider(
+            {"board_token": "acme", "api_host": "boards-api.eu.greenhouse.io"}
+        ).results_url()
+        == "https://boards-api.eu.greenhouse.io/v1/boards/acme/jobs"
+    )
+    assert (
+        LeverProvider({"company": "acme"}).results_url()
+        == "https://api.lever.co/v0/postings/acme?mode=json"
+    )
+    assert (
+        LeverProvider({"company": "acme", "limit": 100}).results_url()
+        == "https://api.lever.co/v0/postings/acme?mode=json&limit=100"
+    )
 
 
 JSON_LIST_PAYLOAD = {
@@ -1580,6 +1633,49 @@ def test_google_cse_provider_extracts_links_and_next_offset():
     ]
     next_url = provider.next_page_url(page)
     assert next_url and "start=11" in next_url
+
+
+def test_brave_pagination_advances_one_page_at_a_time():
+    """Brave's offset is a page number and next_offset would skip a page."""
+    provider = BraveProvider({"query": "rust"})
+    page = _json_page(
+        {"web": {"results": []}, "query": {"more_results_available": True}}
+    )
+    for expected_page in range(1, 10):
+        next_url = provider.next_page_url(page)
+        assert next_url and f"offset={expected_page}" in next_url
+    # Brave caps paging at offset 9; the tenth page is already the last one.
+    assert provider.next_page_url(page) is None
+
+    finished = _json_page(
+        {"web": {"results": []}, "query": {"more_results_available": False}}
+    )
+    assert BraveProvider({"query": "rust"}).next_page_url(finished) is None
+
+
+def test_search_providers_use_every_configured_query():
+    brave = BraveProvider({"queries": ["rust", "python"], "count": 5})
+    assert "q=rust" in brave.results_url()
+    brave_page = _json_page(
+        {"web": {"results": []}, "query": {"more_results_available": False}}
+    )
+    next_url = brave.next_page_url(brave_page)
+    assert next_url and "q=python" in next_url and "offset" not in next_url
+    assert brave.next_page_url(brave_page) is None
+
+    google = GoogleCseProvider({"queries": ["rust", "python"], "cx": "c"}, "K")
+    assert "q=rust" in google.results_url()
+    empty_page = _json_page({"items": []})
+    next_url = google.next_page_url(empty_page)
+    assert next_url and "q=python" in next_url and "start" not in next_url
+    assert google.next_page_url(empty_page) is None
+
+
+def test_search_providers_reject_a_malformed_queries_list():
+    with pytest.raises(ValueError, match="queries"):
+        BraveProvider.validate_config({"queries": "rust"}, has_api_key=True)
+    with pytest.raises(ValueError, match="queries"):
+        BraveProvider.validate_config({"queries": ["rust", ""]}, has_api_key=True)
 
 
 def test_twostage_parse_prefers_json_ld_then_selectors():
@@ -2234,6 +2330,195 @@ def test_discovery_registry_and_scraper_dispatch():
 
     with pytest.raises(ValueError):
         get_scraper(SimpleNamespace(type=SourceType.discovery, config={}))
+
+
+def _search_results_page(links: list[str]) -> ScrapedPage:
+    return _json_page({"web": {"results": [{"url": link} for link in links]}})
+
+
+async def test_ats_sweep_turns_search_results_into_board_apis():
+    """One search result becomes one live board sweep, deduplicated per org."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {"query": "site:jobs.ashbyhq.com rust", "sweep_ats": True},
+    )
+    page = _search_results_page(
+        [
+            "https://jobs.ashbyhq.com/acme/123",
+            "https://jobs.ashbyhq.com/acme/456",  # same org -> one board
+            "https://jobs.lever.co/acme/abc",
+            "https://boards.greenhouse.io/acme/jobs/1",
+            "https://jobs.smartrecruiters.com/Acme/123",
+            "https://example.com/acme/jobs/1",  # not an ATS board
+        ]
+    )
+
+    assert await scraper.discover_urls(page) == [
+        "https://api.ashbyhq.com/posting-api/job-board/acme",
+        "https://api.lever.co/v0/postings/acme?mode=json&limit=100",
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs",
+        "https://api.smartrecruiters.com/v1/companies/Acme/postings?limit=100",
+    ]
+    assert scraper.sweep_enabled is True
+    assert scraper.allow_empty is True
+    assert scraper.default_max_results == 40
+    # Re-reading the same results page (e.g. a paginated query) changes nothing.
+    assert await scraper.discover_urls(page) == []
+
+
+async def test_ats_sweep_does_not_reparse_board_payloads_as_search_results():
+    """The worker asks every fetched page for URLs; a Lever board is a list."""
+    scraper = DiscoveryScraper("brave", {"query": "rust", "sweep_ats": True})
+    search_page = _search_results_page(["https://jobs.lever.co/acme/1"])
+    board_url = (await scraper.discover_urls(search_page))[0]
+    board_page = ScrapedPage(
+        html_content=json.dumps(
+            [{"id": "1", "text": "Rust Engineer", "hostedUrl": "https://jobs.lever.co/acme/1"}]
+        ),
+        status_code=200,
+        final_url=board_url,
+    )
+
+    assert await scraper.discover_urls(board_page) == []
+    assert [job.title for job in scraper.parse(board_page)] == ["Rust Engineer"]
+
+
+async def test_ats_sweep_respects_max_boards():
+    scraper = DiscoveryScraper(
+        "brave",
+        {"query": "rust", "sweep_ats": True, "max_boards": 2},
+    )
+    page = _search_results_page(
+        [
+            "https://jobs.ashbyhq.com/acme/1",
+            "https://jobs.lever.co/acme/1",
+            "https://boards.greenhouse.io/acme/jobs/1",
+        ]
+    )
+
+    urls = await scraper.discover_urls(page)
+
+    assert len(urls) == 2
+    assert scraper.default_max_results == 2
+
+
+async def test_ats_sweep_stops_paging_when_board_budget_is_spent():
+    """No later search page can add a board once ``max_boards`` is reached."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {"query": "rust", "sweep_ats": True, "max_boards": 1},
+    )
+    page = _json_page(
+        {
+            "web": {"results": [{"url": "https://jobs.ashbyhq.com/acme/1"}]},
+            "query": {"more_results_available": True},
+        }
+    )
+
+    assert await scraper.discover_urls(page)
+    assert scraper.next_page_url(page) is None
+
+
+def test_ats_sweep_filters_board_jobs_and_caps_max_jobs():
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "rust",
+            "sweep_ats": True,
+            "keywords": ["rust"],
+            "exclude_keywords": ["intern"],
+            "locations": ["brazil"],
+            "max_jobs": 1,
+        },
+    )
+    board_url = "https://api.ashbyhq.com/posting-api/job-board/acme"
+    board = resolve_ats_board("https://jobs.ashbyhq.com/acme/1")
+    assert board is not None
+    assert scraper._register_board(board) == board_url
+    payload = {
+        "jobs": [
+            {
+                "id": "1",
+                "title": "Senior Rust Engineer",
+                "location": "Remote - Brazil",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/1",
+                "descriptionHtml": "<p>Rust services</p>",
+                "department": "Engineering",
+                "employmentType": "FullTime",
+            },
+            {
+                "id": "2",
+                "title": "Rust Intern",
+                "location": "Brazil",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/2",
+                "descriptionHtml": "<p>Rust</p>",
+            },
+            {
+                "id": "3",
+                "title": "Python Engineer",
+                "location": "Brazil",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/3",
+                "descriptionHtml": "<p>Python</p>",
+            },
+            {
+                "id": "4",
+                "title": "Rust Engineer",
+                "location": "Portugal",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/4",
+                "descriptionHtml": "<p>Rust</p>",
+            },
+            {
+                "id": "5",
+                "title": "Rust Engineer",
+                "location": "Brazil",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/5",
+                "descriptionHtml": "<p>Rust</p>",
+            },
+        ]
+    }
+    page = ScrapedPage(
+        html_content=json.dumps(payload),
+        status_code=200,
+        final_url=board_url,
+    )
+
+    jobs = scraper.parse(page)
+
+    assert [job.external_id for job in jobs] == ["1"]
+    assert jobs[0].title == "Senior Rust Engineer"
+    assert "Remote - Brazil" in jobs[0].tags
+    assert "Engineering" in jobs[0].tags
+    # max_jobs is per source run, not per board page.
+    assert scraper.parse(page) == []
+
+
+async def test_ats_sweep_never_forwards_the_search_key_and_isolates_failures(
+    monkeypatch,
+):
+    scraper = DiscoveryScraper("brave", {"query": "rust", "sweep_ats": True})
+    page = _search_results_page(["https://jobs.lever.co/acme/1"])
+    board_url = (await scraper.discover_urls(page))[0]
+    board_provider = scraper._board_providers[board_url.rstrip("/")]
+
+    captured: dict = {}
+
+    async def failing_fetch(url: str, **kwargs) -> ScrapedPage:
+        captured.update(kwargs)
+        raise httpx.ConnectError("board is down")
+
+    monkeypatch.setattr(board_provider, "fetch", failing_fetch)
+
+    result = await scraper.fetch(
+        board_url, auth=FetchAuth(api_key="search-provider-secret")
+    )
+
+    # No credential is sent to a third-party board, and a dead board is an
+    # empty page instead of an exception that aborts the whole sweep.
+    assert captured == {}
+    assert result.html_content == ""
+    assert result.status_code == 0
+    assert scraper.parse(result) == []
+    assert scraper.robots_url(board_url) is None
 
 
 # --- fetch_html transport ----------------------------------------------------

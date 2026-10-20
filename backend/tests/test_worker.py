@@ -70,6 +70,52 @@ class FakeScraper:
         return None
 
 
+class FakeSweepScraper:
+    """Minimal ATS sweep: each discovered board is parsed on its own."""
+
+    sweep_enabled = True
+    default_max_results = 2
+
+    def __init__(self, board_urls: list[str]):
+        self.board_urls = board_urls
+        self.fetched: list[str] = []
+
+    def first_fetch_url(self, url: str) -> str:
+        return "https://search.example/results"
+
+    async def fetch(self, url: str, **kwargs) -> ScrapedPage:
+        self.fetched.append(url)
+        return ScrapedPage(html_content="<html></html>", status_code=200, final_url=url)
+
+    async def discover_urls(self, page: ScrapedPage) -> list[str]:
+        if page.final_url.startswith("https://search.example"):
+            return self.board_urls
+        return []
+
+    def parse(self, page: ScrapedPage) -> list[RawJob]:
+        return [
+            RawJob(
+                title=f"Job for {page.final_url}",
+                company="Acme",
+                url=page.final_url,
+            )
+        ]
+
+    def normalize(self, raw_jobs: list[RawJob]) -> list[dict]:
+        return [
+            {
+                "title": job.title,
+                "company": job.company,
+                "url": job.url,
+                "description": job.description,
+                "posted_date": None,
+                "tags": job.tags,
+                "external_id": job.external_id,
+            }
+            for job in raw_jobs
+        ]
+
+
 class FakeDiscoveryScraper(FakeScraper):
     """Two-stage scraper: a results page yields detail URLs to fetch."""
 
@@ -469,6 +515,37 @@ async def test_scrape_fetches_discovered_detail_pages(
 
     runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
     assert runs[0].status == "success"
+
+
+async def test_scrape_sweep_uses_its_board_cap_not_stale_max_results(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A leftover `max_results` from a search source must not truncate a sweep."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user, type="discovery")
+    source.config = {
+        "provider": "brave",
+        "sweep_ats": True,
+        "max_results": 1,  # the old paid-search default, not a board cap
+    }
+    await db_session.commit()
+
+    fake = FakeSweepScraper(
+        [
+            "https://api.ashbyhq.com/posting-api/job-board/a",
+            "https://api.lever.co/v0/postings/b?mode=json&limit=100",
+            "https://boards-api.greenhouse.io/v1/boards/c/jobs",
+        ]
+    )
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+
+    result = await _run_scrape(str(source.id))
+
+    # `default_max_results` (the sweep's max_boards) wins over config.max_results.
+    assert result["new"] == 2
+    assert len(fake.fetched) == 3  # results page + two boards
 
 
 async def test_scrape_passes_api_key_to_discovery_scraper(

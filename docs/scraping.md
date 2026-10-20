@@ -57,10 +57,15 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `next_page_selector` | `generic_html_list`: CSS selector for the next-page `<a>`. Preferred when present — a real link also disappears on the last page, so the walk ends by itself | — |
 | `next_page_tpl` | pages 2..`max_pages` are **built** from this template, rendered with any config key plus `{page}` (`…/search?term={term}&page={page}`; relative templates resolve against the page they were read from). A JSON blob (`embedded_json_list`) has no `<a>` to follow, so here it is the only way to page; `generic_html_list` falls back to it when no `next_page_selector` is set (dev.pro's pager renders the *current* page as a `<span>` and the lowest number first, so "the next link" cannot be expressed as a selector) | — |
 | `url_tpl` | `generic_html_list` / `json_list`: page 1 is built from this template instead of the stored URL (`{page}` = 1 here, plus every other config key), so a term or locale can live in the config. In `embedded_json_list` the same key means the *job* URL (`{url}` from `url_path`) | — |
-| `max_results` | detail pages fetched / jobs returned | `20` (keyed search APIs lower it to `5`) |
-| `allow_empty` | do not fail when the parse yields 0 jobs | `false` |
+| `max_results` | detail pages fetched / jobs returned (ignored for a sweep — `max_boards` owns that cap) | `20` (keyed search APIs lower it to `5`) |
+| `allow_empty` | do not fail when the parse yields 0 jobs | `false` (`true` for `sweep_ats`) |
 | `exclude_pattern` | case-insensitive regex tested against a card/job's text (aggregator adapters). Use it for stale labels such as `\bexpirad[ao]s?\b`; matching rows are dropped before storage | — |
 | `parse_listing` | parse the *results page itself* instead of fetching each job (search providers: one paid call per run) | `false` |
+| `query` / `queries` | search providers: one query, or a non-empty list consumed in order (each with its own pagination) | `query` |
+| `sweep_ats` | search providers (`google_cse`, `bing`, `brave`): treat results as ATS board URLs and read the public board APIs instead of fetching each hit | `false` |
+| `keywords` / `exclude_keywords` | sweep-only whole-term filters over title, tags and description (`c++` works); excludes win | — |
+| `locations` | sweep-only case/accent-insensitive substring match over title, tags and description | — |
+| `max_boards` / `max_jobs` | sweep-only caps: boards per run; kept jobs per run (`0` = no cap) | `40` / `0` |
 
 **URL arguments and search terms.** A stored `url` is fetched **verbatim** by
 `career_page`, `aggregator` and `rss` (`first_fetch_url` defaults to identity),
@@ -483,6 +488,41 @@ Two-stage providers parse detail pages with JSON-LD first; without it, set
 "company_selectors": "..."}}`. A `JobPosting` that omits `url`/`@id` falls back
 to the fetched page's URL (so it is not dropped during normalization), and a
 comma-separated `skills` string is split into individual tags.
+
+**ATS sweeps from search results.** A search engine is useful for *finding*
+companies that use an ATS, but its index is a poor place to read jobs: boards
+are client-rendered, locations are often missing and snippets go stale. With
+`"sweep_ats": true`, `google_cse`/`bing`/`brave` recognise public board URLs in
+their results (`jobs.ashbyhq.com/{org}`, `jobs.lever.co/{company}`,
+`boards.greenhouse.io/{token}`, `jobs.smartrecruiters.com/{company}`, plus the
+EU Lever/Greenhouse hosts) and register the matching board API instead of
+fetching every hit. One search result therefore becomes one live board read,
+deduplicated per org and capped by `max_boards` (default 40).
+
+```json
+{
+  "provider": "brave",
+  "query": "rust engineer",
+  "sweep_ats": true,
+  "keywords": ["rust", "tokio"],
+  "exclude_keywords": ["intern", "sales"],
+  "locations": ["brazil", "remote"],
+  "max_boards": 15,
+  "max_jobs": 50
+}
+```
+
+A board returns every open job, so the sweep filters locally: `keywords` and
+`exclude_keywords` are whole-term, case-insensitive matches over title, tags and
+description (`c++` is handled correctly), and `locations` is a
+case/accent-insensitive substring match over the same text. `max_jobs` caps the
+jobs kept per run (`0` means no cap). Once `max_boards` boards have been
+registered, search paging stops, so extra result pages are not billed. A sweep
+is `allow_empty` by default because zero matches is a valid result, and a board
+that 404s or exceeds the response cap is logged and skipped rather than failing
+the source. Board APIs are public: the search provider's API key is never
+forwarded to them, and they are exempt from the `robots.txt` check (the search
+endpoint is still checked).
 
 **Bright Data endpoints.** `endpoint` picks which Bright Data API to call, and
 it must match the zone the key belongs to: `unlocker` (default for

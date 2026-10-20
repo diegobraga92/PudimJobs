@@ -13,7 +13,12 @@ from api.events.schemas import JobNewEvent
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 from scrapers.registry import get_scraper
-from scrapers.utils import is_allowed_by_robots, parse_json_ld_jobs, redact_sensitive
+from scrapers.utils import (
+    as_flag,
+    is_allowed_by_robots,
+    parse_json_ld_jobs,
+    redact_sensitive,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -303,8 +308,14 @@ async def _run_scrape(source_id: str) -> dict:
         # discovery sources additionally fetch each discovered detail URL. Paid
         # per-job providers lower the fallback cap (see `default_max_results`).
         max_pages = _config_int(source, "max_pages", 1)
-        max_results = _config_int(
-            source, "max_results", int(getattr(scraper, "default_max_results", 20))
+        default_max_results = int(getattr(scraper, "default_max_results", 20))
+        # In a sweep the detail fetch *is* a board, so `max_boards` owns the
+        # cap; letting a leftover `max_results` (often 5 for paid search APIs)
+        # truncate the sweep would silently drop boards below its budget.
+        max_results = (
+            default_max_results
+            if bool(getattr(scraper, "sweep_enabled", False))
+            else _config_int(source, "max_results", default_max_results)
         )
         # POST-based providers (Jooble) page through the request *body*, so the
         # URL legitimately repeats; `max_pages` is what stops that loop.
@@ -358,7 +369,14 @@ async def _run_scrape(source_id: str) -> dict:
         # or broken selectors usually manifests as an empty parse, and treating
         # it as "0 new jobs, success" hides the breakage (see docs/operations.md).
         # Sources that are legitimately empty can opt out via config.
-        allow_empty = bool((source.config or {}).get("allow_empty", False))
+        # ATS sweeps can legitimately return zero matches after local filtering;
+        # scrapers expose that default through `allow_empty` (config still wins).
+        configured_allow_empty = (source.config or {}).get("allow_empty")
+        allow_empty = (
+            as_flag(configured_allow_empty)
+            if configured_allow_empty is not None
+            else bool(getattr(scraper, "allow_empty", False))
+        )
         if not normalized and not allow_empty:
             raise EmptyScrapeError(
                 "parse produced 0 jobs; possible site format change "
