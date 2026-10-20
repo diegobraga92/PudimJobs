@@ -13,6 +13,16 @@
   </div>
 }
 
+@if (!loading && unhealthyCount > 0) {
+  <div class="alert alert-warning attention-banner" role="status">
+    <app-icon class="alert-icon" name="triangle-alert" [size]="18" />
+    <span>{{ i18n.t('sources.health.needsAttention', { count: unhealthyCount }) }}</span>
+    <button type="button" class="btn btn-ghost btn-sm" (click)="setSourceFilter('unhealthy')">
+      {{ i18n.t('sources.health.review') }}
+    </button>
+  </div>
+}
+
 @if (showForm) {
   <app-modal
     [title]="editingId ? i18n.t('sources.editSource') : i18n.t('sources.addSource')"
@@ -445,6 +455,171 @@
   </app-modal>
 }
 
+@if (healthSource) {
+  <app-modal
+    [title]="i18n.t('sources.health.title', { name: healthSource.name })"
+    size="lg"
+    (closed)="closeHealth()"
+  >
+    <div class="health-panel">
+      <div class="health-summary">
+        <span
+          class="badge"
+          [class.badge-success]="healthSource.health === 'healthy'"
+          [class.badge-warning]="healthSource.health === 'degraded'"
+          [class.badge-danger]="healthSource.health === 'failing'"
+        >
+          <app-icon [name]="healthIcon(healthSource)" [size]="12" />
+          {{ healthLabel(healthSource.health) }}
+        </span>
+        <span class="muted xs health-url">{{ healthSource.url }}</span>
+        @if (healthSource.avoided) {
+          <span class="badge badge-warning">{{ i18n.t('sources.avoidedBadge') }}</span>
+        }
+      </div>
+
+      @if (healthLoading) {
+        <div class="loading-text pulse" role="status" aria-live="polite">
+          <app-icon name="loader" [size]="16" />
+          {{ i18n.t('sources.health.loading') }}
+        </div>
+      } @else if (healthError) {
+        <div class="alert alert-error" role="alert">{{ healthError }}</div>
+      } @else {
+        @if (healthReasonText) {
+          <section class="health-section">
+            <h4>{{ i18n.t('sources.health.reason') }}</h4>
+            <div class="health-reason-box">
+              <code>{{ healthReasonText }}</code>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                (click)="copyHealthError(healthReasonText)"
+              >
+                <app-icon name="copy" [size]="13" />
+                {{ i18n.t('sources.health.copy') }}
+              </button>
+            </div>
+          </section>
+        } @else {
+          <p class="muted small">{{ i18n.t('sources.health.noReason') }}</p>
+        }
+
+        <div class="health-facts">
+          <div class="health-fact">
+            <span class="health-fact-label">{{ i18n.t('sources.health.lastRun') }}</span>
+            <span>
+              @if (healthDiagnostics?.last_run_at) {
+                {{ healthDiagnostics?.last_run_at | date: 'short' }}
+                · {{ runStatusLabel(healthDiagnostics?.last_run_status ?? '') }}
+                · {{ i18n.t('sources.health.newJobs', { count: healthDiagnostics?.last_run_new_jobs ?? 0 }) }}
+              } @else {
+                {{ i18n.t('sources.health.never') }}
+              }
+            </span>
+          </div>
+          <div class="health-fact">
+            <span class="health-fact-label">{{ i18n.t('sources.health.lastSuccess') }}</span>
+            <span>
+              {{
+                healthDiagnostics?.last_success_at
+                  ? (healthDiagnostics?.last_success_at | date: 'short')
+                  : i18n.t('sources.health.never')
+              }}
+            </span>
+          </div>
+          <div class="health-fact">
+            <span class="health-fact-label">{{ i18n.t('sources.health.jobsStored') }}</span>
+            <span>{{ healthDiagnostics?.jobs_total ?? 0 }}</span>
+          </div>
+        </div>
+
+        @if (healthDiagnostics && !healthDiagnostics.config_valid) {
+          <div class="alert alert-error" role="alert">
+            {{ i18n.t('sources.health.configInvalid', { error: healthDiagnostics.config_error }) }}
+          </div>
+        }
+
+        <section class="health-section">
+          <h4>{{ i18n.t('sources.health.history') }}</h4>
+          @if (healthRuns.length === 0) {
+            <p class="muted small">{{ i18n.t('sources.health.noRuns') }}</p>
+          } @else {
+            <div class="table-scroll">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>{{ i18n.t('sources.health.started') }}</th>
+                    <th>{{ i18n.t('sources.health.statusColumn') }}</th>
+                    <th>{{ i18n.t('common.jobs') }}</th>
+                    <th>{{ i18n.t('sources.health.error') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (run of healthRuns; track $index) {
+                    <tr>
+                      <td>{{ run.started_at | date: 'short' }}</td>
+                      <td>
+                        <span
+                          class="badge"
+                          [class.badge-success]="run.status === 'success'"
+                          [class.badge-warning]="run.status === 'skipped' || run.status === 'running'"
+                          [class.badge-danger]="run.status === 'failed'"
+                        >
+                          {{ runStatusLabel(run.status) }}
+                        </span>
+                      </td>
+                      <td>{{ run.new_jobs }}</td>
+                      <td class="error-cell">{{ run.error || '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </section>
+      }
+
+      <div class="form-actions health-actions">
+        <button
+          type="button"
+          class="btn btn-ghost"
+          [disabled]="!canScrapeNow(healthSource) || scrapingId === healthSource.id"
+          [attr.title]="
+            canScrapeNow(healthSource)
+              ? i18n.t('sources.health.recheckHint')
+              : i18n.t('sources.health.cannotScrape')
+          "
+          (click)="scrapeNow()"
+        >
+          <app-icon name="refresh" [size]="14" />
+          {{
+            scrapingId === healthSource.id
+              ? i18n.t('sources.health.queuing')
+              : i18n.t('sources.health.recheck')
+          }}
+        </button>
+        <a
+          class="btn btn-ghost"
+          [href]="healthSource.url"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <app-icon name="external-link" [size]="14" />
+          {{ i18n.t('sources.openBoard') }}
+        </a>
+        <button type="button" class="btn btn-ghost" (click)="editFromHealth()">
+          <app-icon name="pencil" [size]="14" />
+          {{ i18n.t('common.edit') }}
+        </button>
+        <button type="button" class="btn btn-primary" (click)="closeHealth()">
+          {{ i18n.t('sources.health.close') }}
+        </button>
+      </div>
+    </div>
+  </app-modal>
+}
+
 @if (loading) {
   <div class="table-scroll">
     <div class="panel" aria-hidden="true">
@@ -647,15 +822,39 @@
                 <span class="source-count" [attr.title]="i18n.t('sources.manualHasNoJobs')">—</span>
               }
             </td>
-            <td>
-              <span
-                class="badge"
-                [class.badge-success]="source.health === 'healthy'"
-                [class.badge-danger]="source.health !== 'healthy'"
+            <td class="health-cell">
+              <button
+                type="button"
+                class="health-badge-button"
+                [attr.aria-label]="i18n.t('sources.health.openAria', { name: source.name })"
+                [attr.title]="i18n.t('sources.health.openHint')"
+                (click)="openHealth(source)"
               >
-                <app-icon [name]="source.health === 'healthy' ? 'circle-check' : 'triangle-alert'" [size]="12" />
-                {{ source.health }}
-              </span>
+                <span
+                  class="badge"
+                  [class.badge-success]="source.health === 'healthy'"
+                  [class.badge-warning]="source.health === 'degraded'"
+                  [class.badge-danger]="source.health === 'failing'"
+                >
+                  <app-icon [name]="healthIcon(source)" [size]="12" />
+                  {{ healthLabel(source.health) }}
+                </span>
+              </button>
+              @if (isRunning(source)) {
+                <span class="muted xs health-note">
+                  <app-icon name="loader" [size]="11" />
+                  {{ i18n.t('sources.health.running') }}
+                </span>
+              } @else if (healthReason(source)) {
+                <button
+                  type="button"
+                  class="health-note health-reason muted xs"
+                  [attr.title]="source.last_run?.error"
+                  (click)="openHealth(source)"
+                >
+                  {{ healthReason(source) }}
+                </button>
+              }
             </td>
             <td>
               {{ source.last_scraped ? (source.last_scraped | date: 'short') : '—' }}

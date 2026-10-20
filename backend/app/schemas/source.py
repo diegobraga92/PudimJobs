@@ -44,12 +44,32 @@ class SourceAvoidRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=280)
 
 
+class SourceRunSummary(BaseModel):
+    """One scrape attempt, surfaced next to a source's health.
+
+    ``skipped`` runs are included on purpose: a skip is why most sources turn
+    ``degraded`` (robots.txt, missing API key), and hiding it left the UI with a
+    status badge and no explanation.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    status: str
+    error: str | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+    new_jobs: int = 0
+
+
 class SourceResponse(SourceBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     health: SourceHealth
     last_scraped: datetime | None
+    # Most recent scrape attempt (any status) — the "why" behind `health`.
+    last_run: SourceRunSummary | None = None
+
     # Derived schedule fields for automated sources: when the next scrape is
     # due (null until the first run) and whether the next sweep may enqueue one.
     next_scrape_at: datetime | None = None
@@ -83,6 +103,12 @@ class SourceDiagnosticsResponse(BaseModel):
     last_run_status: str | None = None
     last_run_new_jobs: int | None = None
     last_run_error: str | None = None
+    last_run_at: datetime | None = None
+    last_run_finished_at: datetime | None = None
+    last_success_at: datetime | None = None
+    # Plain-language explanation of a non-healthy status, derived from the most
+    # recent run (``skipped`` included). ``None`` while the source is healthy.
+    health_reason: str | None = None
     config_valid: bool = True
     config_error: str | None = None
 

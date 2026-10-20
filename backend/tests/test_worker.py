@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from scrapers.types import RawJob, ScrapedPage
+from scrapers.utils import RobotsDecision
 from sqlalchemy import select
 from workers.resilience import (
     CircuitBreakerOpenError,
@@ -170,6 +171,23 @@ async def _make_source(db_session, user, **overrides) -> Source:
     return source
 
 
+def _fake_robots(
+    monkeypatch, *, allowed: bool = True, consulted: list[str] | None = None
+) -> None:
+    """Stub the robots.txt decision so tests never touch the network."""
+
+    def decide(url: str) -> RobotsDecision:
+        if consulted is not None:
+            consulted.append(url)
+        return RobotsDecision(
+            allowed=allowed,
+            reason="allowed" if allowed else "disallowed",
+            robots_url="https://example.test/robots.txt",
+        )
+
+    monkeypatch.setattr(scrape_module, "robots_decision", decide)
+
+
 async def _install_fake_scraper(monkeypatch, jobs, *, fail=False):
     """Replace the scrape task's scraper lookup + event publisher.
 
@@ -178,7 +196,7 @@ async def _install_fake_scraper(monkeypatch, jobs, *, fail=False):
     fake = FakeScraper(jobs, fail=fail)
     monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    _fake_robots(monkeypatch)
     return fake
 
 
@@ -415,15 +433,13 @@ async def test_scrape_skips_when_robots_disallows(
     user = await create_user(db_session)
     source = await _make_source(db_session, user)
     await _install_fake_scraper(monkeypatch, SAMPLE_JOBS)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: False)
+    _fake_robots(monkeypatch, allowed=False)
 
     result = await _run_scrape(str(source.id))
 
-    assert result == {
-        "source_id": str(source.id),
-        "skipped": True,
-        "reason": "robots.txt disallows this source",
-    }
+    assert result["source_id"] == str(source.id)
+    assert result["skipped"] is True
+    assert result["reason"].startswith("robots.txt disallows this source")
 
     runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
     assert len(runs) == 1
@@ -434,8 +450,53 @@ async def test_scrape_skips_when_robots_disallows(
     await db_session.refresh(source)
     assert source.health == "degraded"
 
+    # An explicit Disallow keeps the long (24 h) backoff: it is a rule, not a
+    # transient failure, and retrying it soon would just hammer the board.
+    ttl = redis_client.ttl(f"skip:{source.id}")
+    assert ttl > settings.scrape_skip_retry_minutes * 60
+
     jobs = (await db_session.execute(select(Job))).scalars().all()
     assert jobs == []
+
+
+async def test_scrape_retries_soon_when_robots_is_unreachable(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A robots.txt *fetch failure* is transient: distinct reason, short backoff.
+
+    Regression test for Dev.pro (Oct 2026): a timeout used to be recorded as
+    "robots.txt disallows this source" and parked the source for 24 h.
+    """
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    await _install_fake_scraper(monkeypatch, SAMPLE_JOBS)
+
+    def unreachable(url: str) -> RobotsDecision:
+        return RobotsDecision(
+            allowed=False,
+            reason="unavailable",
+            robots_url="https://board.example/robots.txt",
+            status_code=503,
+            error="HTTP 503",
+        )
+
+    monkeypatch.setattr(scrape_module, "robots_decision", unreachable)
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["skipped"] is True
+    assert "unreachable" in result["reason"]
+    assert "disallows" not in result["reason"]
+
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert len(runs) == 1
+    assert runs[0].status == "skipped"
+    assert "unreachable" in runs[0].error
+
+    # Retried on the next sweep instead of tomorrow.
+    assert skip_backoff_active(str(source.id))
+    ttl = redis_client.ttl(f"skip:{source.id}")
+    assert 0 < ttl <= settings.scrape_skip_retry_minutes * 60
 
 
 async def test_scrape_ignores_robots_when_disabled(
@@ -449,9 +510,7 @@ async def test_scrape_ignores_robots_when_disabled(
     await _install_fake_scraper(monkeypatch, SAMPLE_JOBS)
 
     consulted: list[str] = []
-    monkeypatch.setattr(
-        scrape_module, "is_allowed_by_robots", lambda url: consulted.append(url) or True
-    )
+    _fake_robots(monkeypatch, consulted=consulted)
 
     result = await _run_scrape(str(source.id))
 
@@ -475,9 +534,7 @@ async def test_scrape_skips_robots_check_for_vendor_api_calls(
     monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
     consulted: list[str] = []
-    monkeypatch.setattr(
-        scrape_module, "is_allowed_by_robots", lambda url: consulted.append(url) or True
-    )
+    _fake_robots(monkeypatch, consulted=consulted)
 
     result = await _run_scrape(str(source.id))
 
@@ -500,7 +557,7 @@ async def test_scrape_fetches_discovered_detail_pages(
     )
     monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    _fake_robots(monkeypatch)
 
     result = await _run_scrape(str(source.id))
 
@@ -539,7 +596,7 @@ async def test_scrape_sweep_uses_its_board_cap_not_stale_max_results(
     )
     monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    _fake_robots(monkeypatch)
 
     result = await _run_scrape(str(source.id))
 
@@ -573,7 +630,7 @@ async def test_scrape_passes_api_key_to_discovery_scraper(
         lambda source, api_key=None: captured.update(api_key=api_key) or fake,
     )
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    _fake_robots(monkeypatch)
 
     await _run_scrape(str(source.id))
 
@@ -628,11 +685,7 @@ async def test_scrape_checks_credentials_through_the_real_registry(
     await db_session.commit()
 
     fetched: list[str] = []
-    monkeypatch.setattr(
-        scrape_module,
-        "is_allowed_by_robots",
-        lambda url: fetched.append(url) or True,
-    )
+    _fake_robots(monkeypatch, consulted=fetched)
 
     result = await _run_scrape(str(source.id))
 
@@ -661,7 +714,7 @@ async def test_scrape_skips_the_credential_check_when_a_key_is_stored(
     fake = KeyedScraper()
     monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    _fake_robots(monkeypatch)
 
     result = await _run_scrape(str(source.id))
 
@@ -713,7 +766,7 @@ async def _run_pagination(monkeypatch, db_session, fake, config):
     await db_session.commit()
     monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    _fake_robots(monkeypatch)
     await _run_scrape(str(source.id))
     return fake
 
@@ -777,7 +830,7 @@ async def test_scrape_caps_detail_fetches_by_the_providers_default(
     fake.default_max_results = cap
     monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
     monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    _fake_robots(monkeypatch)
 
     await _run_scrape(str(source.id))
 
@@ -814,7 +867,7 @@ async def test_scrape_skips_manual_sources_without_fetching(
         raise AssertionError("manual sources must not reach the scraper registry")
 
     monkeypatch.setattr(scrape_module, "get_scraper", _never_looked_up)
-    monkeypatch.setattr(scrape_module, "is_allowed_by_robots", lambda url: True)
+    _fake_robots(monkeypatch)
 
     result = await _run_scrape(str(source.id))
 

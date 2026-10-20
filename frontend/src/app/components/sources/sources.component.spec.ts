@@ -5,7 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { I18nService } from '../../services/i18n.service';
-import { DiscoveryProvider, ManualMetadata, Source } from '../../services/sources.service';
+import { DiscoveryProvider, ManualMetadata, Source, SourceDiagnostics, SourceRunSummary } from '../../services/sources.service';
 import { SourcesComponent } from './sources.component';
 
 /** Exactly what `GET /api/sources/manual-metadata` publishes. */
@@ -647,3 +647,131 @@ describe('SourcesComponent — manual watchlist', () => {
     expect(component.visibleSources.map((source) => source.id)).toEqual(['sort-b', 'sort-a']);
   });
 });
+describe('SourcesComponent — health panel', () => {
+  const SKIPPED_RUN: SourceRunSummary = {
+    status: 'skipped',
+    error:
+      'robots.txt unreachable at https://dev.pro/robots.txt (HTTP 503); will retry automatically',
+    started_at: '2026-10-20T12:00:00+00:00',
+    finished_at: '2026-10-20T12:00:01+00:00',
+    new_jobs: 0,
+  };
+
+  const DEGRADED_SOURCE: Source = {
+    id: 'src-devpro',
+    name: 'Dev.pro',
+    url: 'https://dev.pro/jobs',
+    type: 'career_page',
+    health: 'degraded',
+    last_scraped: null,
+    created_at: '2026-10-01T00:00:00+00:00',
+    rate_limit_seconds: 20,
+    respect_robots_txt: true,
+    last_run: SKIPPED_RUN,
+  };
+
+  const DIAGNOSTICS: SourceDiagnostics = {
+    source_id: 'src-devpro',
+    name: 'Dev.pro',
+    type: 'career_page',
+    health: 'degraded',
+    avoided: false,
+    jobs_total: 42,
+    unknown_company: 0,
+    short_description: 0,
+    missing_posted_date: 0,
+    last_run_status: 'skipped',
+    last_run_new_jobs: 0,
+    last_run_error: SKIPPED_RUN.error,
+    last_run_at: SKIPPED_RUN.started_at,
+    last_run_finished_at: SKIPPED_RUN.finished_at,
+    last_success_at: '2026-10-19T08:00:00+00:00',
+    health_reason: SKIPPED_RUN.error,
+    config_valid: true,
+    config_error: null,
+  };
+
+  let fixture: ComponentFixture<SourcesComponent>;
+  let component: SourcesComponent;
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [SourcesComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(SourcesComponent);
+    component = fixture.componentInstance;
+    http = TestBed.inject(HttpTestingController);
+    TestBed.inject(I18nService).setLanguage('en');
+    fixture.detectChanges();
+    http.expectOne('/api/sources').flush([DEGRADED_SOURCE]);
+    http.expectOne('/api/sources/providers').flush([]);
+    http.expectOne('/api/sources/adapters').flush([]);
+    http.expectOne('/api/sources/manual-metadata').flush(MANUAL_METADATA);
+  });
+
+  afterEach(() => http.verify());
+
+  it('warns for degraded, names the reason and points at the unhealthy filter', () => {
+    fixture.detectChanges();
+
+    const badge = fixture.debugElement.query(By.css('.health-cell .badge'));
+    expect(badge.nativeElement.textContent).toContain('Degraded');
+    expect(badge.nativeElement.classList).toContain('badge-warning');
+    expect(badge.nativeElement.classList).not.toContain('badge-danger');
+
+    const reason = fixture.debugElement.query(By.css('.health-reason'));
+    expect(reason.nativeElement.textContent).toContain('robots.txt unreachable');
+
+    expect(fixture.nativeElement.textContent).toContain('1 source(s) need attention');
+  });
+
+  it('keeps the danger style for failing sources', () => {
+    component.sources = [
+      { ...DEGRADED_SOURCE, health: 'failing', last_run: { ...SKIPPED_RUN, status: 'failed' } },
+    ];
+    fixture.detectChanges();
+
+    const badge = fixture.debugElement.query(By.css('.health-cell .badge'));
+    expect(badge.nativeElement.textContent).toContain('Failing');
+    expect(badge.nativeElement.classList).toContain('badge-danger');
+  });
+
+  it('loads diagnostics and the run history when the badge is opened', () => {
+    component.openHealth(DEGRADED_SOURCE);
+    expect(component.healthLoading).toBe(true);
+
+    http.expectOne('/api/sources/src-devpro/diagnostics').flush(DIAGNOSTICS);
+    http.expectOne('/api/sources/src-devpro/runs?limit=10').flush([SKIPPED_RUN]);
+    fixture.detectChanges();
+
+    expect(component.healthLoading).toBe(false);
+    expect(component.healthReasonText).toContain('unreachable');
+    expect(component.healthRuns.map((run) => run.status)).toEqual(['skipped']);
+    expect(fixture.nativeElement.textContent).toContain('Last successful run');
+  });
+
+  it('re-checks a source now through the owner-scoped endpoint', () => {
+    component.openHealth(DEGRADED_SOURCE);
+    http.expectOne('/api/sources/src-devpro/diagnostics').flush(DIAGNOSTICS);
+    http.expectOne('/api/sources/src-devpro/runs?limit=10').flush([SKIPPED_RUN]);
+
+    component.scrapeNow();
+    expect(component.scrapingId).toBe('src-devpro');
+
+    const request = http.expectOne('/api/sources/src-devpro/scrape');
+    expect(request.request.method).toBe('POST');
+    request.flush({ enqueued: true, source_id: 'src-devpro' });
+
+    expect(component.scrapingId).toBeNull();
+  });
+
+  it('does not offer a re-check for manual or avoided sources', () => {
+    expect(component.canScrapeNow(MANUAL_SOURCE)).toBe(false);
+    expect(component.canScrapeNow({ ...DEGRADED_SOURCE, avoided: true })).toBe(false);
+    expect(component.canScrapeNow(DEGRADED_SOURCE)).toBe(true);
+  });
+});
+

@@ -599,7 +599,12 @@ incomplete and drops valid Glassdoor jobs.
 
 `respect_robots_txt` is on by default and applies to every real page fetch (paid
 renderer calls and detail pages included); disallowed sources are recorded as
-`skipped` and never trip the circuit breaker. For renderer providers the check
+`skipped` and never trip the circuit breaker. A robots.txt fetch that fails
+(timeout, DNS/TLS, 5xx) is **not** treated as a `Disallow`: the attempt is
+denied conservatively, recorded as `robots.txt unreachable`, retried after a
+short backoff (15 min) and cached for only 60 s, so one network blip cannot
+freeze a healthy source. A 4xx response means "no restrictions published"
+(RFC 9309) and allows the fetch. For renderer providers the check
 follows `robots_url` back to the **board** that is being rendered (LinkedIn,
 Indeed), not to the vendor's API host — the vendor's endpoint is not the site we
 are scraping. A pure API provider (SerpApi) returns `None` from `robots_url` for
@@ -616,7 +621,8 @@ instead of one per job.
 | `parse produced 0 jobs` | selectors drifted / site became JS-rendered | re-inspect; fix selectors or drop the source |
 | SerpApi returns `Fully empty` / 0 raw results | query or country index too narrow (e.g. `gl=br` + `location=Brazil`) | remove `location`, use `gl: "us"`/`hl: "en"`, and preview again |
 | `authentication failed (HTTP 401/403)` | expired/incorrect API key | re-save the key on the source |
-| `skipped: robots.txt disallows` | disallowed path | do not bypass; use a provider instead |
+| `skipped: robots.txt disallows this source` | disallowed path (a rule) | do not bypass; use a provider instead |
+| `skipped: robots.txt unreachable at …` | timeout/DNS/TLS/5xx while fetching robots.txt (transient) | retried automatically after 15 min; use *Re-check now* in the health panel |
 | Repeated failures | circuit breaker open | fix the root cause, then let the breaker close |
 | Company stored as `Unknown` | listing has no company node | add `company_selector` or accept it |
 

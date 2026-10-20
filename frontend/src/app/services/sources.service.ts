@@ -2,6 +2,15 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
+export interface SourceRunSummary {
+  /** running / success / failed / skipped */
+  status: string;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  new_jobs: number;
+}
+
 export interface Source {
   id: string;
   name: string;
@@ -10,6 +19,12 @@ export interface Source {
   config?: Record<string, unknown> | null;
   health: string;
   last_scraped: string | null;
+  /**
+   * Most recent scrape attempt (any status, `skipped` included). This is the
+   * "why" behind `health`: a skipped run is how a source usually turns
+   * `degraded` (robots.txt, missing API key).
+   */
+  last_run?: SourceRunSummary | null;
   created_at: string;
   jobs_count?: number;
   /** Scraping ethics / politeness settings. */
@@ -145,6 +160,29 @@ export interface AuthTestResult {
   error?: string;
 }
 
+/** Read-only health/data-quality snapshot of one source (diagnostics endpoint). */
+export interface SourceDiagnostics {
+  source_id: string;
+  name: string;
+  type: string;
+  health: string;
+  avoided: boolean;
+  jobs_total: number;
+  unknown_company: number;
+  short_description: number;
+  missing_posted_date: number;
+  last_run_status: string | null;
+  last_run_new_jobs: number | null;
+  last_run_error: string | null;
+  last_run_at: string | null;
+  last_run_finished_at: string | null;
+  last_success_at: string | null;
+  /** Why the source is not healthy (from its last run). `null` while healthy. */
+  health_reason: string | null;
+  config_valid: boolean;
+  config_error: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SourcesService {
   constructor(private http: HttpClient) {}
@@ -168,6 +206,29 @@ export class SourcesService {
   /** Mark a manual (watchlist) source as checked by hand; schedules the next reminder. */
   checkSource(id: string): Observable<Source> {
     return this.http.post<Source>(`/api/sources/${id}/check`, {});
+  }
+
+  /**
+   * Ask the worker to scrape this source now. Clears a skip backoff, so a
+   * transient failure can be retried without waiting for the sweep.
+   */
+  scrapeNow(id: string): Observable<{ enqueued: boolean; source_id: string }> {
+    return this.http.post<{ enqueued: boolean; source_id: string }>(
+      `/api/sources/${id}/scrape`,
+      {}
+    );
+  }
+
+  /** Last ``limit`` scrape attempts, newest first (`skipped` included). */
+  runs(id: string, limit = 10): Observable<SourceRunSummary[]> {
+    return this.http.get<SourceRunSummary[]>(`/api/sources/${id}/runs`, {
+      params: { limit },
+    });
+  }
+
+  /** Health snapshot: last run/success, stored job gaps and config validity. */
+  diagnostics(id: string): Observable<SourceDiagnostics> {
+    return this.http.get<SourceDiagnostics>(`/api/sources/${id}/diagnostics`);
   }
 
   /**

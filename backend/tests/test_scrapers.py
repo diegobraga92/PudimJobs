@@ -774,8 +774,8 @@ def test_embedded_json_adapter_reports_a_bad_next_page_tpl():
 
 
 class _FakeRobotsResponse:
-    def __init__(self, text: str):
-        self.status_code = 200
+    def __init__(self, text: str, status_code: int = 200):
+        self.status_code = status_code
         self.text = text
 
 
@@ -795,6 +795,55 @@ def test_robots_respects_allow_and_disallow(monkeypatch):
     assert utils.is_allowed_by_robots("https://example.com/jobs/1") is True
     assert utils.is_allowed_by_robots("https://example.com/private/jobs/2") is False
     assert utils.is_allowed_by_robots("https://example.com/private/open/3") is True
+
+
+def test_robots_4xx_means_no_restrictions(monkeypatch):
+    """RFC 9309: an unavailable robots.txt (4xx) does not block fetching."""
+    monkeypatch.setattr(
+        utils.httpx, "get", lambda *a, **k: _FakeRobotsResponse("", status_code=404)
+    )
+    utils._robots_parser_cache.clear()
+
+    decision = utils.robots_decision("https://example.com/jobs/1")
+
+    assert decision.allowed is True
+    assert decision.reason == "allowed"
+    assert decision.status_code == 404
+
+
+def test_robots_fetch_failure_is_unavailable_not_a_disallow(monkeypatch):
+    """A timeout must not be reported as ``Disallow`` (the Dev.pro regression)."""
+    calls: list[int] = []
+
+    def boom(*args, **kwargs):
+        calls.append(1)
+        raise RuntimeError("dns down")
+
+    monkeypatch.setattr(utils.httpx, "get", boom)
+    utils._robots_parser_cache.clear()
+
+    decision = utils.robots_decision("https://dev.pro/jobs")
+
+    assert decision.allowed is False
+    assert decision.reason == "unavailable"
+    assert "dns down" in (decision.error or "")
+    # Retried once with a browser-like user agent before giving up.
+    assert len(calls) == 2
+
+
+def test_robots_failure_is_cached_briefly(monkeypatch):
+    """A failed fetch is cached for ~60 s, not the 1 h success TTL."""
+    monkeypatch.setattr(
+        utils.httpx, "get", lambda *a, **k: _FakeRobotsResponse("", status_code=503)
+    )
+    utils._robots_parser_cache.clear()
+
+    utils.robots_decision("https://example.com/jobs/1")
+    entry = utils._robots_parser_cache["example.com"]
+
+    assert entry.parser is None
+    assert entry.ttl == utils._ROBOTS_FAILURE_TTL_SECONDS
+    assert entry.ttl < utils._ROBOTS_CACHE_TTL_SECONDS
 
 
 def test_redact_sensitive_hides_query_keys():

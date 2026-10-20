@@ -1,8 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { forkJoin } from 'rxjs';
 
 import {
   AggregatorAdapter,
@@ -12,8 +13,10 @@ import {
   Source,
   SourceAuth,
   SourceAuthInput,
+  SourceDiagnostics,
   SourceInput,
   SourcePreview,
+  SourceRunSummary,
   SourcesService,
   isJobSource,
 } from '../../services/sources.service';
@@ -72,6 +75,18 @@ const SORTABLE_COLUMNS: ReadonlyArray<{ key: SourceSortKey; labelKey: string }> 
 const HEALTH_RANK: Record<string, number> = { healthy: 0, degraded: 1, failing: 2 };
 
 /**
+ * i18n keys for the API's `health` enum. The label matters: `degraded` and
+ * `failing` used to share the same red badge, so "this board needs a look" and
+ * "this board is broken" were indistinguishable.
+ */
+const HEALTH_LABEL_KEYS: Record<string, string> = {
+  healthy: 'sources.health.healthy',
+  degraded: 'sources.health.degraded',
+  failing: 'sources.health.failing',
+};
+
+
+/**
  * Single-select quick filter for the source list. `''` means "All": every
  * source is shown (avoided ones still sink to the bottom — ADR 019).
  * `'automated'` keeps the scraped boards — the ones that can own jobs — and is
@@ -86,7 +101,7 @@ export type SourceQuickFilter = '' | 'manual' | 'automated' | 'unhealthy' | 'due
   templateUrl: './sources.component.html',
   styleUrl: './sources.component.scss',
 })
-export class SourcesComponent implements OnInit {
+export class SourcesComponent implements OnInit, OnDestroy {
   sources: Source[] = [];
   loading = false;
   error: string | null = null;
@@ -153,6 +168,17 @@ export class SourcesComponent implements OnInit {
   authSaving = false;
   authTesting = false;
 
+  /** Health panel: the source being inspected, its diagnostics and last runs. */
+  healthSource: Source | null = null;
+  healthDiagnostics: SourceDiagnostics | null = null;
+  healthRuns: SourceRunSummary[] = [];
+  healthLoading = false;
+  healthError: string | null = null;
+  /** Source currently being re-enqueued from the health panel. */
+  scrapingId: string | null = null;
+  /** Pending "refresh after the worker picked the run up" timer. */
+  private healthRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(
     private fb: FormBuilder,
     private service: SourcesService,
@@ -182,6 +208,13 @@ export class SourcesComponent implements OnInit {
     this.loadProviders();
     this.loadAdapters();
     this.loadManualMetadata();
+  }
+
+  ngOnDestroy(): void {
+    if (this.healthRefreshTimer) {
+      clearTimeout(this.healthRefreshTimer);
+      this.healthRefreshTimer = null;
+    }
   }
 
   /** Cadence bounds are published by the API, so they live in exactly one place. */
@@ -408,6 +441,13 @@ export class SourcesComponent implements OnInit {
     this.service.list().subscribe({
       next: (sources) => {
         this.sources = sources;
+        // Keep the open health panel in sync with the refreshed row.
+        if (this.healthSource) {
+          const fresh = sources.find((source) => source.id === this.healthSource?.id);
+          if (fresh) {
+            this.healthSource = fresh;
+          }
+        }
         this.loading = false;
       },
       error: () => {
@@ -813,6 +853,148 @@ export class SourcesComponent implements OnInit {
         this.toast.error(this.i18n.t('errors.failedCheckSource'));
       },
     });
+  }
+
+  /** Localized label of a health enum value. */
+  healthLabel(health: string): string {
+    return this.i18n.t(HEALTH_LABEL_KEYS[health] ?? 'sources.health.unknown');
+  }
+
+  /** Icon paired with the health enum (`degraded` is a warning, not a failure). */
+  healthIcon(source: Source): 'circle-check' | 'triangle-alert' {
+    return source.health === 'healthy' ? 'circle-check' : 'triangle-alert';
+  }
+
+  /**
+   * One-line reason under a non-healthy badge, straight from the last run.
+   * Rendered muted and truncated; the full text lives in the health panel.
+   */
+  healthReason(source: Source): string | null {
+    if (source.health === 'healthy' || source.avoided) {
+      return null;
+    }
+    return source.last_run?.error ?? null;
+  }
+
+  /** True when the source can be re-enqueued from the health panel. */
+  canScrapeNow(source: Source): boolean {
+    return source.type !== 'manual' && !source.avoided;
+  }
+
+  /** A run in flight is worth showing: paginated boards take minutes. */
+  isRunning(source: Source): boolean {
+    return source.last_run?.status === 'running';
+  }
+
+  /** Opens the health panel and loads its diagnostics + run history. */
+  openHealth(source: Source): void {
+    this.healthSource = source;
+    this.healthDiagnostics = null;
+    this.healthRuns = [];
+    this.healthError = null;
+    this.scrapingId = null;
+    this.refreshHealth(true);
+  }
+
+  closeHealth(): void {
+    this.healthSource = null;
+    this.healthDiagnostics = null;
+    this.healthRuns = [];
+    this.healthError = null;
+    this.scrapingId = null;
+  }
+
+  /** Reload the open panel (first open or after a re-check). */
+  refreshHealth(initial = false): void {
+    const source = this.healthSource;
+    if (!source) {
+      return;
+    }
+    if (initial) {
+      this.healthLoading = true;
+    }
+    this.healthError = null;
+    forkJoin({
+      diagnostics: this.service.diagnostics(source.id),
+      runs: this.service.runs(source.id, 10),
+    }).subscribe({
+      next: ({ diagnostics, runs }) => {
+        if (this.healthSource?.id !== source.id) {
+          return;
+        }
+        this.healthLoading = false;
+        this.healthDiagnostics = diagnostics;
+        this.healthRuns = runs;
+      },
+      error: () => {
+        if (this.healthSource?.id !== source.id) {
+          return;
+        }
+        this.healthLoading = false;
+        this.healthError = this.i18n.t('errors.failedLoadSourceHealth');
+      },
+    });
+  }
+
+  /** Reason shown in the panel: the API's explanation, else the row's last error. */
+  get healthReasonText(): string | null {
+    return (
+      this.healthDiagnostics?.health_reason ??
+      this.healthSource?.last_run?.error ??
+      null
+    );
+  }
+
+  /** Localized label for a run status (history rows). */
+  runStatusLabel(status: string): string {
+    return this.i18n.t(`sources.health.status.${status}`);
+  }
+
+  /** Re-check now: clears the skip backoff and enqueues a fresh run. */
+  scrapeNow(): void {
+    const source = this.healthSource;
+    if (!source || this.scrapingId) {
+      return;
+    }
+    this.scrapingId = source.id;
+    this.service.scrapeNow(source.id).subscribe({
+      next: () => {
+        this.scrapingId = null;
+        this.toast.success(this.i18n.t('sources.health.queued'));
+        // Do not wait for the next sweep to show the run: refresh the row and
+        // the panel once the worker has had time to create its "running" row.
+        this.healthRefreshTimer = setTimeout(() => {
+          this.healthRefreshTimer = null;
+          this.refresh();
+          this.refreshHealth();
+        }, 4000);
+      },
+      error: (err: { error?: { detail?: string } }) => {
+        this.scrapingId = null;
+        this.toast.error(err?.error?.detail || this.i18n.t('errors.failedTriggerScrape'));
+      },
+    });
+  }
+
+  /** Copy a long provider error so it can be pasted into an issue. */
+  copyHealthError(text: string): void {
+    if (!navigator.clipboard) {
+      return;
+    }
+    navigator.clipboard.writeText(text).then(
+      () => this.toast.success(this.i18n.t('sources.health.copied')),
+      () => this.toast.error(this.i18n.t('sources.health.copyFailed'))
+    );
+  }
+
+  /** Close the health panel and open the edit form for its source. */
+  editFromHealth(): void {
+    const source = this.healthSource;
+    if (!source) {
+      return;
+    }
+    this.closeHealth();
+    this.openEdit(source);
   }
 
   /** Opens the authentication panel for a source (login-required boards). */

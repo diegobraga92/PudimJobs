@@ -1,9 +1,10 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from workers.resilience import skip_backoff_clear
 
 from app.audit import log_audit
 from app.auth import require_admin
@@ -18,6 +19,8 @@ from app.schemas.admin import (
     StatsResponse,
 )
 from app.schemas.audit import AuditLogResponse
+from app.schemas.source import SourceRunSummary
+from app.services.source_health import health_reason, latest_runs
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -27,8 +30,28 @@ async def source_health(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    """Every source with its last attempt and the reason behind its health."""
     result = await db.execute(select(Source).order_by(Source.name))
-    return result.scalars().all()
+    sources = result.scalars().all()
+    runs = await latest_runs(db, [source.id for source in sources])
+    rows: list[SourceHealthResponse] = []
+    for source in sources:
+        run = runs.get(source.id)
+        rows.append(
+            SourceHealthResponse(
+                id=source.id,
+                name=source.name,
+                type=str(source.type),
+                health=str(source.health),
+                last_scraped=source.last_scraped,
+                rate_limit_seconds=source.rate_limit_seconds,
+                last_run=(
+                    SourceRunSummary.model_validate(run) if run is not None else None
+                ),
+                health_reason=health_reason(source, run),
+            )
+        )
+    return rows
 
 
 @router.get("/stats", response_model=StatsResponse)
@@ -53,16 +76,23 @@ async def stats(
 
 @router.get("/dlq", response_model=list[ScrapeRunResponse])
 async def list_dlq(
+    run_status: str = Query(
+        default="failed", alias="status", pattern="^(failed|skipped|all)$"
+    ),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """List failed scrape runs (the reprocessing queue)."""
-    result = await db.execute(
-        select(ScrapeRun)
-        .where(ScrapeRun.status == "failed")
-        .order_by(ScrapeRun.started_at.desc())
-        .limit(50)
-    )
+    """List failed scrape runs (the reprocessing queue).
+
+    ``status=skipped`` surfaces the runs the engine *refused* to fetch
+    (robots.txt, missing API key, a manual/avoided source). They never reach the
+    failed-only default queue, yet they are the usual reason a source is
+    ``degraded``; ``status=all`` mixes both.
+    """
+    stmt = select(ScrapeRun).order_by(ScrapeRun.started_at.desc()).limit(50)
+    if run_status != "all":
+        stmt = stmt.where(ScrapeRun.status == run_status)
+    result = await db.execute(stmt)
     return result.scalars().all()
 
 
@@ -96,16 +126,21 @@ async def trigger_scrape(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Manually enqueue a scrape for one source."""
+    """Manually enqueue a scrape for one source.
+
+    Clears the skip backoff first: an admin pressing "Scrape now" is explicitly
+    retrying a source that a previous skip may have parked for 24 h.
+    """
     source = await db.get(Source, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
+    skip_backoff_clear(str(source.id))
     enqueue_scrape(str(source.id))
     await log_audit(
         db,
         user_id=admin.id,
         action="trigger_scrape",
-        entity_type="reprocessing",
+        entity_type="source",
         entity_id=source.id,
     )
     await db.commit()

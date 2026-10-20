@@ -1,16 +1,19 @@
 """Tests for the sources CRUD API."""
 
 import asyncio
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from scrapers.aggregator import AGGREGATOR_ADAPTERS
 from scrapers.discovery import DISCOVERY_PROVIDERS
 from scrapers.types import RawJob, ScrapedPage
+from scrapers.utils import RobotsDecision
+from workers.resilience import skip_backoff_active, skip_backoff_mark
 
 from app.config import settings
-from app.models import Source
-from app.models.enums import SourceType
+from app.models import ScrapeRun, Source
+from app.models.enums import SourceHealth, SourceType
 from app.routers.sources import _run_preview
 from app.schemas.source import SourcePreviewResponse
 from app.services.source_config import (
@@ -81,6 +84,108 @@ async def test_source_diagnostics_reports_job_gaps(auth_client):
     assert body["missing_posted_date"] == 1
     assert body["last_run_status"] is None
     assert body["config_valid"] is True
+
+
+async def test_list_sources_explains_health_with_the_last_run(
+    auth_client, db_session
+):
+    """A skipped run is surfaced: it is why a source is ``degraded``."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Dev.pro board",
+            "url": "https://dev.pro/jobs",
+            "type": "career_page",
+        },
+    )
+    source_id = uuid.UUID(created.json()["id"])
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            ScrapeRun(
+                source_id=source_id,
+                status="failed",
+                new_jobs=0,
+                error="old failure",
+                started_at=now - timedelta(hours=2),
+                finished_at=now - timedelta(hours=2),
+            ),
+            ScrapeRun(
+                source_id=source_id,
+                status="skipped",
+                new_jobs=0,
+                error="robots.txt unreachable at https://dev.pro/robots.txt (HTTP 503)",
+                started_at=now,
+                finished_at=now,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    # The worker flips the source to `degraded` when it records the skip.
+    source = await db_session.get(Source, source_id)
+    source.health = SourceHealth.degraded
+    await db_session.commit()
+
+    # The list carries the newest attempt (any status) in a single round trip.
+    listed = (await client.get("/api/sources")).json()
+    assert listed[0]["last_run"]["status"] == "skipped"
+    assert "unreachable" in listed[0]["last_run"]["error"]
+
+    history = await client.get(f"/api/sources/{source_id}/runs?limit=10")
+    assert history.status_code == 200
+    assert [run["status"] for run in history.json()] == ["skipped", "failed"]
+
+    diagnostics = (await client.get(f"/api/sources/{source_id}/diagnostics")).json()
+    assert diagnostics["last_run_at"] is not None
+    assert diagnostics["last_success_at"] is None
+    assert "unreachable" in diagnostics["health_reason"]
+
+
+async def test_owner_can_trigger_a_scrape_now(auth_client, monkeypatch, redis_client):
+    """``POST /sources/{id}/scrape`` enqueues a run and clears the skip backoff."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Retry me",
+            "url": "https://retry.example/jobs",
+            "type": "career_page",
+        },
+    )
+    source_id = created.json()["id"]
+    enqueued: list[str] = []
+    monkeypatch.setattr("app.routers.sources.enqueue_scrape", enqueued.append)
+    skip_backoff_mark(source_id)
+    assert skip_backoff_active(source_id)
+
+    response = await client.post(f"/api/sources/{source_id}/scrape")
+
+    assert response.status_code == 202
+    assert response.json()["enqueued"] is True
+    assert enqueued == [source_id]
+    assert skip_backoff_active(source_id) is False
+
+
+async def test_manual_sources_cannot_be_scraped_now(auth_client):
+    """A watchlist is checked by hand: enqueueing it would only record a skip."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Watchlist",
+            "url": "https://board.example/jobs",
+            "type": "manual",
+            "config": {"cadence_days": 7},
+        },
+    )
+    source_id = created.json()["id"]
+
+    response = await client.post(f"/api/sources/{source_id}/scrape")
+
+    assert response.status_code == 400
+    assert "hand" in response.json()["detail"]
 
 
 async def test_scraping_ethics_roundtrip(auth_client):
@@ -431,7 +536,14 @@ async def test_run_preview_redacts_credentials_in_errors(monkeypatch):
 
 async def test_run_preview_honours_robots_when_asked(monkeypatch):
     _stub_registry(monkeypatch, _StubScraper())
-    monkeypatch.setattr("app.routers.sources.is_allowed_by_robots", lambda url: False)
+    monkeypatch.setattr(
+        "app.routers.sources.robots_decision",
+        lambda url: RobotsDecision(
+            allowed=False,
+            reason="disallowed",
+            robots_url="https://acme.example/robots.txt",
+        ),
+    )
     blocked = await _run_preview(
         source_type=SourceType.career_page,
         url="https://acme.example",
@@ -451,10 +563,16 @@ async def test_run_preview_skips_robots_for_api_fetches(monkeypatch):
     """An API endpoint exempted by the provider does not need a robots lookup."""
     _stub_registry(monkeypatch, _ApiExemptScraper())
     consulted: list[str] = []
-    monkeypatch.setattr(
-        "app.routers.sources.is_allowed_by_robots",
-        lambda url: consulted.append(url) or False,
-    )
+
+    def block(url: str) -> RobotsDecision:
+        consulted.append(url)
+        return RobotsDecision(
+            allowed=False,
+            reason="disallowed",
+            robots_url="https://api.example/robots.txt",
+        )
+
+    monkeypatch.setattr("app.routers.sources.robots_decision", block)
 
     response = await _run_preview(
         source_type=SourceType.discovery,
@@ -604,7 +722,14 @@ async def test_preview_stored_source_is_user_scoped(
     client, _, _ = auth_client
     # Stored sources enforce robots.txt; keep the test hermetic (no DNS, no
     # shared robots cache) — the blocked path is covered separately.
-    monkeypatch.setattr("app.routers.sources.is_allowed_by_robots", lambda url: True)
+    monkeypatch.setattr(
+        "app.routers.sources.robots_decision",
+        lambda url: RobotsDecision(
+            allowed=True,
+            reason="allowed",
+            robots_url="https://acme.example/robots.txt",
+        ),
+    )
     created = await client.post(
         "/api/sources",
         json={

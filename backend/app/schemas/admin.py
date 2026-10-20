@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.source import SourceRunSummary
+
 
 class SourceHealthResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -13,6 +15,9 @@ class SourceHealthResponse(BaseModel):
     health: str
     last_scraped: datetime | None
     rate_limit_seconds: int
+    # Same "why" as the owner-facing API: the last attempt, skips included.
+    last_run: SourceRunSummary | None = None
+    health_reason: str | None = None
 
 
 class StatsResponse(BaseModel):

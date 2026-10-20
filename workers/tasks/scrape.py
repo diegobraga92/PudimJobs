@@ -14,10 +14,11 @@ from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 from scrapers.registry import get_scraper
 from scrapers.utils import (
+    RobotsDecision,
     as_flag,
-    is_allowed_by_robots,
     parse_json_ld_jobs,
     redact_sensitive,
+    robots_decision,
 )
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -76,15 +77,36 @@ async def _finalize_run(
     await session.commit()
 
 
-def _robots_allowed(source: Source, url: str | None) -> bool:
-    """Robots.txt gate: always allowed unless the source opts in to checks.
+def _robots_decision(source: Source, url: str | None) -> RobotsDecision | None:
+    """Robots.txt gate: ``None`` when there is nothing to check.
 
     ``url`` is ``None`` when the fetch is a vendor API call rather than a page
-    fetch (SerpApi); robots.txt does not govern those calls.
+    fetch (SerpApi); robots.txt does not govern those calls. Returns the full
+    decision so the caller can tell a real ``Disallow`` from a fetch failure.
     """
     if url is None or not source.respect_robots_txt:
-        return True
-    return is_allowed_by_robots(url)
+        return None
+    return robots_decision(url)
+
+
+def _robots_skip_reason(decision: RobotsDecision) -> tuple[str, bool]:
+    """Map a decision to ``(recorded error, is_transient)``.
+
+    A failed fetch is *not* a ``Disallow``: it is recorded as an unreachable
+    robots.txt and retried after a short backoff, instead of freezing the source
+    for the configured 24 h.
+    """
+    if decision.reason == "disallowed":
+        return f"robots.txt disallows this source ({decision.robots_url})", False
+    detail = decision.error or (
+        f"HTTP {decision.status_code}" if decision.status_code else "fetch failed"
+    )
+    return (
+        f"robots.txt unreachable at {decision.robots_url} ({detail}); "
+        "will retry automatically",
+        True,
+    )
+
 
 
 def _robots_target(scraper, fetch_url: str) -> str | None:
@@ -99,10 +121,21 @@ def _robots_target(scraper, fetch_url: str) -> str | None:
     return hook(fetch_url) if callable(hook) else fetch_url
 
 
-async def _skip_run(source_id: str, run: ScrapeRun, reason: str) -> dict:
-    """Record the run as *skipped* (never trips the circuit breaker)."""
-    # Retry a permanently skipped source once a day rather than every sweep.
-    skip_backoff_mark(source_id)
+async def _skip_run(
+    source_id: str, run: ScrapeRun, reason: str, *, transient: bool = False
+) -> dict:
+    """Record the run as *skipped* (never trips the circuit breaker).
+
+    ``transient`` marks a skip caused by a temporary failure (robots.txt
+    unreachable) rather than a rule (``Disallow``, missing API key): the source
+    is retried after a short backoff, and the reason says so.
+    """
+    # Retry a permanently skipped source once a day rather than every sweep; a
+    # transient failure is retried on the next sweeps instead of tomorrow.
+    skip_backoff_mark(
+        source_id,
+        minutes=settings.scrape_skip_retry_minutes if transient else None,
+    )
     async with async_session_factory() as session:
         run_row = await session.get(ScrapeRun, run.id)
         source_row = await session.get(Source, run.source_id)
@@ -118,8 +151,11 @@ async def _skip_run(source_id: str, run: ScrapeRun, reason: str) -> dict:
         await _finalize_run(
             session, run_row, status="skipped", new_jobs=0, error=reason
         )
-    logger.info("scrape_skipped", source_id=source_id, reason=reason)
+    logger.info(
+        "scrape_skipped", source_id=source_id, reason=reason, transient=transient
+    )
     return {"source_id": source_id, "skipped": True, "reason": reason}
+
 
 
 async def _discover(scraper, page) -> list[str]:
@@ -291,9 +327,14 @@ async def _run_scrape(source_id: str) -> dict:
         # not the raw source URL.
         current_url = getattr(scraper, "first_fetch_url", lambda url: url)(source.url)
 
-        # Scraping ethics: honour robots.txt before touching the target.
-        if not _robots_allowed(source, _robots_target(scraper, current_url)):
-            return await _skip_run(source_id, run, "robots.txt disallows this source")
+        # Scraping ethics: honour robots.txt before touching the target. A
+        # fetch *failure* is kept distinct from a `Disallow`: only the latter
+        # means "this board does not want to be scraped".
+        robots = _robots_decision(source, _robots_target(scraper, current_url))
+        if robots is not None and not robots.allowed:
+            reason, transient = _robots_skip_reason(robots)
+            return await _skip_run(source_id, run, reason, transient=transient)
+
 
         # The source is reachable again: drop any skip backoff so the next
         # sweep does not wait for its TTL to expire.
@@ -332,7 +373,18 @@ async def _run_scrape(source_id: str) -> dict:
                 for detail_url in discovered:
                     if detail_fetched >= max_results:
                         break
-                    if not _robots_allowed(source, _robots_target(scraper, detail_url)):
+                    detail_robots = _robots_decision(
+                        source, _robots_target(scraper, detail_url)
+                    )
+                    if detail_robots is not None and not detail_robots.allowed:
+                        logger.info(
+                            "scrape_skip_detail",
+                            source_id=source_id,
+                            reason=detail_robots.reason,
+                            url=redact_sensitive(
+                                detail_url, auth.api_key if auth else None
+                            ),
+                        )
                         continue
                     wait = rate_limit_wait(detail_url, source.rate_limit_seconds)
                     if wait > 0:
@@ -350,11 +402,12 @@ async def _run_scrape(source_id: str) -> dict:
             if not next_url or (next_url == current_url and not pagination_in_body):
                 break
             current_url = next_url
-            if not _robots_allowed(source, _robots_target(scraper, current_url)):
+            page_robots = _robots_decision(source, _robots_target(scraper, current_url))
+            if page_robots is not None and not page_robots.allowed:
                 logger.info(
                     "scrape_stop_pagination",
                     source_id=source_id,
-                    reason="robots.txt",
+                    reason=f"robots.txt {page_robots.reason}",
                     url=redact_sensitive(current_url, auth.api_key if auth else None),
                 )
                 break

@@ -51,6 +51,8 @@ export class AdminComponent implements OnInit {
   stats: AdminStats | null = null;
   sources: SourceHealth[] = [];
   dlq: ScrapeRun[] = [];
+  /** Which runs the DLQ tab lists: failures, skips (the usual `degraded` cause) or both. */
+  dlqStatus: 'failed' | 'skipped' | 'all' = 'failed';
   quality: QualityOverview | null = null;
   qualityBySource: QualityBySource[] = [];
   qualityJobs: QualityJob[] = [];
@@ -214,7 +216,7 @@ export class AdminComponent implements OnInit {
   }
 
   private loadDlq(): void {
-    this.service.dlq().subscribe({
+    this.service.dlq(this.dlqStatus).subscribe({
       next: (dlq) => {
         this.dlq = dlq;
         this.loading = false;
@@ -225,6 +227,12 @@ export class AdminComponent implements OnInit {
         this.toast.error(this.i18n.t('errors.failedLoadDlq'));
       },
     });
+  }
+
+  /** Switch the DLQ between failures, skips and both. */
+  setDlqStatus(status: 'failed' | 'skipped' | 'all'): void {
+    this.dlqStatus = status;
+    this.loadDlq();
   }
 
   private loadQuality(): void {

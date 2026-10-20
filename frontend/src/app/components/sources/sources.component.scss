@@ -212,3 +212,120 @@
   }
 }
 
+/* Page-level nudge: a degraded board must be discoverable without sorting. */
+.attention-banner {
+  align-items: center;
+
+  .btn {
+    margin-left: auto;
+  }
+}
+
+.health-cell {
+  vertical-align: top;
+}
+
+/* The badge opens the explanation; it is the only affordance on the row. */
+.health-badge-button {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+
+  &:hover .badge,
+  &:focus-visible .badge {
+    filter: brightness(1.08);
+  }
+}
+
+.health-note {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 260px;
+  margin-top: var(--space-1);
+}
+
+.health-reason {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--color-text);
+    text-decoration: underline;
+  }
+}
+
+/* Health panel (modal). */
+.health-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.health-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.health-url {
+  overflow-wrap: anywhere;
+}
+
+.health-section h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.health-reason-box {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+
+  code {
+    flex: 1;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+}
+
+.health-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.health-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.health-fact-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.health-actions {
+  flex-wrap: wrap;
+}
+

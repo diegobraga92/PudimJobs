@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     # re-enqueue it on every sweep. The backoff expires on its own; an explicit
     # "Scrape now" still runs immediately.
     scrape_skip_backoff_minutes: int = 1440  # 24 h
+    # A *transient* skip (robots.txt unreachable: timeout, 5xx, DNS blip) is
+    # retried much sooner than a permanent one (an explicit robots.txt
+    # ``Disallow``). Long enough to skip the current sweep, short enough that a
+    # network blip does not freeze a healthy source for a day.
+    scrape_skip_retry_minutes: int = 15
 
     # Scraping defaults
     circuit_breaker_threshold: int = 5

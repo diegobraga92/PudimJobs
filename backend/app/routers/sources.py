@@ -4,13 +4,15 @@ import uuid
 from types import SimpleNamespace
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from scrapers.utils import is_allowed_by_robots, redact_sensitive
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from scrapers.utils import is_allowed_by_robots, redact_sensitive, robots_decision
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from workers.resilience import skip_backoff_clear
 
 from app.audit import log_audit
 from app.auth import get_current_user
+from app.broker import enqueue_scrape
 from app.config import settings
 from app.database import get_db
 from app.models.enums import SourceAuthType, SourceType
@@ -31,6 +33,7 @@ from app.schemas.source import (
     SourcePreviewRequest,
     SourcePreviewResponse,
     SourceResponse,
+    SourceRunSummary,
     SourceUpdate,
 )
 from app.schemas.source_auth import SourceAuthResponse, SourceAuthUpdate
@@ -42,6 +45,7 @@ from app.services.source_config import (
     provider_metadata,
     validate_source_config,
 )
+from app.services.source_health import health_reason, latest_run, latest_runs
 from app.services.source_schedule import is_scrape_due, next_scrape_at
 from app.services.source_watchlist import (
     advance_manual_check,
@@ -75,16 +79,29 @@ async def _job_counts(db: AsyncSession, user: User) -> dict[uuid.UUID, int]:
     return {source_id: count for source_id, count in result.all()}
 
 
-def _attach_counts(sources: list[Source], counts: dict[uuid.UUID, int]) -> list[SourceResponse]:
-    return [_source_response(source, counts.get(source.id, 0)) for source in sources]
+def _attach_counts(
+    sources: list[Source],
+    counts: dict[uuid.UUID, int],
+    last_runs: dict[uuid.UUID, ScrapeRun] | None = None,
+) -> list[SourceResponse]:
+    runs = last_runs or {}
+    return [
+        _source_response(source, counts.get(source.id, 0), runs.get(source.id))
+        for source in sources
+    ]
 
 
-def _source_response(source: Source, jobs_count: int) -> SourceResponse:
+def _source_response(
+    source: Source, jobs_count: int, last_run: ScrapeRun | None = None
+) -> SourceResponse:
     """Serialize a source, filling the derived schedule/watchlist fields."""
     avoided = is_avoided(source)
     return SourceResponse.model_validate(source).model_copy(
         update={
             "jobs_count": jobs_count,
+            "last_run": (
+                SourceRunSummary.model_validate(last_run) if last_run is not None else None
+            ),
             "next_check_at": next_check_at(source),
             "due": is_due(source),
             "next_scrape_at": next_scrape_at(source),
@@ -114,7 +131,8 @@ async def list_sources(
     )
     sources = result.scalars().all()
     counts = await _job_counts(db, user)
-    return _attach_counts(list(sources), counts)
+    runs = await latest_runs(db, [source.id for source in sources])
+    return _attach_counts(list(sources), counts, runs)
 
 
 @router.get("/providers")
@@ -240,7 +258,27 @@ async def get_source(
 ):
     source = await get_owned_source(source_id, user, db)
     counts = await _job_counts(db, user)
-    return _source_response(source, counts.get(source.id, 0))
+    return _source_response(
+        source, counts.get(source.id, 0), await latest_run(db, source.id)
+    )
+
+
+@router.get("/{source_id}/runs", response_model=list[SourceRunSummary])
+async def list_source_runs(
+    source_id: uuid.UUID,
+    limit: int = Query(default=10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The last ``limit`` scrape attempts, newest first (``skipped`` included)."""
+    await get_owned_source(source_id, user, db)
+    result = await db.execute(
+        select(ScrapeRun)
+        .where(ScrapeRun.source_id == source_id)
+        .order_by(ScrapeRun.started_at.desc(), ScrapeRun.id.desc())
+        .limit(limit)
+    )
+    return [SourceRunSummary.model_validate(run) for run in result.scalars().all()]
 
 
 @router.get("/{source_id}/diagnostics", response_model=SourceDiagnosticsResponse)
@@ -275,12 +313,13 @@ async def source_diagnostics(
             ).where(Job.source_id == source.id, Job.user_id == user.id)
         )
     ).one()
-    last_run = (
+    last_run = await latest_run(db, source.id)
+    last_success_at = (
         await db.execute(
-            select(ScrapeRun)
-            .where(ScrapeRun.source_id == source.id)
-            .order_by(ScrapeRun.started_at.desc())
-            .limit(1)
+            select(func.max(ScrapeRun.finished_at)).where(
+                ScrapeRun.source_id == source.id,
+                ScrapeRun.status == "success",
+            )
         )
     ).scalar_one_or_none()
 
@@ -305,6 +344,10 @@ async def source_diagnostics(
         last_run_status=last_run.status if last_run else None,
         last_run_new_jobs=last_run.new_jobs if last_run else None,
         last_run_error=last_run.error if last_run else None,
+        last_run_at=last_run.started_at if last_run else None,
+        last_run_finished_at=last_run.finished_at if last_run else None,
+        last_success_at=last_success_at,
+        health_reason=health_reason(source, last_run),
         config_valid=config_valid,
         config_error=config_error,
     )
@@ -338,7 +381,9 @@ async def update_source(
     await db.commit()
     await db.refresh(source)
     counts = await _job_counts(db, user)
-    return _source_response(source, counts.get(source.id, 0))
+    return _source_response(
+        source, counts.get(source.id, 0), await latest_run(db, source.id)
+    )
 
 
 @router.post("/{source_id}/avoid", response_model=SourceResponse)
@@ -360,7 +405,9 @@ async def set_source_avoided(
     await db.commit()
     await db.refresh(source)
     counts = await _job_counts(db, user)
-    return _source_response(source, counts.get(source.id, 0))
+    return _source_response(
+        source, counts.get(source.id, 0), await latest_run(db, source.id)
+    )
 
 
 @router.post("/{source_id}/check", response_model=SourceResponse)
@@ -384,7 +431,47 @@ async def check_manual_source(
     await db.commit()
     await db.refresh(source)
     counts = await _job_counts(db, user)
-    return _source_response(source, counts.get(source.id, 0))
+    return _source_response(
+        source, counts.get(source.id, 0), await latest_run(db, source.id)
+    )
+
+
+@router.post("/{source_id}/scrape", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_source_scrape(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Enqueue an immediate scrape for one of the caller's sources.
+
+    Backs the health panel's "Re-check now": it clears any skip backoff so a
+    transient failure (robots.txt unreachable, provider hiccup) can be retried
+    without waiting for the sweep. A manual source is never fetched and an
+    avoided one was explicitly parked, so both are rejected with an explanation
+    instead of recording a skip the user did not ask for.
+    """
+    source = await get_owned_source(source_id, user, db)
+    if source.type == SourceType.manual:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Manual sources are checked by hand; open the board instead",
+        )
+    if is_avoided(source):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This source is avoided; restore it before scraping it again",
+        )
+    skip_backoff_clear(str(source.id))
+    enqueue_scrape(str(source.id))
+    await log_audit(
+        db,
+        user_id=user.id,
+        action="scrape_now",
+        entity_type="source",
+        entity_id=source.id,
+    )
+    await db.commit()
+    return {"enqueued": True, "source_id": str(source.id)}
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -602,14 +689,21 @@ async def _run_preview(
         # raised: the preview is how users discover such mistakes.
         fetch_url = getattr(scraper, "first_fetch_url", lambda value: value)(url)
         robots_target = _robots_target(scraper, fetch_url)
-        if (
-            respect_robots
-            and robots_target is not None
-            and not is_allowed_by_robots(robots_target)
-        ):
-            return SourcePreviewResponse(
-                fetched_url=fetch_url, error="robots.txt disallows this source"
-            )
+        if respect_robots and robots_target is not None:
+            decision = robots_decision(robots_target)
+            if not decision.allowed:
+                # Keep "the file says no" apart from "the file could not be
+                # fetched": the second is temporary and retrying usually helps.
+                if decision.reason == "disallowed":
+                    message = "robots.txt disallows this source"
+                else:
+                    detail = decision.error or (
+                        f"HTTP {decision.status_code}"
+                        if decision.status_code
+                        else "fetch failed"
+                    )
+                    message = f"robots.txt unreachable ({detail}) — try again"
+                return SourcePreviewResponse(fetched_url=fetch_url, error=message)
         page = await asyncio.wait_for(scraper.fetch(fetch_url, auth=auth), timeout=timeout)
         raw_jobs = []
         detail_urls = await _discover_detail_urls(scraper, page)

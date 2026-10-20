@@ -7,7 +7,9 @@ import re
 import socket
 import time
 import warnings
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -19,8 +21,44 @@ from scrapers.types import FetchAuth, RawJob, ScrapedPage
 
 USER_AGENTS = [ua.strip() for ua in settings.user_agents.split(",") if ua.strip()]
 
-_robots_parser_cache: dict[str, tuple[RobotFileParser, float]] = {}
 _ROBOTS_CACHE_TTL_SECONDS = 3600
+# A failed fetch (timeout, 5xx, DNS blip) must be retried soon: caching it for
+# an hour turns one network hiccup into four blocked sweeps.
+_ROBOTS_FAILURE_TTL_SECONDS = 60
+
+
+@dataclass(frozen=True)
+class _RobotsCacheEntry:
+    """A cached robots.txt outcome, including *why* there is no parser."""
+
+    parser: RobotFileParser | None
+    status_code: int | None
+    fetched_at: float
+    ttl: float
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class RobotsDecision:
+    """Outcome of a robots.txt check: a *rule* or a *failure*, never conflated.
+
+    ``RobotFileParser.can_fetch`` answers ``False`` while the file has never
+    been fetched. The old code cached that parser and reported it as a
+    ``Disallow``, so a single DNS/TLS/timeout blip skipped a healthy source for
+    an hour — and, through the skip backoff, for a whole day (Dev.pro, Oct
+    2026). ``reason`` keeps the two cases apart so the worker can retry soon and
+    the UI can say what actually happened.
+    """
+
+    allowed: bool
+    reason: Literal["allowed", "disallowed", "unavailable"]
+    robots_url: str
+    status_code: int | None = None
+    error: str | None = None
+
+
+_robots_parser_cache: dict[str, _RobotsCacheEntry] = {}
+
 
 # Query params that may carry API keys/tokens; redacted from logs and errors.
 # The parameter *name* must end with the sensitive word, so `keyword`/`monkey`
@@ -77,24 +115,95 @@ def assert_safe_url(url: str) -> None:
             raise ValueError(f"Blocked address {ip} for host {host!r}")
 
 
-def is_allowed_by_robots(url: str) -> bool:
-    """Check robots.txt for the domain (cached in-process for 1h)."""
-    host = domain_of(url)
+def _robots_url(url: str) -> str:
+    """``/robots.txt`` for the URL's origin (keeping its scheme)."""
+    parsed = urlparse(url)
+    scheme = parsed.scheme if parsed.scheme in ("http", "https") else "https"
+    return f"{scheme}://{parsed.netloc}/robots.txt"
+
+
+def _fetch_robots(robots_url: str) -> _RobotsCacheEntry:
+    """Fetch and parse robots.txt once; never conflate a failure with a denial."""
     now = time.monotonic()
-    cached = _robots_parser_cache.get(host)
-    if cached is None or now - cached[1] >= _ROBOTS_CACHE_TTL_SECONDS:
-        parser = RobotFileParser()
+    status_code: int | None = None
+    last_error: str | None = None
+    # Identify honestly first; fall back to the browser-like UA used for page
+    # fetches only when the site rejects or fails that request.
+    for user_agent in (settings.scraper_bot_user_agent, random_user_agent()):
         try:
             resp = httpx.get(
-                f"https://{host}/robots.txt", timeout=5, follow_redirects=True
+                robots_url,
+                timeout=5,
+                follow_redirects=True,
+                headers={"User-Agent": user_agent},
             )
-            if resp.status_code == 200:
-                parser.parse(resp.text.splitlines())
-        except Exception:  # noqa: BLE001 - robots.txt is best-effort only
-            pass
-        cached = (parser, now)
+        except Exception as exc:  # noqa: BLE001 - robots.txt is best-effort
+            last_error = f"{type(exc).__name__}: {exc}"
+            continue
+        status_code = resp.status_code
+        if status_code == 200:
+            parser = RobotFileParser()
+            parser.parse(resp.text.splitlines())
+            return _RobotsCacheEntry(parser, status_code, now, _ROBOTS_CACHE_TTL_SECONDS)
+        if 400 <= status_code < 500:
+            # RFC 9309: a 4xx (404/403/401) means the file is unavailable, which
+            # means "no restrictions published" — *not* "block everything".
+            return _RobotsCacheEntry(None, status_code, now, _ROBOTS_CACHE_TTL_SECONDS)
+        last_error = f"HTTP {status_code}"
+
+    return _RobotsCacheEntry(
+        None, status_code, now, _ROBOTS_FAILURE_TTL_SECONDS, last_error
+    )
+
+
+def robots_decision(url: str) -> RobotsDecision:
+    """Decide whether ``url`` may be fetched, and *why*.
+
+    Outcomes (cached per host):
+
+    - ``allowed`` / ``disallowed`` — from a successfully parsed robots.txt;
+    - ``allowed`` — robots.txt returned 4xx (RFC 9309: nothing is disallowed);
+    - ``unavailable`` (``allowed=False``) — the file could not be fetched at
+      all (timeout, 5xx, DNS/TLS error). Callers must treat this as a
+      *transient* failure: deny this attempt, retry soon, and never report it
+      as a ``Disallow``. The negative result is cached for only 60 s.
+    """
+    host = domain_of(url)
+    robots_url = _robots_url(url)
+    now = time.monotonic()
+    cached = _robots_parser_cache.get(host)
+    if cached is None or now - cached.fetched_at >= cached.ttl:
+        cached = _fetch_robots(robots_url)
         _robots_parser_cache[host] = cached
-    return cached[0].can_fetch(settings.scraper_bot_user_agent, url)
+
+    if cached.parser is not None:
+        allowed = cached.parser.can_fetch(settings.scraper_bot_user_agent, url)
+        return RobotsDecision(
+            allowed=allowed,
+            reason="allowed" if allowed else "disallowed",
+            robots_url=robots_url,
+            status_code=cached.status_code,
+        )
+    if cached.status_code is not None and 400 <= cached.status_code < 500:
+        return RobotsDecision(
+            allowed=True,
+            reason="allowed",
+            robots_url=robots_url,
+            status_code=cached.status_code,
+        )
+    return RobotsDecision(
+        allowed=False,
+        reason="unavailable",
+        robots_url=robots_url,
+        status_code=cached.status_code,
+        error=cached.error,
+    )
+
+
+def is_allowed_by_robots(url: str) -> bool:
+    """``True`` unless robots.txt explicitly disallows ``url`` (or is unreachable)."""
+    return robots_decision(url).allowed
+
 
 
 def rate_limit_key(url: str, cooldown_seconds: int = 30) -> tuple[str, int]:

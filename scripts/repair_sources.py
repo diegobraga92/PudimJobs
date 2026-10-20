@@ -46,7 +46,7 @@ for entry in (str(ROOT / "backend"), str(ROOT)):
         sys.path.insert(0, entry)
 
 from scrapers.registry import get_scraper  # noqa: E402
-from scrapers.utils import is_allowed_by_robots  # noqa: E402
+from scrapers.utils import robots_decision  # noqa: E402
 
 from app.database import async_session_factory  # noqa: E402
 from app.models import Job, Source  # noqa: E402
@@ -183,6 +183,23 @@ def _feed_page_url(url: str, page: int) -> str:
     return f"{url}{separator}paged={page}"
 
 
+def _robots_blocker(url: str) -> str | None:
+    """Printable reason when ``url`` may not be fetched, else ``None``.
+
+    Keeps the script honest about *why* it skipped: a robots.txt outage is not
+    a ``Disallow`` and is worth retrying later.
+    """
+    decision = robots_decision(url)
+    if decision.allowed:
+        return None
+    if decision.reason == "disallowed":
+        return f"robots.txt disallows {decision.robots_url}"
+    detail = decision.error or (
+        f"HTTP {decision.status_code}" if decision.status_code else "fetch failed"
+    )
+    return f"robots.txt unreachable ({detail}); retry later"
+
+
 async def _reparse_rss(
     source: Source, session, *, apply: bool, pages: int = 1
 ) -> int:
@@ -190,9 +207,11 @@ async def _reparse_rss(
     if source.type != SourceType.rss:
         print("  reparse rss → skipped (source is not type=rss)")
         return 0
-    if source.respect_robots_txt and not is_allowed_by_robots(source.url):
-        print("  reparse rss → skipped (robots.txt disallows the feed)")
-        return 0
+    if source.respect_robots_txt:
+        blocker = _robots_blocker(source.url)
+        if blocker:
+            print(f"  reparse rss → skipped ({blocker})")
+            return 0
 
     scraper = get_scraper(source)
     jobs = (
@@ -234,9 +253,11 @@ async def _reparse_list(source: Source, session, *, apply: bool) -> int:
         return 0
     scraper = get_scraper(source)
     list_url = scraper.first_fetch_url(source.url)
-    if source.respect_robots_txt and not is_allowed_by_robots(list_url):
-        print("  reparse list → skipped (robots.txt disallows the listing)")
-        return 0
+    if source.respect_robots_txt:
+        blocker = _robots_blocker(list_url)
+        if blocker:
+            print(f"  reparse list → skipped ({blocker})")
+            return 0
     page = await scraper.fetch(list_url)
     normalized = scraper.normalize(scraper.parse(page))
     jobs = (
@@ -299,7 +320,7 @@ async def _refresh_details(source: Source, session, args: argparse.Namespace) ->
         if not job.url:
             skipped += 1
             continue
-        if source.respect_robots_txt and not is_allowed_by_robots(job.url):
+        if source.respect_robots_txt and _robots_blocker(job.url):
             skipped += 1
             continue
         if last_request:

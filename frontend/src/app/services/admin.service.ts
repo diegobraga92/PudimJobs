@@ -17,7 +17,17 @@ export interface SourceHealth {
   health: string;
   last_scraped: string | null;
   rate_limit_seconds: number;
+  /** Most recent attempt (any status): the "why" behind `health`. */
+  last_run?: ScrapeRunSummary | null;
+  /** Plain-language explanation of a non-healthy status. */
+  health_reason?: string | null;
 }
+
+/** The last attempt of a source, without the run id/source id. */
+export type ScrapeRunSummary = Pick<
+  ScrapeRun,
+  'status' | 'error' | 'started_at' | 'finished_at' | 'new_jobs'
+>;
 
 export interface ScrapeRun {
   id: string;
@@ -113,8 +123,8 @@ export class AdminService {
     return this.http.get<SourceHealth[]>('/api/admin/sources/health');
   }
 
-  dlq(): Observable<ScrapeRun[]> {
-    return this.http.get<ScrapeRun[]>('/api/admin/dlq');
+  dlq(status: 'failed' | 'skipped' | 'all' = 'failed'): Observable<ScrapeRun[]> {
+    return this.http.get<ScrapeRun[]>('/api/admin/dlq', { params: { status } });
   }
 
   replay(runId: string): Observable<{ replayed: boolean; run_id: string; source_id: string }> {

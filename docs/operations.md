@@ -162,6 +162,40 @@ swapping the source is config-only.
 
 Verify: health `healthy`, DLQ stops growing, new jobs appear, quality recovers.
 
+### Source `degraded` but nothing failed (`skipped` runs)
+
+*Symptoms:* the Sources page shows a `degraded` badge, its last run says
+`skipped`, and Admin → DLQ (which defaults to `failed`) has nothing — so the
+source looks broken with no explanation.
+
+Every source row now carries its **last run** (any status) and the reason
+behind its health. Click the health badge to open the panel: health, reason,
+last run/success, stored job count and the last 10 attempts. The same data is
+served by `GET /api/sources/<id>/diagnostics` and
+`GET /api/sources/<id>/runs?limit=10`.
+
+1. `robots.txt disallows this source (<url>)` is a **rule**, not a failure:
+   do not bypass it. Use a provider for that board or drop the source.
+2. `robots.txt unreachable at <url> (...)` is a **transient** failure (timeout,
+   DNS/TLS error, 5xx): the run is denied conservatively but retried on the next
+   sweeps. The backoff is `SCRAPE_SKIP_RETRY_MINUTES` (15 min), not the 24 h
+   used for a real skip. A failed robots fetch is cached for only 60 s (a
+   successful parse is cached for 1 h), so recovery is picked up quickly.
+3. `robots.txt` returning **4xx** means "no restrictions published" (RFC 9309)
+   and never skips a run.
+4. `API key`/`manual source`/`source is avoided` in the reason are
+   configuration states: store the key, check a watchlist by hand, or restore
+   the avoided source.
+5. **Retry now** → the panel's *Re-check now*
+   (`POST /api/sources/<id>/scrape`, owner-scoped) or
+   `POST /api/admin/sources/<id>/scrape`. Both clear the skip backoff first,
+   so the retry does not wait for the sweep/backoff to expire.
+6. If `unreachable` keeps coming back, check worker egress:
+   `docker compose exec worker python -c "import httpx; print(httpx.get('https://<host>/robots.txt', timeout=5).status_code)"`.
+
+Verify: a fresh `success` row appears in the health panel, the badge returns to
+`healthy`, and the reason line disappears.
+
 ### RabbitMQ queue backlog
 
 *Symptoms:* `matching.job.new`/`celery` queues grow (RabbitMQ UI `:9672`);
@@ -189,8 +223,9 @@ notifications lag; the worker is "Up" but a scrape never starts.
 
 The sweep also fails `running` rows older than `SCRAPE_RUN_STALE_MINUTES` (30),
 skips sources with a live run, and backs off permanently skipped sources for
-`SCRAPE_SKIP_BACKOFF_MINUTES` (24h). If the Sources page still shows "Due now"
-after a restart, check `scrape_runs` for orphaned rows and the worker logs.
+`SCRAPE_SKIP_BACKOFF_MINUTES` (24h) — transient skips (robots.txt unreachable)
+only `SCRAPE_SKIP_RETRY_MINUTES` (15 min). If the Sources page still shows "Due
+now" after a restart, check `scrape_runs` for orphaned rows and the worker logs.
 
 Verify: depths return to ~0, notifications arrive, Grafana shows no backlog.
 

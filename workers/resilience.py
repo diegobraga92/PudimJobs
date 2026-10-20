@@ -76,12 +76,18 @@ def skip_backoff_active(source_id: str) -> bool:
     )
 
 
-def skip_backoff_mark(source_id: str) -> None:
-    """Suppress re-enqueueing a skipped source for the backoff period."""
+def skip_backoff_mark(source_id: str, minutes: int | None = None) -> None:
+    """Suppress re-enqueueing a skipped source for the backoff period.
+
+    ``minutes`` overrides the configured 24 h backoff for *transient* skips
+    (e.g. robots.txt unreachable), so a network blip does not freeze a source
+    until the next day. A permanent ``Disallow`` keeps the long backoff.
+    """
+    ttl_minutes = settings.scrape_skip_backoff_minutes if minutes is None else minutes
     redis_client.set(
         SKIP_BACKOFF_KEY.format(source_id=source_id),
         "1",
-        ex=settings.scrape_skip_backoff_minutes * 60,
+        ex=max(1, ttl_minutes) * 60,
     )
 
 

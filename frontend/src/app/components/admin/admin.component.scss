@@ -159,3 +159,18 @@ tr.flagged td {
   overflow-x: auto;
 }
 
+/* DLQ status filter: skips are why most sources look degraded, so they get
+   their own view instead of hiding behind the failed-only queue. */
+.dlq-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+
+  .btn.active {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+}
+

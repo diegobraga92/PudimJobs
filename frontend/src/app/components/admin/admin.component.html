@@ -80,6 +80,8 @@
         <th>{{ i18n.t('common.type') }}</th>
         <th>{{ i18n.t('common.health') }}</th>
         <th>{{ i18n.t('admin.lastScraped') }}</th>
+        <th>{{ i18n.t('admin.lastRun') }}</th>
+        <th>{{ i18n.t('admin.healthReason') }}</th>
         <th class="row-actions">{{ i18n.t('admin.action') }}</th>
       </tr>
     </thead>
@@ -103,6 +105,15 @@
             </span>
           </td>
           <td>{{ source.last_scraped ? (source.last_scraped | date: 'short') : i18n.t('admin.never') }}</td>
+          <td>
+            @if (source.last_run) {
+              {{ source.last_run.started_at | date: 'short' }}
+              <span class="muted xs">· {{ source.last_run.status }}</span>
+            } @else {
+              {{ i18n.t('admin.never') }}
+            }
+          </td>
+          <td class="error-cell">{{ source.health_reason || '—' }}</td>
           <td class="row-actions">
             <button type="button" class="btn btn-ghost btn-sm" (click)="triggerScrape(source.id)">
               <app-icon name="refresh" [size]="14" />
@@ -118,13 +129,48 @@
 
 @if (activeTab === 'dlq') {
 <h3>{{ i18n.t('admin.dlqTitle') }}</h3>
+<div class="dlq-filters" role="group" [attr.aria-label]="i18n.t('admin.dlqFilter')">
+  <button
+    type="button"
+    class="btn btn-ghost btn-sm"
+    [class.active]="dlqStatus === 'failed'"
+    [attr.aria-pressed]="dlqStatus === 'failed'"
+    (click)="setDlqStatus('failed')"
+  >
+    {{ i18n.t('admin.dlqFailed') }}
+  </button>
+  <button
+    type="button"
+    class="btn btn-ghost btn-sm"
+    [class.active]="dlqStatus === 'skipped'"
+    [attr.aria-pressed]="dlqStatus === 'skipped'"
+    (click)="setDlqStatus('skipped')"
+  >
+    {{ i18n.t('admin.dlqSkipped') }}
+  </button>
+  <button
+    type="button"
+    class="btn btn-ghost btn-sm"
+    [class.active]="dlqStatus === 'all'"
+    [attr.aria-pressed]="dlqStatus === 'all'"
+    (click)="setDlqStatus('all')"
+  >
+    {{ i18n.t('admin.dlqAll') }}
+  </button>
+</div>
 @if (dlq.length === 0) {
   <div class="empty-state panel">
     <span class="empty-icon">
       <app-icon name="circle-check" [size]="26" />
     </span>
-    <h3>{{ i18n.t('admin.noFailedRuns') }}</h3>
-    <p>{{ i18n.t('admin.noFailedRunsHint') }}</p>
+    <h3>{{ dlqStatus === 'skipped' ? i18n.t('admin.noSkippedRuns') : i18n.t('admin.noFailedRuns') }}</h3>
+    <p>
+      {{
+        dlqStatus === 'skipped'
+          ? i18n.t('admin.noSkippedRunsHint')
+          : i18n.t('admin.noFailedRunsHint')
+      }}
+    </p>
   </div>
 } @else {
   <div class="table-scroll">
@@ -132,6 +178,7 @@
       <thead>
         <tr>
           <th>{{ i18n.t('admin.started') }}</th>
+          <th>{{ i18n.t('admin.statusCol') }}</th>
           <th>{{ i18n.t('admin.errorCol') }}</th>
           <th>{{ i18n.t('admin.jobsCol') }}</th>
           <th class="row-actions">{{ i18n.t('admin.action') }}</th>
@@ -141,6 +188,15 @@
         @for (run of dlq; track run.id) {
           <tr>
             <td>{{ run.started_at | date: 'short' }}</td>
+            <td>
+              <span
+                class="badge"
+                [class.badge-danger]="run.status === 'failed'"
+                [class.badge-warning]="run.status === 'skipped'"
+              >
+                {{ run.status }}
+              </span>
+            </td>
             <td class="error-cell">{{ run.error }}</td>
             <td>{{ run.new_jobs }}</td>
             <td class="row-actions">
