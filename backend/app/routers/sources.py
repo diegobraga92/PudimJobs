@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from scrapers.utils import is_allowed_by_robots, redact_sensitive, robots_decision
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from workers.resilience import skip_backoff_clear
 
 from app.audit import log_audit
 from app.auth import get_current_user
@@ -38,6 +37,7 @@ from app.schemas.source import (
 )
 from app.schemas.source_auth import SourceAuthResponse, SourceAuthUpdate
 from app.services.secrets import encrypt_secret
+from app.services.skip_backoff import skip_backoff_clear
 from app.services.source_auth import build_fetch_auth
 from app.services.source_config import (
     adapter_metadata,

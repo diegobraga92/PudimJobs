@@ -83,6 +83,13 @@ jobs:
         working-directory: .
         run: docker build -f backend/Dockerfile -t pudimjobs-backend .
 
+      # The image ships only backend/, api/ and scrapers/, while tests run from
+      # the repository root where `workers` is importable. Import the app inside
+      # the built image so a missing shared package fails CI, not the deploy.
+      - name: Smoke-test the backend image
+        working-directory: .
+        run: docker run --rm pudimjobs-backend python -c "import app.main"
+
       - name: Scan image with Trivy
         run: |
           docker run --rm \

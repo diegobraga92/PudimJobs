@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from workers.resilience import skip_backoff_clear
 
 from app.audit import log_audit
 from app.auth import require_admin
@@ -20,6 +19,7 @@ from app.schemas.admin import (
 )
 from app.schemas.audit import AuditLogResponse
 from app.schemas.source import SourceRunSummary
+from app.services.skip_backoff import skip_backoff_clear
 from app.services.source_health import health_reason, latest_runs
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])

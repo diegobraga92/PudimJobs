@@ -4,7 +4,17 @@ import uuid
 from urllib.parse import urlparse
 
 import redis
+
 from app.config import settings
+
+# Re-exported so existing worker code and tests keep importing the helpers from
+# here; the implementation lives in ``app`` because the API image has no
+# ``workers`` package.
+from app.services.skip_backoff import (
+    skip_backoff_active as skip_backoff_active,
+    skip_backoff_clear as skip_backoff_clear,
+    skip_backoff_mark as skip_backoff_mark,
+)
 
 # Sync client on purpose: Celery tasks run via asyncio.run(), one event loop per
 # task, so an async client would leak connections across loops.
@@ -13,7 +23,6 @@ redis_client: redis.Redis = redis.Redis.from_url(
 )
 
 CIRCUIT_KEY = "cb:{source_id}"
-SKIP_BACKOFF_KEY = "skip:{source_id}"
 SCRAPE_LOCK_KEY = "scrape:lock:{source_id}"
 
 # Only the lock owner may release it: a task that overran its TTL must not
@@ -67,33 +76,6 @@ def rate_limit_mark(url: str, cooldown_seconds: int = 30) -> None:
         redis_client.delete(key)
         return
     redis_client.set(key, "1", ex=cooldown_seconds)
-
-
-def skip_backoff_active(source_id: str) -> bool:
-    """True while a skipped source is in its retry backoff window."""
-    return (
-        redis_client.exists(SKIP_BACKOFF_KEY.format(source_id=source_id)) == 1
-    )
-
-
-def skip_backoff_mark(source_id: str, minutes: int | None = None) -> None:
-    """Suppress re-enqueueing a skipped source for the backoff period.
-
-    ``minutes`` overrides the configured 24 h backoff for *transient* skips
-    (e.g. robots.txt unreachable), so a network blip does not freeze a source
-    until the next day. A permanent ``Disallow`` keeps the long backoff.
-    """
-    ttl_minutes = settings.scrape_skip_backoff_minutes if minutes is None else minutes
-    redis_client.set(
-        SKIP_BACKOFF_KEY.format(source_id=source_id),
-        "1",
-        ex=max(1, ttl_minutes) * 60,
-    )
-
-
-def skip_backoff_clear(source_id: str) -> None:
-    """Drop the backoff after a real attempt (success or failure)."""
-    redis_client.delete(SKIP_BACKOFF_KEY.format(source_id=source_id))
 
 
 def acquire_scrape_lock(source_id: str) -> str | None:
