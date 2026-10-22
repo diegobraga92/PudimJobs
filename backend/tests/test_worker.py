@@ -3,7 +3,7 @@
 Requires PostgreSQL (test DB) and Redis; skipped when unavailable.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -24,7 +24,7 @@ from workers.resilience import (
     skip_backoff_mark,
 )
 from workers.tasks import scrape as scrape_module
-from workers.tasks.scrape import _enrich_with_json_ld, _run_scrape
+from workers.tasks.scrape import _enrich_with_json_ld, _run_scrape, _store_jobs
 
 from app.config import settings
 from app.models import Job, Notification, ScrapeRun, Source, SourceAuth
@@ -264,6 +264,34 @@ async def test_scrape_pipeline_stores_jobs_and_records_run(
     await db_session.refresh(source)
     assert source.last_scraped is not None
     assert source.health == "healthy"
+
+
+async def test_store_jobs_coerces_a_string_posted_date(test_engine, db_session):
+    """A provider leaking a str date must not abort the batch insert.
+
+    Regression: the ATS sweep handed ``posted_date='2026-02-27'`` to asyncpg,
+    which rejected it for the DATE column and failed the whole run.
+    """
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    normalized = [
+        {
+            "title": "Backend Engineer",
+            "company": "Acme",
+            "url": "https://acme.example/jobs/1",
+            "description": None,
+            "posted_date": "2026-02-27",
+            "tags": [],
+            "external_id": None,
+        }
+    ]
+
+    new_count, skip_count, stored = await _store_jobs(source, normalized, db_session)
+
+    assert (new_count, skip_count) == (1, 0)
+    assert stored[0].posted_date == date(2026, 2, 27)
+    jobs = (await db_session.execute(select(Job))).scalars().all()
+    assert jobs[0].posted_date == date(2026, 2, 27)
 
 
 async def test_scrape_deduplicates_on_second_run(

@@ -75,13 +75,6 @@ _REMOTE_MARKER_RE = re.compile(
 )
 
 
-def _date_prefix(value: object) -> str | None:
-    """Return the ``YYYY-MM-DD`` prefix of an ISO timestamp/date (or None)."""
-    if not value:
-        return None
-    return str(value)[:10]
-
-
 def _strip_html(html: str | None) -> str:
     if not html:
         return ""
@@ -271,7 +264,7 @@ class AshbyProvider(ATSProvider):
                     title=item.get("title") or "",
                     company=self.config.get("company") or self.config.get("org") or "",
                     url=item.get("jobUrl") or item.get("url"),
-                    posted_date=_date_prefix(item.get("publishedAt")),
+                    posted_date=coerce_date(item.get("publishedAt")),
                     description=_strip_html(description) or None,
                     tags=list(dict.fromkeys(tags)),
                     external_id=str(item["id"]) if item.get("id") else None,
@@ -310,7 +303,7 @@ class GreenhouseProvider(ATSProvider):
                     or self.config.get("board_token")
                     or "",
                     url=item.get("absolute_url"),
-                    posted_date=_date_prefix(item.get("updated_at")),
+                    posted_date=coerce_date(item.get("updated_at")),
                     description=description[:2000] if description else None,
                     tags=_tags(location, *departments),
                     external_id=str(item["id"]) if item.get("id") else None,
@@ -353,7 +346,8 @@ class LeverProvider(ATSProvider):
                     title=item.get("text") or "",
                     company=self.config.get("company") or "",
                     url=item.get("hostedUrl"),
-                    posted_date=_date_prefix(item.get("createdAt")),
+                    # Lever reports ``createdAt`` as epoch milliseconds.
+                    posted_date=coerce_date(item.get("createdAt")),
                     description=description,
                     tags=_tags(
                         cats.get("commitment"),
@@ -382,7 +376,7 @@ class WorkableProvider(ATSProvider):
                     title=item.get("title") or "",
                     company=self.config.get("company") or self.config.get("org") or "",
                     url=item.get("url"),
-                    posted_date=_date_prefix(
+                    posted_date=coerce_date(
                         item.get("published_on") or item.get("published_at")
                     ),
                     description=description,

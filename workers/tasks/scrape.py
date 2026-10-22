@@ -16,6 +16,7 @@ from scrapers.registry import get_scraper
 from scrapers.utils import (
     RobotsDecision,
     as_flag,
+    coerce_date,
     parse_json_ld_jobs,
     redact_sensitive,
     robots_decision,
@@ -227,7 +228,11 @@ async def _store_jobs(
             company=(data["company"] or "").strip()[:255],
             description=data.get("description"),
             url=url,
-            posted_date=data.get("posted_date"),
+            # Providers are supposed to hand over a ``date``, but a single
+            # string slipped through before and aborted the whole batch insert
+            # (asyncpg rejects a str for a DATE column). Coercing here keeps a
+            # parser bug costing one field instead of the entire run.
+            posted_date=coerce_date(data.get("posted_date")),
             tags=data.get("tags") or [],
             external_id=external_id,
         )

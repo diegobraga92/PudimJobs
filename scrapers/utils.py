@@ -400,8 +400,14 @@ def coerce_date(value: object) -> date | None:
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
+        seconds = float(value)
+        # Lever (and a few other boards) date postings with epoch
+        # *milliseconds*; no posting in this app's range is an 11-digit
+        # seconds timestamp, so anything larger is scaled down.
+        if abs(seconds) > 1e11:
+            seconds /= 1000
         try:
-            return datetime.fromtimestamp(float(value), tz=UTC).date()
+            return datetime.fromtimestamp(seconds, tz=UTC).date()
         except (OverflowError, OSError, ValueError):
             return None
     return _parse_date(str(value))

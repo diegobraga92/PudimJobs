@@ -16,6 +16,7 @@ from scrapers.ats_boards import resolve_ats_board
 from scrapers.career_page import CareerPageScraper
 from scrapers.discovery import (
     AdzunaProvider,
+    AshbyProvider,
     BraveProvider,
     BrightDataProvider,
     DiscoveryScraper,
@@ -29,6 +30,7 @@ from scrapers.discovery import (
     RecruiteeProvider,
     SerpApiProvider,
     SmartRecruitersProvider,
+    WorkableProvider,
     WorkdayProvider,
     get_discovery_provider,
 )
@@ -938,6 +940,10 @@ def test_coerce_date_handles_iso_epoch_and_invalid_values():
     assert coerce_date(date(2026, 8, 2)) == date(2026, 8, 2)
     assert coerce_date(datetime(2026, 8, 3, 5, 30)) == date(2026, 8, 3)
     assert coerce_date(1754042400) == date(2025, 8, 1)
+    # Lever dates postings with epoch milliseconds; truncating them to a string
+    # is what used to break the ATS sweep's batch insert.
+    assert coerce_date(1785578400000) == date(2026, 8, 1)
+    assert coerce_date(1785578400000.5) == date(2026, 8, 1)
     assert coerce_date("not a date") is None
     assert coerce_date(None) is None
     assert coerce_date(True) is None
@@ -969,7 +975,7 @@ DETAIL_HTML = """
 """
 
 
-def _json_page(payload: dict) -> ScrapedPage:
+def _json_page(payload: object) -> ScrapedPage:
     return ScrapedPage(
         html_content=json.dumps(payload),
         status_code=200,
@@ -988,6 +994,82 @@ def test_greenhouse_provider_parses_jobs():
     assert "Build APIs" in jobs[0].description
     # Greenhouse departments are ``{id, name}``, unlike SmartRecruiters' labels.
     assert jobs[0].tags == ["Remote, Brazil", "Engineering"]
+    assert jobs[0].posted_date == date(2026, 8, 1)
+
+
+ATS_DATE_PAYLOADS = [
+    pytest.param(
+        AshbyProvider({"org": "acme", "company": "Acme"}),
+        {
+            "jobs": [
+                {
+                    "id": "1",
+                    "title": "Backend Engineer",
+                    "jobUrl": "https://jobs.ashbyhq.com/acme/1",
+                    "publishedAt": "2026-08-01T10:00:00.000+00:00",
+                }
+            ]
+        },
+        date(2026, 8, 1),
+        id="ashby",
+    ),
+    pytest.param(
+        GreenhouseProvider({"board_token": "acme", "company": "Acme"}),
+        {
+            "jobs": [
+                {
+                    "id": 1,
+                    "title": "Backend Engineer",
+                    "absolute_url": "https://boards.greenhouse.io/acme/jobs/1",
+                    "updated_at": "2026-08-01T10:00:00Z",
+                }
+            ]
+        },
+        date(2026, 8, 1),
+        id="greenhouse",
+    ),
+    pytest.param(
+        LeverProvider({"company": "acme"}),
+        [
+            {
+                "id": "1",
+                "text": "Backend Engineer",
+                "hostedUrl": "https://jobs.lever.co/acme/1",
+                "createdAt": 1785578400000,  # epoch milliseconds
+            }
+        ],
+        date(2026, 8, 1),
+        id="lever-epoch-ms",
+    ),
+    pytest.param(
+        WorkableProvider({"org": "acme", "company": "Acme"}),
+        {
+            "jobs": [
+                {
+                    "title": "Backend Engineer",
+                    "url": "https://apply.workable.com/acme/j/1",
+                    "published_on": "2026-08-01",
+                }
+            ]
+        },
+        date(2026, 8, 1),
+        id="workable",
+    ),
+]
+
+
+@pytest.mark.parametrize("provider, payload, expected", ATS_DATE_PAYLOADS)
+def test_ats_providers_emit_date_objects_for_posted_date(provider, payload, expected):
+    """``posted_date`` must be a ``date`` — asyncpg rejects a str for DATE.
+
+    Regression: the ATS sweep used to keep the ``YYYY-MM-DD`` slice of the
+    payload timestamp, which failed the run's whole batch insert.
+    """
+    jobs = provider.parse(_json_page(payload))
+
+    assert len(jobs) == 1
+    assert jobs[0].posted_date == expected
+    assert isinstance(jobs[0].posted_date, date)
 
 
 def test_ats_provider_missing_config_raises():
