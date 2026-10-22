@@ -227,17 +227,20 @@ def redact_sensitive(text: str, *secrets: str | None) -> str:
     return redacted
 
 
-async def _read_capped(resp: httpx.Response) -> str:
-    """Read a streamed response body, enforcing the size cap."""
-    max_bytes = settings.scraper_max_response_bytes
+async def _read_capped(resp: httpx.Response, max_bytes: int | None = None) -> str:
+    """Read a streamed response body, enforcing the size cap.
+
+    ``max_bytes`` overrides ``settings.scraper_max_response_bytes`` for callers
+    that know their payload is bigger: an ATS board dump carries every opening
+    with its full description (see ``ATSProvider.max_response_bytes``).
+    """
+    limit = max_bytes or settings.scraper_max_response_bytes
     chunks: list[bytes] = []
     total = 0
     async for chunk in resp.aiter_bytes():
         total += len(chunk)
-        if total > max_bytes:
-            raise ValueError(
-                f"Response exceeds scraper_max_response_bytes ({max_bytes})"
-            )
+        if total > limit:
+            raise ValueError(f"Response exceeds scraper_max_response_bytes ({limit})")
         chunks.append(chunk)
     return b"".join(chunks).decode("utf-8", errors="replace")
 
@@ -264,6 +267,7 @@ async def fetch_html(
     method: str = "GET",
     json_body: dict | None = None,
     read_error_body: bool = False,
+    max_bytes: int | None = None,
 ) -> ScrapedPage:
     """Fetch a URL and return a ``ScrapedPage`` with the response HTML.
 
@@ -272,6 +276,8 @@ async def fetch_html(
     the error payload to the raised ``httpx.HTTPStatusError`` so callers can show
     the provider's own message; the exception type and ``exc.response`` stay
     intact, so status-code handling in the scrape worker keeps working.
+    ``max_bytes`` raises the size cap for payloads that are legitimately larger
+    than a page (ATS board dumps).
     """
     headers = {"User-Agent": random_user_agent(), "Accept-Language": "en-US,en;q=0.9"}
     if auth and auth.headers:
@@ -302,7 +308,7 @@ async def fetch_html(
                         response=resp,
                     )
                 return ScrapedPage(
-                    html_content=await _read_capped(resp),
+                    html_content=await _read_capped(resp, max_bytes),
                     status_code=resp.status_code,
                     final_url=str(resp.url),
                 )

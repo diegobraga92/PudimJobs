@@ -53,7 +53,7 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 
 | Key | Meaning | Default |
 |---|---|---|
-| `max_pages` | listing pages to walk via `next_page_url` | `1` |
+| `max_pages` | listing pages to walk via `next_page_url` (in a sweep: pages read **per query**, so the run budget is `max_pages × len(queries)`) | `1` |
 | `next_page_selector` | `generic_html_list`: CSS selector for the next-page `<a>`. Preferred when present — a real link also disappears on the last page, so the walk ends by itself | — |
 | `next_page_tpl` | pages 2..`max_pages` are **built** from this template, rendered with any config key plus `{page}` (`…/search?term={term}&page={page}`; relative templates resolve against the page they were read from). A JSON blob (`embedded_json_list`) has no `<a>` to follow, so here it is the only way to page; `generic_html_list` falls back to it when no `next_page_selector` is set (dev.pro's pager renders the *current* page as a `<span>` and the lowest number first, so "the next link" cannot be expressed as a selector) | — |
 | `url_tpl` | `generic_html_list` / `json_list`: page 1 is built from this template instead of the stored URL (`{page}` = 1 here, plus every other config key), so a term or locale can live in the config. In `embedded_json_list` the same key means the *job* URL (`{url}` from `url_path`) | — |
@@ -66,6 +66,11 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `keywords` / `exclude_keywords` | sweep-only whole-term filters over title, tags and description (`c++` works); excludes win | — |
 | `locations` | sweep-only case/accent-insensitive substring match over title, tags and description | — |
 | `max_boards` / `max_jobs` | sweep-only caps: boards per run; kept jobs per run (`0` = no cap) | `40` / `0` |
+| `board_rate_limit_seconds` | sweep-only: cooldown between two board fetches (the source `rate_limit_seconds` still governs the search API) | `3` |
+| `min_boards_per_query` | sweep-only: board slots reserved for the queries not visited yet, so the first query cannot spend `max_boards` on its own | `2` |
+| `sweep_max_seconds` | sweep-only: wall-clock budget for the run (`0` = no cap) | `0` |
+| `match_in` | sweep-only: `title` restricts `keywords`/`exclude_keywords` to title + tags (`locations` still reads the description) | `anywhere` |
+| `max_age_days` | discovery providers: drop postings older than this many days (`0` = keep everything). Only acts on **dated** postings — undated rows are kept and counted as `undated` in the run log | `0` |
 
 **URL arguments and search terms.** A stored `url` is fetched **verbatim** by
 `career_page`, `aggregator` and `rss` (`first_fetch_url` defaults to identity),
@@ -515,14 +520,101 @@ deduplicated per org and capped by `max_boards` (default 40).
 A board returns every open job, so the sweep filters locally: `keywords` and
 `exclude_keywords` are whole-term, case-insensitive matches over title, tags and
 description (`c++` is handled correctly), and `locations` is a
-case/accent-insensitive substring match over the same text. `max_jobs` caps the
-jobs kept per run (`0` means no cap). Once `max_boards` boards have been
-registered, search paging stops, so extra result pages are not billed. A sweep
-is `allow_empty` by default because zero matches is a valid result, and a board
-that 404s or exceeds the response cap is logged and skipped rather than failing
-the source. Board APIs are public: the search provider's API key is never
-forwarded to them, and they are exempt from the `robots.txt` check (the search
-endpoint is still checked).
+case/accent-insensitive substring match over the same text. `match_in: "title"`
+keeps the keyword/exclude match on title + tags only, which is what a board dump
+needs: the company blurb mentions Rust once and every opening would match.
+`max_jobs` caps the jobs kept per run (`0` means no cap). Once `max_boards` boards
+have been registered, search paging stops, so extra result pages are not billed. A
+sweep is `allow_empty` by default because zero matches is a valid result, and a
+board that 404s or exceeds the response cap is logged (`ats_board_fetch_failed
+url=… error=…`) and skipped rather than failing the source. Board APIs are
+public: the search provider's API key is never forwarded to them, and they are
+exempt from the `robots.txt` check (the search endpoint is still checked).
+
+Greenhouse boards are read with `?content=true`, because the plain listing omits
+the posting body and the keyword/location filter was therefore matching titles
+only (GitLab's board went from 1 to 14 matches once the body was included). A
+host that rejects the parameter falls back to the plain listing (logged as
+`greenhouse_content_fallback`), which still yields every title and date.
+Greenhouse dates come from `first_published` (falling back to `updated_at`):
+`updated_at` moves on every edit, so a fresh posting could look old. Only the
+first 2 KB of a description is stored, but the filters match the whole text —
+a tech stack usually sits far past the first paragraph.
+
+**Freshness.** `max_age_days` is a per-source window applied to every discovery
+batch, sweep or not: board payloads and results-mode search payloads (Google
+Jobs) alike. It only acts on **dated** postings — undated rows are always kept,
+because a source that publishes no dates would otherwise look like an empty
+board. Google Jobs reports the age as an `extensions` chip ("5 days ago"), not
+as `detected_extensions.posted_at`; both are read, and only chips that read
+like an age are parsed, so a salary or a contract length cannot become a
+posting date. Each run logs `discovery_age_filter max_age_days=… stale=…
+undated=… kept=…` when the window is set; `undated` equal to `kept` means the
+source reports no dates at all and the window is doing nothing.
+
+**Budgeting a sweep over several queries.** A sweep with a `queries` list walks
+*every* query, not only the pages of the first one: `max_pages` counts pages per
+query, so a run may fetch `max_pages × len(queries)` search pages. Boards are
+reserved per query (`min_boards_per_query`) so query #1 cannot spend `max_boards`
+by itself and leave the later ATS queries with nothing to read. Board fetches use
+their own short cooldown (`board_rate_limit_seconds`, default 3 s) while the
+search API keeps the source's `rate_limit_seconds`; `sweep_max_seconds` stops the
+run when the wall clock is spent. A board JSON carries every opening with its
+full description, so board reads get a larger response cap (16 MB) than the
+2 MB page default — Ashby's `openai` board alone is ~13 MB. Each run logs one
+`ats_sweep_summary boards=… offered=… jobs=… stale=… undated=… queries=…` line;
+`offered` counts every board the queries surfaced, so a gap of more than one page
+between `offered` and `boards` means the run was budget-bound rather than the
+index being thin (`max_boards` / `min_boards_per_query`); `stale`/`undated` are
+the freshness gate's counters (see **Freshness** above). Per board the sweep logs
+`ats_sweep_board query=… ats=… url=…` when it registers it and
+`ats_sweep_board_jobs url=… openings=… kept=…` after filtering, which is what
+tells a dead/empty board (`openings=0`) from an over-strict filter
+(`openings>0 kept=0`). A board that answers 404/410 is remembered in Redis for
+a week (`ats_board_miss:<url>`, logged as `ats_board_dead url=… status=…`) and
+skipped by later sweeps without spending a slot (`ats_sweep_board_skipped
+url=… reason=dead`): the index keeps returning moved or misnamed boards, and
+re-reading them was ~8% of the read budget in the audit. Other failures (5xx,
+size cap) are retried on the next run. Grep one run's board manifest with
+`grep ats_sweep_board <log>`.
+
+**How deep a sweep reads, and where it stops.** Brave's `offset` is a *page*
+number, so `max_pages: 2` reads pages 1–2 of every query. Measured on the 12-query
+sweep (2026-10-22): page 1 offered 171 boards and page 2 took that run to 210 (its
+own cap; the same two pages offer 244 under `max_boards: 240`). Replaying the
+offsets directly, page 3 added two boards, page 4 one and page 5 none — the API
+stops serving new boards after the second page for these `site:` queries, so two
+pages capture its whole set and further pages only re-spend the search cooldown.
+Page 2 is not a second helping of page 1: in the run that read both pages end to
+end, 97 of the 229 boards read were nowhere in the baseline (102 were absent from
+the front-end's page-1 list alone), while page 2 added only two boards *within*
+that list — it is a different slice of the index. A page is also not 20 boards: a
+board with many matching postings fills several result slots (GitLab took 4 of 20
+on one query), so a page yields ~14 distinct orgs, which is why `offered` sits well
+below `20 × pages × queries`. The remaining gap against the `search.brave.com`
+front-end is upstream index coverage, not request parameters: replaying the same
+queries with `country`/`search_lang` returned the same boards
+(`country=BR&search_lang=pt` is even rejected with HTTP 422), and 17 of the 150
+boards the front-end showed on page 1 never came back at any offset (0–4).
+Reading those 17 directly explains them: 4 answer 404, 2 are empty, 8 have no
+opening matching the filters, and the remaining 3 (okta, worldquant, avride)
+carry 24 kept jobs — the priced residual of this discovery mechanism.
+
+**What a healthy sweep looks like.** The bar the 2026-10-22 audit settled on:
+`offered` may exceed `boards` by up to one page — the last page fetched overflows
+`max_boards` — and anything larger means the budget is binding; `max_jobs` must sit
+above what a full run keeps, because once spent it stops discovery too and a short
+`boards` reads as a board-budget problem. Coverage should sit at the two-page
+ceiling: 132 of the 150 boards the front-end showed on page 1, of which 127 are on
+page 1 and 5 only on page 2 (the other 18 never come back at any offset: 4 are 404,
+2 empty, 8 without a matching opening, 3 worth 24 jobs); a board lost to a timeout
+or a 404 is the only reason to fall short. And job-level parity on spot checks —
+every job a spot-checked board shows inside `max_age_days` is stored with the
+board's own posting date. Job counts are pre-dedupe by URL/requisition id only, so a
+role re-posted under a new id is stored once per id (one Workato title existed five
+times on 2026-10-22); that is storage-by-id, not a parsing bug. Nothing prunes jobs
+that a board stops listing: a withdrawn posting, or one stored before
+`max_age_days` was configured, stays in `jobs` until the user hides it.
 
 **Bright Data endpoints.** `endpoint` picks which Bright Data API to call, and
 it must match the zone the key belongs to: `unlocker` (default for

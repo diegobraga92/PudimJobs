@@ -454,6 +454,80 @@ async def test_rate_limit_zero_disables_the_cooldown(redis_client):
     assert rate_limit_wait(url, cooldown_seconds=0) == 0.0
 
 
+def test_rate_limit_seconds_prefers_a_scraper_hook():
+    """Per-target cooldowns: an ATS sweep reads dozens of boards per run."""
+
+    class BoardScopedScraper:
+        def rate_limit_seconds_for(self, url: str, default: int) -> int:
+            return 3 if "api.ashbyhq.com" in url else default
+
+    source = SimpleNamespace(rate_limit_seconds=30)
+    scraper = BoardScopedScraper()
+
+    assert (
+        scrape_module._rate_limit_seconds(
+            scraper, "https://api.ashbyhq.com/posting-api/job-board/acme", source
+        )
+        == 3
+    )
+    assert (
+        scrape_module._rate_limit_seconds(
+            scraper, "https://api.search.brave.com/res/v1/web", source
+        )
+        == 30
+    )
+    # A scraper without the hook keeps the source's cooldown.
+    assert (
+        scrape_module._rate_limit_seconds(object(), "https://acme.example", source)
+        == 30
+    )
+
+
+async def test_scrape_sweep_uses_the_page_limit_hook(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A multi-query sweep may fetch more pages than `max_pages` alone allows."""
+
+    class PagedSweepScraper(FakeSweepScraper):
+        def __init__(self):
+            super().__init__([])
+            self.fetched: list[str] = []
+            self._pages = 0
+
+        def first_fetch_url(self, url: str) -> str:
+            return "https://search.example/results?query=1"
+
+        def page_limit(self, configured: int) -> int:
+            assert configured == 1  # the source's per-query budget
+            return 2  # what the provider expands it to (one page per query)
+
+        def next_page_url(self, page: ScrapedPage) -> str | None:
+            self._pages += 1
+            if self._pages < 2:
+                return f"https://search.example/results?query={self._pages + 1}"
+            return None
+
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user, type="discovery")
+    source.config = {"provider": "brave", "sweep_ats": True, "max_pages": 1}
+    await db_session.commit()
+
+    fake = PagedSweepScraper()
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    _fake_robots(monkeypatch)
+
+    result = await _run_scrape(str(source.id))
+
+    # Without the hook the worker stopped after `max_pages: 1` page and the
+    # second query never ran.
+    assert fake.fetched == [
+        "https://search.example/results?query=1",
+        "https://search.example/results?query=2",
+    ]
+    assert result["new"] == 2
+
+
 async def test_scrape_skips_when_robots_disallows(
     test_engine, db_session, monkeypatch, redis_client
 ):

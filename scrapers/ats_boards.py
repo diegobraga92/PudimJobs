@@ -92,7 +92,9 @@ def resolve_ats_board(url: str) -> AtsBoard | None:
     }:
         config = {"board_token": identifier, "company": identifier}
         if "eu." in host:
-            config["api_host"] = "boards-api.eu.greenhouse.io"
+            # `boards-api.eu.greenhouse.io` does not exist (NXDOMAIN): the EU
+            # board API is served from the same host as the EU job board.
+            config["api_host"] = "boards.eu.greenhouse.io"
         return AtsBoard("greenhouse", config)
 
     if host in {"jobs.smartrecruiters.com", "careers.smartrecruiters.com"}:

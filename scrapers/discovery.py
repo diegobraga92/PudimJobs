@@ -4,9 +4,11 @@ import hashlib
 import json
 import logging
 import re
+import time
 import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from xml.etree import ElementTree
 
@@ -14,6 +16,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
+from app.services.board_health import board_miss_active, board_miss_clear, board_miss_mark
 from scrapers.ats_boards import AtsBoard, resolve_ats_board
 from scrapers.base import AbstractScraper
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
@@ -36,6 +39,16 @@ from scrapers.utils import (
 #: string, in a header, or as a path segment (Jooble).
 _JSON_AUTH_LOCATIONS = frozenset({"url", "path", "query", "header"})
 _JSON_METHODS = frozenset({"GET", "POST"})
+
+#: A SerpApi ``extensions`` entry is a free-text chip ("Full-time", "$120K a
+#: year", "5 days ago"). Only the age chips may become a posting date: parsing
+#: "1 year contract" as "posted a year ago" would drop a fresh job from a
+#: ``max_age_days`` filter.
+_AGE_LABEL_RE = re.compile(
+    r"\b(?:ago|atr[aá]s|h[aá]|faz|today|yesterday|hoje|ontem|"
+    r"just\s+(?:posted|now))\b",
+    re.IGNORECASE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +222,11 @@ class ATSProvider(DiscoveryProvider):
 
     family = "ats"
     endpoint_tpl: str = ""
+    #: Board dumps carry every opening with its full description, so the 2 MB
+    #: cap meant for HTML pages drops the large ones (Ashby's ``openai`` board
+    #: is ~13 MB, and an ATS sweep reads dozens of boards per run). Only these
+    #: public board endpoints get the bigger budget.
+    max_response_bytes: int = 16_000_000
 
     def results_url(self) -> str:
         try:
@@ -217,6 +235,9 @@ class ATSProvider(DiscoveryProvider):
             raise ValueError(
                 f"{self.provider_name} requires a '{exc.args[0]}' entry in source config"
             ) from exc
+
+    async def fetch(self, url: str, *, auth: FetchAuth | None = None) -> ScrapedPage:
+        return await fetch_html(url, auth=auth, max_bytes=self.max_response_bytes)
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         data = json.loads(page.html_content)
@@ -278,7 +299,13 @@ class GreenhouseProvider(ATSProvider):
     endpoint_tpl = "https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs"
 
     def results_url(self) -> str:
-        """The board API, honouring the EU host used by European boards."""
+        """The board API, honouring the EU host used by European boards.
+
+        ``?content=true`` is required: without it the payload carries the
+        title and the metadata only, so ``content`` was always ``None`` and the
+        keyword/location filter was blind (GitLab's board went from 1 to 14
+        matches once the body was part of the text).
+        """
         try:
             token = self.config["board_token"]
         except KeyError as exc:
@@ -286,7 +313,37 @@ class GreenhouseProvider(ATSProvider):
                 "greenhouse requires a 'board_token' entry in source config"
             ) from exc
         host = self.config.get("api_host") or "boards-api.greenhouse.io"
-        return f"https://{host}/v1/boards/{token}/jobs"
+        return f"https://{host}/v1/boards/{token}/jobs?content=true"
+
+    async def fetch(self, url: str, *, auth: FetchAuth | None = None) -> ScrapedPage:
+        """Fetch the board with each posting's body, falling back to the listing.
+
+        A host that rejects ``content=true`` must not cost the sweep the whole
+        board: the plain listing still yields every title, date and URL, just
+        without descriptions. The fallback page keeps the *requested* URL as
+        ``final_url`` so the sweep still recognises it as a board payload.
+        """
+        try:
+            return await fetch_html(url, auth=auth, max_bytes=self.max_response_bytes)
+        except (httpx.HTTPError, ValueError) as exc:
+            parsed = urlparse(url)
+            query = [
+                (name, value)
+                for name, value in parse_qsl(parsed.query, keep_blank_values=True)
+                if name != "content"
+            ]
+            plain = urlunparse(parsed._replace(query=urlencode(query)))
+            if plain == url:
+                raise
+            logger.warning(
+                "greenhouse_content_fallback url=%s error=%s", url, exc
+            )
+            page = await fetch_html(plain, auth=auth, max_bytes=self.max_response_bytes)
+            return ScrapedPage(
+                html_content=page.html_content,
+                status_code=page.status_code,
+                final_url=url,
+            )
 
     def _jobs_from_payload(self, data):
         jobs: list[RawJob] = []
@@ -303,10 +360,16 @@ class GreenhouseProvider(ATSProvider):
                     or self.config.get("board_token")
                     or "",
                     url=item.get("absolute_url"),
-                    posted_date=coerce_date(item.get("updated_at")),
+                    # `first_published` is the posting date; `updated_at` also
+                    # moves when the company edits the ad, which made a fresh
+                    # posting look old (and an old one look new).
+                    posted_date=coerce_date(
+                        item.get("first_published") or item.get("updated_at")
+                    ),
                     description=description[:2000] if description else None,
                     tags=_tags(location, *departments),
                     external_id=str(item["id"]) if item.get("id") else None,
+                    match_text=description or None,
                 )
             )
         return [j for j in jobs if j.title and j.url]
@@ -1029,6 +1092,10 @@ class SearchApiProvider(TwoStageProvider):
         super().__init__(config, api_key)
         self._offset = 0
         self._query_index = 0
+        # Set by `DiscoveryScraper` for ATS sweeps: a sweep has to read every
+        # configured query, not only the pages of the first one.
+        self.rotate_queries = False
+        self._pages_used = 0
 
     def _queries(self) -> list[str]:
         """The configured query list, falling back to the single ``query`` key."""
@@ -1048,6 +1115,24 @@ class SearchApiProvider(TwoStageProvider):
 
     def _has_more_queries(self) -> bool:
         return self._query_index + 1 < len(self._queries())
+
+    @property
+    def query_count(self) -> int:
+        return len(self._queries())
+
+    @property
+    def queries_after_current(self) -> int:
+        """How many queries still follow the one being read."""
+        return max(0, self.query_count - (self._query_index + 1))
+
+    @property
+    def pages_per_query(self) -> int:
+        """Pages to read per query before moving on (source ``max_pages``)."""
+        try:
+            return max(1, int(self.config.get("max_pages", 1)))
+        except (TypeError, ValueError):
+            return 1
+
 
     @classmethod
     def validate_config(cls, config: dict, *, has_api_key: bool | None = None) -> None:
@@ -1071,14 +1156,25 @@ class SearchApiProvider(TwoStageProvider):
 
     def next_page_url(self, page: ScrapedPage) -> str | None:
         """Continue the current query, then move on to the next one."""
+        # A sweep reads one page per query by default: search APIs report
+        # "more results available" on nearly every page, so without this the
+        # first query would consume the entire board budget.
+        if self.rotate_queries and self._pages_used + 1 >= self.pages_per_query:
+            return self._next_query_url()
         next_offset = self._next_offset(page)
         if next_offset:
             self._offset = int(next_offset)
+            self._pages_used += 1
             return self.build_results_url(int(next_offset))
+        return self._next_query_url()
+
+    def _next_query_url(self) -> str | None:
+        """Advance to the next configured query, or ``None`` when exhausted."""
         if not self._has_more_queries():
             return None
         self._query_index += 1
         self._offset = 0
+        self._pages_used = 0
         if hasattr(self, "_page"):
             self._page = 1
         return self.build_results_url()
@@ -1352,9 +1448,7 @@ class SerpApiProvider(SearchApiProvider):
                     title=str(item.get("title") or "").strip(),
                     company=str(item.get("company_name") or "").strip(),
                     url=self._job_link(item),
-                    posted_date=coerce_date(
-                        relative_age(detected.get("posted_at")) or detected.get("posted_at")
-                    ),
+                    posted_date=self._posted_date(item, detected),
                     description=description,
                     tags=tags,
                     external_id=self._external_id(item),
@@ -1363,6 +1457,30 @@ class SerpApiProvider(SearchApiProvider):
         jobs = [job for job in jobs if job.title and job.url]
         max_results = int(self.config.get("max_results") or 0)
         return jobs[:max_results] if max_results > 0 else jobs
+
+    def _posted_date(self, item: dict, detected: dict) -> date | None:
+        """The posting age SerpApi reports as free text, not a timestamp.
+
+        ``detected_extensions.posted_at`` exists on some engines (the LinkedIn
+        one sends ``"3 days ago"``). Google Jobs carries the same information
+        as an ``extensions`` chip, which is why every Google Jobs row used to
+        be stored undated — invisible to the UI's date filter *and* to
+        ``max_age_days``. Only chips that read like an age are parsed, so a
+        salary or a contract length cannot become a posting date.
+        """
+        explicit = detected.get("posted_at")
+        if explicit:
+            parsed = coerce_date(relative_age(explicit) or explicit)
+            if parsed:
+                return parsed
+        for label in item.get("extensions") or []:
+            if not _AGE_LABEL_RE.search(str(label)):
+                continue
+            parsed = coerce_date(relative_age(label))
+            if parsed:
+                return parsed
+        return None
+
 
     def _description_from_result(self, item: dict) -> str | None:
         description = as_optional_str(item.get("description"))
@@ -1570,6 +1688,15 @@ _SWEEP_OPTIONS = (
     "max_boards",
     "max_jobs",
     "allow_empty",
+    # Budgeting knobs, so a multi-query sweep can be tuned from the API form
+    # instead of only through a hand-edited config.
+    "match_in",
+    "board_rate_limit_seconds",
+    "min_boards_per_query",
+    "sweep_max_seconds",
+    # Freshness gate; generic to every discovery source, exposed here so a
+    # sweep can be bounded from the API form.
+    "max_age_days",
 )
 
 
@@ -1754,6 +1881,9 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
             "allow_empty",
             "detail_strategy",
             "selectors",
+            # A results-mode engine can fetch the jobs as well, so the age
+            # gate applies here without a sweep.
+            "max_age_days",
         ),
         "example": {
             "engine": "google_jobs",
@@ -1869,11 +1999,33 @@ class DiscoveryScraper(AbstractScraper):
         self._sweep = as_flag(self.provider.config.get("sweep_ats")) and isinstance(
             self.provider, TwoStageProvider
         )
+        if self._sweep and isinstance(self.provider, SearchApiProvider):
+            # A sweep exists to cover every query: spend `max_pages` per query
+            # instead of letting the first one use the whole page budget.
+            self.provider.rotate_queries = True
+        # Start of the run, used by the optional `sweep_max_seconds` budget.
+        self._started = time.monotonic()
         # Registered board API URL -> provider; the trailing slash is stripped
         # so a redirect (`/jobs` -> `/jobs/`) still finds its parser.
         self._board_providers: dict[str, DiscoveryProvider] = {}
         self._board_keys: set[tuple[str, str]] = set()
+        # Every board the queries offered, including the ones `max_boards` or
+        # the per-query reserve left unread: `offered` vs `boards` in the
+        # summary line is what tells a budget-bound sweep from an index gap.
+        self._offered_keys: set[tuple[str, str]] = set()
         self._jobs_emitted = 0
+        # Run totals for the freshness gate: `stale` is what `max_age_days`
+        # dropped, `undated` what it had to keep because the source reports no
+        # date at all (Google Jobs' relative chips were the main case).
+        self._stale_dropped = 0
+        self._undated_kept = 0
+        # `match_in: title` keeps keyword/exclusion matching on the title and
+        # tags only: a board dump otherwise matches "Rust" mentioned once in an
+        # unrelated job description.
+        self._title_match = (
+            str(self.provider.config.get("match_in") or "anywhere").strip().lower()
+            in {"title", "titles", "title_and_tags"}
+        )
         self._keyword_patterns = [
             _term_pattern(term)
             for term in as_tag_list(self.provider.config.get("keywords"))
@@ -1922,17 +2074,103 @@ class DiscoveryScraper(AbstractScraper):
         except (TypeError, ValueError):
             return default
 
+    def page_limit(self, configured: int) -> int:
+        """Total pages the worker may fetch in one run.
+
+        ``max_pages`` bounds the pages read from a *single* query; a sweep has
+        to read every configured query, so its budget is that limit times the
+        number of queries. Without this the worker stopped after query #1 and
+        the Lever/Greenhouse/SmartRecruiters queries never ran.
+        """
+        if not self._sweep or not isinstance(self.provider, SearchApiProvider):
+            return configured
+        return max(1, configured) * max(1, self.provider.query_count)
+
+    def rate_limit_seconds_for(self, url: str, default: int) -> int:
+        """Per-URL cooldown: board APIs get their own, shorter one.
+
+        A sweep reads dozens of boards from a single API host
+        (``api.ashbyhq.com``), each fetched exactly once per run. The search
+        provider's cooldown (often 30 s) would make a multi-query sweep outlive
+        its task time limit, so boards use ``board_rate_limit_seconds``.
+        """
+        if self._sweep and self._board_for(url) is not None:
+            return max(0, self._config_int("board_rate_limit_seconds", 3))
+        return default
+
     def _max_boards(self) -> int:
         return max(1, self._config_int("max_boards", 40))
 
     def _max_jobs(self) -> int:
         return max(0, self._config_int("max_jobs", 0))
 
+    def _max_age_days(self) -> int:
+        """Freshness window in days (``0`` = keep everything)."""
+        return max(0, self._config_int("max_age_days", 0))
+
+    def _drop_stale(self, jobs: list[RawJob]) -> list[RawJob]:
+        """Drop postings older than ``max_age_days`` (``0`` disables the gate).
+
+        A board dump repeats the company's whole backlog and a search API
+        happily returns last year's posting, so freshness has to be enforced
+        rather than hoped for. Two deliberate choices:
+
+        * The gate runs on *every* discovery batch (board payloads and
+          results-mode search payloads), because a source is not required to
+          be a sweep to carry stale results.
+        * Undated postings are kept. Several sources publish no date at all,
+          and silently dropping them would look like an empty board; the run
+          summary reports them as ``undated`` instead, so a source configured
+          with ``max_age_days`` that reports no dates is visible in the log.
+        """
+        max_age = self._max_age_days()
+        if max_age <= 0:
+            return jobs
+        cutoff = datetime.now(UTC).date() - timedelta(days=max_age)
+        kept: list[RawJob] = []
+        for job in jobs:
+            if job.posted_date is None:
+                self._undated_kept += 1
+            elif job.posted_date < cutoff:
+                self._stale_dropped += 1
+                continue
+            kept.append(job)
+        return kept
+
+    def _min_boards_per_query(self) -> int:
+        return max(0, self._config_int("min_boards_per_query", 2))
+
+    def _board_allowance(self) -> int:
+        """Board slots the current search page may still use.
+
+        Queries are visited in order, so the first query's boards could spend
+        ``max_boards`` on their own and the later ATS queries would never run:
+        every query not visited yet keeps ``min_boards_per_query`` slots.
+        """
+        budget = max(0, self._max_boards() - len(self._board_keys))
+        if not isinstance(self.provider, SearchApiProvider):
+            return budget
+        reserve = self._min_boards_per_query() * self.provider.queries_after_current
+        return max(0, budget - reserve)
+
+    def _jobs_budget_spent(self) -> bool:
+        max_jobs = self._max_jobs()
+        return max_jobs > 0 and self._jobs_emitted >= max_jobs
+
+    def _sweep_expired(self) -> bool:
+        """True once ``sweep_max_seconds`` has elapsed (0 disables the cap)."""
+        budget = self._config_int("sweep_max_seconds", 0)
+        return budget > 0 and time.monotonic() - self._started >= budget
+
     def _register_board(self, board: AtsBoard) -> str:
-        provider = get_discovery_provider(board.ats, dict(board.config))
-        url = provider.results_url()
+        provider, url = self._board_target(board)
         self._board_providers[url.rstrip("/")] = provider
         return url
+
+    def _board_target(self, board: AtsBoard) -> tuple[DiscoveryProvider, str]:
+        """The provider for ``board`` and the URL it reads (not registered)."""
+        provider = get_discovery_provider(board.ats, dict(board.config))
+        return provider, provider.results_url()
 
     def _board_for(self, url: str) -> DiscoveryProvider | None:
         return self._board_providers.get(url.rstrip("/"))
@@ -1947,10 +2185,24 @@ class DiscoveryScraper(AbstractScraper):
         # credential to a third-party ATS.  One broken board must not sink the
         # sweep, so 404s, size caps and network errors become an empty page.
         try:
-            return await provider.fetch(url)
-        except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("ats_board_fetch_failed", extra={"url": url, "error": str(exc)})
+            page = await provider.fetch(url)
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status in {404, 410}:
+                # The index keeps offering boards that no longer exist; park
+                # them so the next sweeps spend their budget on live ones.
+                board_miss_mark(url)
+                logger.warning("ats_board_dead url=%s status=%s", url, status)
+            else:
+                logger.warning(
+                    "ats_board_fetch_failed url=%s error=%s", url, exc
+                )
             return ScrapedPage(html_content="", status_code=0, final_url=url)
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("ats_board_fetch_failed url=%s error=%s", url, exc)
+            return ScrapedPage(html_content="", status_code=0, final_url=url)
+        board_miss_clear(url)
+        return page
 
     def robots_url(self, url: str) -> str | None:
         # A public JSON board API is not a page crawl; the search provider still
@@ -1969,16 +2221,27 @@ class DiscoveryScraper(AbstractScraper):
         type(self.provider).validate_config(self.provider.config, has_api_key=has_api_key)
 
     def _filter_jobs(self, jobs: list[RawJob]) -> list[RawJob]:
-        """Apply the local keyword/location filters and the ``max_jobs`` cap."""
+        """Apply the local keyword/location filters and the ``max_jobs`` cap.
+
+        ``match_in: title`` restricts keyword and exclusion matching to the
+        title and tags. A board returns every opening the company has, so
+        matching the description too keeps "Growth Lead" because the company
+        blurb mentions Rust once. Locations still match the description: a
+        board often carries the remote flag only in the body.
+        """
         if not (self._keyword_patterns or self._exclude_patterns or self._locations):
             kept = list(jobs)
         else:
             kept = []
             for job in jobs:
                 tags = " ".join(job.tags or [])
-                haystack = " ".join(
-                    part for part in (job.title, tags, job.description or "") if part
+                headline = " ".join(part for part in (job.title, tags) if part)
+                full_text = " ".join(
+                    part
+                    for part in (headline, job.match_text or job.description or "")
+                    if part
                 )
+                haystack = headline if self._title_match else full_text
                 if self._exclude_patterns and _matches_any(self._exclude_patterns, haystack):
                     continue
                 if self._keyword_patterns and not _matches_any(
@@ -1986,7 +2249,7 @@ class DiscoveryScraper(AbstractScraper):
                 ):
                     continue
                 if self._locations:
-                    folded = _fold_text(haystack)
+                    folded = _fold_text(full_text)
                     if not any(location in folded for location in self._locations):
                         continue
                 kept.append(job)
@@ -2001,20 +2264,32 @@ class DiscoveryScraper(AbstractScraper):
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         provider = self._board_for(page.final_url)
         if provider is None:
-            return self.provider.parse(page)
+            # Results-mode search payloads (Google Jobs) are stored without any
+            # local keyword filter, so they only pass the freshness gate.
+            return self._drop_stale(self.provider.parse(page))
         if not page.html_content:
             return []
         try:
             jobs = provider.parse(page)
         except (ValueError, TypeError, AttributeError, KeyError) as exc:
             logger.warning(
-                "ats_board_parse_failed",
-                extra={"url": page.final_url, "error": str(exc)},
+                "ats_board_parse_failed url=%s error=%s", page.final_url, exc
             )
             return []
         if not self._sweep:
-            return jobs
-        return self._filter_jobs(jobs)
+            return self._drop_stale(jobs)
+        # Age first: a stale opening must not consume a `max_jobs` slot that a
+        # fresh one would have used.
+        kept = self._filter_jobs(self._drop_stale(jobs))
+        # Openings vs kept separates "the board is dead/empty" from "the filter
+        # dropped everything" — the two look identical in the job counts.
+        logger.info(
+            "ats_sweep_board_jobs url=%s openings=%s kept=%s",
+            page.final_url,
+            len(jobs),
+            len(kept),
+        )
+        return kept
 
     async def discover_urls(self, page: ScrapedPage) -> list[str]:
         if not self._sweep or not isinstance(self.provider, TwoStageProvider):
@@ -2025,25 +2300,49 @@ class DiscoveryScraper(AbstractScraper):
         # `result_links` (a list has no `.get`).
         if self._board_for(page.final_url) is not None:
             return []
+        # Nothing below can be stored once the run's budget is spent, and each
+        # board fetch is a request: stop discovering instead of paying for it.
+        if self._jobs_budget_spent() or self._sweep_expired():
+            return []
 
         # `result_links` is used directly because a source may also set
         # `parse_listing`; that flag only affects the non-sweep path.
+        allowance = self._board_allowance()
+        query = (
+            self.provider.current_query()
+            if isinstance(self.provider, SearchApiProvider)
+            else ""
+        )
         urls: list[str] = []
         for link in self.provider.result_links(page):
-            if len(self._board_keys) >= self._max_boards():
-                break
             board = resolve_ats_board(link)
-            if board is None or board.key in self._board_keys:
+            if board is None:
+                continue
+            # Count before the allowance check: a board this page cannot afford
+            # is still a board the query offered, and that gap is the number
+            # `max_boards` has to grow by.
+            self._offered_keys.add(board.key)
+            if board.key in self._board_keys:
                 continue
             try:
-                url = self._register_board(board)
+                provider, url = self._board_target(board)
             except ValueError as exc:
-                logger.warning(
-                    "ats_board_config_failed",
-                    extra={"url": link, "error": str(exc)},
-                )
+                logger.warning("ats_board_config_failed url=%s error=%s", link, exc)
                 continue
+            if board_miss_active(url):
+                # A board that answered 404 last week is still a 404: skip it
+                # without spending a slot or a request. It still counts as
+                # offered, so `offered` keeps measuring the index, not us.
+                logger.info("ats_sweep_board_skipped url=%s reason=dead", url)
+                continue
+            if len(urls) >= allowance:
+                continue
+            self._board_providers[url.rstrip("/")] = provider
             self._board_keys.add(board.key)
+            # One line per board keeps the run's board manifest greppable:
+            # the summary only carries totals, and a board that returns 404
+            # would otherwise vanish without a trace.
+            logger.info("ats_sweep_board query=%s ats=%s url=%s", query, board.ats, url)
             urls.append(url)
         return urls
 
@@ -2051,9 +2350,52 @@ class DiscoveryScraper(AbstractScraper):
         # Search APIs are billed per request.  Once the board budget is spent no
         # later results page can add a board, so stop instead of paying for
         # pages whose links would only be discarded.
-        if self._sweep and len(self._board_keys) >= self._max_boards():
-            return None
+        if self._sweep:
+            if len(self._board_keys) >= self._max_boards():
+                return None
+            if self._jobs_budget_spent():
+                logger.info(
+                    "ats_sweep_job_budget_spent boards=%s jobs=%s",
+                    len(self._board_keys),
+                    self._jobs_emitted,
+                )
+                return None
+            if self._sweep_expired():
+                logger.info(
+                    "ats_sweep_time_budget_spent boards=%s jobs=%s",
+                    len(self._board_keys),
+                    self._jobs_emitted,
+                )
+                return None
         return self.provider.next_page_url(page)
 
     def normalize(self, raw_jobs: list[RawJob]) -> list[dict]:
-        return self.provider.normalize(raw_jobs)
+        normalized = self.provider.normalize(raw_jobs)
+        max_age = self._max_age_days()
+        if max_age > 0:
+            # One line per run: `undated` equal to `kept` means the source
+            # reports no dates at all, so the window is doing nothing.
+            logger.info(
+                "discovery_age_filter max_age_days=%s stale=%s undated=%s kept=%s",
+                max_age,
+                self._stale_dropped,
+                self._undated_kept,
+                len(normalized),
+            )
+        if self._sweep:
+            # One line per run so a silently shrinking sweep (dead boards, an
+            # over-strict filter, a freshness window that eats everything) is
+            # visible in the worker log.
+            logger.info(
+                "ats_sweep_summary boards=%s offered=%s jobs=%s stale=%s "
+                "undated=%s queries=%s",
+                len(self._board_providers),
+                len(self._offered_keys),
+                len(normalized),
+                self._stale_dropped,
+                self._undated_kept,
+                self.provider.query_count
+                if isinstance(self.provider, SearchApiProvider)
+                else 1,
+            )
+        return normalized

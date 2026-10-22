@@ -1,6 +1,7 @@
 """Unit tests for the scraper implementations (no DB/network required)."""
 
 import json
+import logging
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -17,6 +18,7 @@ from scrapers.career_page import CareerPageScraper
 from scrapers.discovery import (
     AdzunaProvider,
     AshbyProvider,
+    BingProvider,
     BraveProvider,
     BrightDataProvider,
     DiscoveryScraper,
@@ -48,6 +50,22 @@ from scrapers.utils import (
 )
 
 from app.models.enums import SourceType
+
+
+@pytest.fixture(autouse=True)
+def _board_cache_is_offline(monkeypatch):
+    """Keep the unit tests off Redis.
+
+    The negative board cache is a Redis read on every discovered board; these
+    tests are about discovery/parsing, and CI (and a bare checkout) may have no
+    Redis at all. Tests that exercise the cache patch these functions again.
+    """
+    import scrapers.discovery as discovery
+
+    monkeypatch.setattr(discovery, "board_miss_active", lambda url: False)
+    monkeypatch.setattr(discovery, "board_miss_mark", lambda url, **kwargs: None)
+    monkeypatch.setattr(discovery, "board_miss_clear", lambda url: None)
+
 
 CAREER_PAGE_HTML = """
 <html><head>
@@ -985,16 +1003,111 @@ def _json_page(payload: object) -> ScrapedPage:
 
 def test_greenhouse_provider_parses_jobs():
     provider = GreenhouseProvider({"board_token": "acme", "company": "Acme"})
-    assert provider.results_url() == "https://boards-api.greenhouse.io/v1/boards/acme/jobs"
+    # `?content=true` is what makes the payload carry each posting's body.
+    assert provider.results_url() == (
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true"
+    )
     jobs = provider.parse(_json_page(GREENHOUSE_PAYLOAD))
     assert len(jobs) == 1
     assert jobs[0].title == "Backend Engineer"
     assert jobs[0].url == "https://boards.greenhouse.io/acme/jobs/1"
     assert jobs[0].company == "Acme"
     assert "Build APIs" in jobs[0].description
+    # The same text feeds the local filters; `description` is what gets stored.
+    assert jobs[0].match_text == jobs[0].description
     # Greenhouse departments are ``{id, name}``, unlike SmartRecruiters' labels.
     assert jobs[0].tags == ["Remote, Brazil", "Engineering"]
     assert jobs[0].posted_date == date(2026, 8, 1)
+
+
+def test_greenhouse_prefers_first_published_over_updated_at():
+    """`updated_at` moves on every edit, so it is not the posting date."""
+    provider = GreenhouseProvider({"board_token": "acme"})
+    payload = {
+        "jobs": [
+            {
+                "id": 1,
+                "title": "Backend Engineer",
+                "absolute_url": "https://boards.greenhouse.io/acme/jobs/1",
+                "first_published": "2026-08-01T10:00:00-04:00",
+                "updated_at": "2026-09-30T10:00:00Z",
+            },
+            {
+                "id": 2,
+                "title": "Data Engineer",
+                "absolute_url": "https://boards.greenhouse.io/acme/jobs/2",
+                "updated_at": "2026-09-30T10:00:00Z",
+            },
+        ]
+    }
+
+    jobs = provider.parse(_json_page(payload))
+
+    assert jobs[0].posted_date == date(2026, 8, 1)
+    # Boards that predate `first_published` still get a date.
+    assert jobs[1].posted_date == date(2026, 9, 30)
+
+
+async def test_greenhouse_falls_back_to_the_listing_without_content(monkeypatch):
+    """A host refusing `content=true` must not cost the sweep the board."""
+    import scrapers.discovery as discovery
+
+    seen: list[str] = []
+
+    async def fake_fetch_html(url, *, auth=None, max_bytes=None):
+        seen.append(url)
+        if "content=true" in url:
+            raise httpx.HTTPStatusError(
+                "400", request=httpx.Request("GET", url), response=httpx.Response(400)
+            )
+        return ScrapedPage(
+            html_content=json.dumps(GREENHOUSE_PAYLOAD), status_code=200, final_url=url
+        )
+
+    monkeypatch.setattr(discovery, "fetch_html", fake_fetch_html)
+    provider = GreenhouseProvider({"board_token": "acme"})
+    url = provider.results_url()
+
+    page = await provider.fetch(url)
+
+    assert seen == [url, "https://boards-api.greenhouse.io/v1/boards/acme/jobs"]
+    # The sweep finds its parser by the URL it registered, so the fallback page
+    # has to keep that URL.
+    assert page.final_url == url
+    assert [job.title for job in provider.parse(page)] == ["Backend Engineer"]
+
+
+def test_greenhouse_matches_keywords_past_the_stored_description_limit():
+    """The tech stack usually sits far past the 2 KB the app stores."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {"query": "rust", "sweep_ats": True, "keywords": ["rust"]},
+    )
+    board = resolve_ats_board("https://boards.greenhouse.io/acme/jobs/1")
+    assert board is not None
+    board_url = scraper._register_board(board)
+    body = "<p>" + ("Filler sentence. " * 300) + "We build with Rust.</p>"
+    payload = {
+        "jobs": [
+            {
+                "id": 1,
+                "title": "Backend Engineer",
+                "location": {"name": "Remote, Brazil"},
+                "absolute_url": "https://boards.greenhouse.io/acme/jobs/1",
+                "content": body,
+            }
+        ]
+    }
+    page = ScrapedPage(
+        html_content=json.dumps(payload), status_code=200, final_url=board_url
+    )
+
+    kept = scraper.parse(page)
+
+    assert [job.external_id for job in kept] == ["1"]
+    # Matched on the whole body, but only the first 2 KB is stored.
+    assert len(kept[0].description) == 2000
+    assert "Rust" not in kept[0].description
 
 
 ATS_DATE_PAYLOADS = [
@@ -1096,7 +1209,7 @@ def test_ats_board_resolver_recognises_public_job_urls():
     }
     assert resolve_ats_board("https://job-boards.eu.greenhouse.io/acme/jobs/1").config[
         "api_host"
-    ] == "boards-api.eu.greenhouse.io"
+    ] == "boards.eu.greenhouse.io"
     assert resolve_ats_board("https://jobs.smartrecruiters.com/Acme/123").config == {
         "company": "Acme"
     }
@@ -1109,11 +1222,13 @@ def test_ats_board_resolver_recognises_public_job_urls():
 
 
 def test_eu_board_hosts_and_lever_limit_are_honoured():
+    # Greenhouse serves its EU API from the very host of the EU job board;
+    # `boards-api.eu.greenhouse.io` does not resolve at all.
     assert (
         GreenhouseProvider(
-            {"board_token": "acme", "api_host": "boards-api.eu.greenhouse.io"}
+            {"board_token": "acme", "api_host": "boards.eu.greenhouse.io"}
         ).results_url()
-        == "https://boards-api.eu.greenhouse.io/v1/boards/acme/jobs"
+        == "https://boards.eu.greenhouse.io/v1/boards/acme/jobs?content=true"
     )
     assert (
         LeverProvider({"company": "acme"}).results_url()
@@ -1802,6 +1917,37 @@ def test_search_providers_use_every_configured_query():
     assert google.next_page_url(empty_page) is None
 
 
+def test_search_provider_rotation_reads_every_query_before_paginating():
+    """A sweep must reach query #2 even when query #1 has more results.
+
+    Search APIs report `more_results_available` on almost every page, so the
+    old offset-first loop spent the whole page budget inside query #1 and the
+    Lever/Greenhouse/SmartRecruiters queries never ran.
+    """
+    config = {"queries": ["rust ashby", "golang lever"], "max_pages": 2}
+    provider = BraveProvider(config)
+    provider.rotate_queries = True
+    page = _json_page(
+        {"web": {"results": []}, "query": {"more_results_available": True}}
+    )
+
+    first = provider.next_page_url(page)
+    assert first and "q=rust+ashby" in first and "offset=1" in first
+    # `max_pages: 2` is the per-query budget: now move to the next query.
+    second = provider.next_page_url(page)
+    assert second and "q=golang+lever" in second and "offset" not in second
+    # Page two of the last query is still inside the budget...
+    third = provider.next_page_url(page)
+    assert third and "q=golang+lever" in third and "offset=1" in third
+    # ...and then the query list is exhausted.
+    assert provider.next_page_url(page) is None
+
+    # A non-sweep source keeps paging the current query as before.
+    plain = BraveProvider({"queries": ["rust ashby", "golang lever"], "max_pages": 1})
+    next_url = plain.next_page_url(page)
+    assert next_url and "q=rust+ashby" in next_url and "offset=1" in next_url
+
+
 def test_search_providers_reject_a_malformed_queries_list():
     with pytest.raises(ValueError, match="queries"):
         BraveProvider.validate_config({"queries": "rust"}, has_api_key=True)
@@ -2014,6 +2160,46 @@ def test_serpapi_results_mode_honours_max_results_and_iso_posts():
     jobs = provider.parse(_json_page(payload))
     assert [job.title for job in jobs] == ["A", "B"]
     assert jobs[0].posted_date == date(2026, 8, 1)
+
+
+def test_serpapi_reads_the_posting_age_from_the_extensions_chip():
+    """Google Jobs reports the age as a chip, not ``detected_extensions``."""
+    provider = SerpApiProvider(
+        {"engine": "google_jobs", "query": "rust", "parse_mode": "results"}, "K"
+    )
+    payload = {
+        "jobs_results": [
+            {
+                "title": "Rust Engineer",
+                "extensions": ["5 days ago", "Full-time"],
+                "apply_options": [{"link": "https://a.example/1"}],
+            },
+            {
+                "title": "Go Engineer",
+                "extensions": ["30+ days ago", "$120K-$160K a year"],
+                "apply_options": [{"link": "https://a.example/2"}],
+            },
+            {
+                "title": "C++ Engineer",
+                "extensions": ["1 year contract", "Full-time"],
+                "apply_options": [{"link": "https://a.example/3"}],
+            },
+            {
+                "title": "Undated Engineer",
+                "extensions": ["Full-time", "Health insurance"],
+                "apply_options": [{"link": "https://a.example/4"}],
+            },
+        ]
+    }
+
+    jobs = provider.parse(_json_page(payload))
+
+    today = date.today()
+    assert jobs[0].posted_date == today - timedelta(days=5)
+    assert jobs[1].posted_date == today - timedelta(days=30)
+    # A contract length and a salary are not posting ages.
+    assert jobs[2].posted_date is None
+    assert jobs[3].posted_date is None
 
 
 def test_serpapi_forwards_locale_params():
@@ -2487,7 +2673,7 @@ async def test_ats_sweep_turns_search_results_into_board_apis():
     assert await scraper.discover_urls(page) == [
         "https://api.ashbyhq.com/posting-api/job-board/acme",
         "https://api.lever.co/v0/postings/acme?mode=json&limit=100",
-        "https://boards-api.greenhouse.io/v1/boards/acme/jobs",
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true",
         "https://api.smartrecruiters.com/v1/companies/Acme/postings?limit=100",
     ]
     assert scraper.sweep_enabled is True
@@ -2495,6 +2681,25 @@ async def test_ats_sweep_turns_search_results_into_board_apis():
     assert scraper.default_max_results == 40
     # Re-reading the same results page (e.g. a paginated query) changes nothing.
     assert await scraper.discover_urls(page) == []
+
+
+def test_ats_sweep_budget_knobs_are_published_in_the_provider_metadata():
+    """A sweep knob that is missing here cannot be set through the API form."""
+    expected = {
+        "sweep_ats",
+        "keywords",
+        "exclude_keywords",
+        "locations",
+        "max_boards",
+        "max_jobs",
+        "match_in",
+        "board_rate_limit_seconds",
+        "min_boards_per_query",
+        "sweep_max_seconds",
+        "max_age_days",
+    }
+    for cls in (GoogleCseProvider, BingProvider, BraveProvider):
+        assert expected <= set(cls.config_metadata()["optional"]), cls.provider_name
 
 
 async def test_ats_sweep_does_not_reparse_board_payloads_as_search_results():
@@ -2531,6 +2736,53 @@ async def test_ats_sweep_respects_max_boards():
 
     assert len(urls) == 2
     assert scraper.default_max_results == 2
+
+
+async def test_ats_sweep_reports_the_boards_it_could_not_afford(caplog):
+    """`offered` must count the boards `max_boards` left unread.
+
+    Without it a budget-bound sweep and a search index that only returns a
+    couple of boards per query look identical in the run log.
+    """
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "rust",
+            "sweep_ats": True,
+            "max_boards": 2,
+            "keywords": ["rust"],
+        },
+    )
+    page = _search_results_page(
+        [
+            "https://jobs.ashbyhq.com/acme/1",
+            "https://jobs.lever.co/beta/1",
+            "https://boards.greenhouse.io/gamma/jobs/1",  # offered, not read
+        ]
+    )
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        urls = await scraper.discover_urls(page)
+        board_page = ScrapedPage(
+            html_content=json.dumps(
+                [{"id": "1", "text": "Rust Engineer", "hostedUrl": urls[1]}]
+            ),
+            status_code=200,
+            final_url=urls[1],
+        )
+        assert [job.title for job in scraper.parse(board_page)] == ["Rust Engineer"]
+        scraper.normalize([])
+
+    assert len(urls) == 2
+    # The manifest names each board that was read, with the query that found it.
+    assert "ats_sweep_board query=rust ats=ashby url=" in caplog.text
+    assert "ats_sweep_board query=rust ats=lever url=" in caplog.text
+    assert "boards.greenhouse.io" not in caplog.text
+    # Openings vs kept: the board was read, one opening survived the filter.
+    assert "ats_sweep_board_jobs url=" in caplog.text
+    assert "openings=1 kept=1" in caplog.text
+    # Three boards offered, two affordable.
+    assert "boards=2 offered=3 jobs=0 stale=0 undated=0 queries=1" in caplog.text
 
 
 async def test_ats_sweep_stops_paging_when_board_budget_is_spent():
@@ -2650,6 +2902,366 @@ async def test_ats_sweep_never_forwards_the_search_key_and_isolates_failures(
     assert result.status_code == 0
     assert scraper.parse(result) == []
     assert scraper.robots_url(board_url) is None
+
+
+def test_ats_sweep_page_budget_covers_every_query():
+    """`max_pages` is a per-query budget, so the run's page cap multiplies."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {"queries": [f"q{i}" for i in range(12)], "max_pages": 1, "sweep_ats": True},
+    )
+    assert scraper.page_limit(1) == 12
+    assert scraper.page_limit(2) == 24
+
+    # A single-query sweep keeps the configured page count.
+    single = DiscoveryScraper("brave", {"query": "rust", "sweep_ats": True})
+    assert single.page_limit(1) == 1
+    # Non-sweep sources page through results as before.
+    two_stage = DiscoveryScraper("brave", {"queries": ["a", "b"], "max_pages": 1})
+    assert two_stage.page_limit(1) == 1
+
+
+async def test_ats_sweep_reserves_boards_for_the_queries_not_visited_yet():
+    """The first query must not spend the whole board budget on its own."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "queries": ["rust ashby", "rust lever", "rust greenhouse"],
+            "sweep_ats": True,
+            "max_boards": 4,
+            "min_boards_per_query": 1,
+        },
+    )
+    ashby = _search_results_page(
+        [f"https://jobs.ashbyhq.com/org{i}/1" for i in range(5)]
+    )
+
+    # 4 slots minus one reserved for each of the two later queries.
+    assert len(await scraper.discover_urls(ashby)) == 2
+
+    lever = _search_results_page([f"https://jobs.lever.co/org{i}/1" for i in range(3)])
+    assert scraper.next_page_url(ashby)  # advance to query #2
+    assert len(await scraper.discover_urls(lever)) == 1  # one slot kept for query #3
+
+    greenhouse = _search_results_page(
+        [f"https://boards.greenhouse.io/org{i}/jobs/1" for i in range(3)]
+    )
+    assert scraper.next_page_url(lever)
+    assert len(await scraper.discover_urls(greenhouse)) == 1
+    # The budget is now spent, whatever the next query would find.
+    assert scraper.next_page_url(greenhouse) is None
+
+
+def test_ats_sweep_match_in_title_ignores_description_only_hits():
+    """A board dump mentions Rust in every blurb; only titles/tags count."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "rust",
+            "sweep_ats": True,
+            "keywords": ["rust"],
+            "match_in": "title",
+        },
+    )
+    board = resolve_ats_board("https://jobs.ashbyhq.com/acme/1")
+    assert board is not None
+    board_url = scraper._register_board(board)
+    payload = {
+        "jobs": [
+            {
+                "id": "1",
+                "title": "Senior Rust Engineer",
+                "location": "Remote - Brazil",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/1",
+                "descriptionHtml": "<p>Rust services</p>",
+            },
+            {
+                "id": "2",
+                "title": "Growth Lead",
+                "location": "Remote - Brazil",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/2",
+                "descriptionHtml": "<p>Our platform is written in Rust</p>",
+            },
+        ]
+    }
+    page = ScrapedPage(
+        html_content=json.dumps(payload), status_code=200, final_url=board_url
+    )
+
+    assert [job.external_id for job in scraper.parse(page)] == ["1"]
+
+    # Without `match_in`, the description still counts (legacy behaviour).
+    anywhere = DiscoveryScraper(
+        "brave", {"query": "rust", "sweep_ats": True, "keywords": ["rust"]}
+    )
+    anywhere._register_board(board)
+    assert len(anywhere.parse(page)) == 2
+
+
+def test_ats_sweep_drops_postings_older_than_max_age_days(caplog):
+    """A board repeats the company's whole backlog; only the window is fresh."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "rust",
+            "sweep_ats": True,
+            "keywords": ["engineer"],
+            "max_age_days": 60,
+        },
+    )
+    board = resolve_ats_board("https://jobs.ashbyhq.com/acme/1")
+    assert board is not None
+    board_url = scraper._register_board(board)
+    today = date.today()
+    payload = {
+        "jobs": [
+            {
+                "id": "fresh",
+                "title": "Rust Engineer",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/1",
+                "publishedAt": today.isoformat(),
+            },
+            {
+                "id": "stale",
+                "title": "Rust Engineer (old)",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/2",
+                "publishedAt": (today - timedelta(days=61)).isoformat(),
+            },
+            {
+                "id": "undated",
+                "title": "Rust Engineer (no date)",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/3",
+            },
+        ]
+    }
+    page = ScrapedPage(
+        html_content=json.dumps(payload), status_code=200, final_url=board_url
+    )
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        kept = scraper.parse(page)
+        scraper.normalize(kept)
+
+    assert [job.external_id for job in kept] == ["fresh", "undated"]
+    # An undated posting is kept, but counted: a source that publishes no dates
+    # at all would otherwise look like an empty board.
+    assert "stale=1 undated=1 kept=2" in caplog.text
+    assert (
+        "ats_sweep_summary boards=1 offered=0 jobs=2 stale=1 undated=1"
+        in caplog.text
+    )
+
+
+def test_max_age_days_gates_results_mode_search_sources(caplog):
+    """Google Jobs is not a sweep, but its rows must respect the window too."""
+    scraper = DiscoveryScraper(
+        "serpapi",
+        {
+            "engine": "google_jobs",
+            "query": "rust",
+            "parse_mode": "results",
+            "max_age_days": 60,
+        },
+        "K",
+    )
+    payload = {
+        "jobs_results": [
+            {
+                "title": "Fresh Rust",
+                "extensions": ["2 days ago"],
+                "apply_options": [{"link": "https://a.example/1"}],
+            },
+            {
+                "title": "Stale Rust",
+                "extensions": ["90+ days ago"],
+                "apply_options": [{"link": "https://a.example/2"}],
+            },
+            {
+                "title": "Undated Rust",
+                "apply_options": [{"link": "https://a.example/3"}],
+            },
+        ]
+    }
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        jobs = scraper.parse(_json_page(payload))
+        scraper.normalize(jobs)
+
+    assert [job.title for job in jobs] == ["Fresh Rust", "Undated Rust"]
+    # The gate runs outside a sweep too, and reports what it did.
+    assert (
+        "discovery_age_filter max_age_days=60 stale=1 undated=1 kept=2"
+        in caplog.text
+    )
+
+
+async def test_ats_sweep_skips_boards_known_to_be_dead(monkeypatch):
+    """A cached 404 must not spend a board slot or a request."""
+    import scrapers.discovery as discovery
+
+    dead = "https://api.lever.co/v0/postings/gone?mode=json&limit=100"
+    monkeypatch.setattr(discovery, "board_miss_active", lambda url: url == dead)
+    scraper = DiscoveryScraper(
+        "brave", {"query": "rust", "sweep_ats": True, "max_boards": 2}
+    )
+    page = _search_results_page(
+        [
+            "https://jobs.lever.co/gone/1",
+            "https://jobs.ashbyhq.com/acme/1",
+            "https://jobs.ashbyhq.com/beta/1",
+        ]
+    )
+
+    urls = await scraper.discover_urls(page)
+
+    # Both live boards fit in a budget the dead one would have spent.
+    assert urls == [
+        "https://api.ashbyhq.com/posting-api/job-board/acme",
+        "https://api.ashbyhq.com/posting-api/job-board/beta",
+    ]
+    # It still counts as offered: `offered` measures the index, not our cache.
+    assert len(scraper._offered_keys) == 3
+    assert len(scraper._board_providers) == 2
+
+
+async def test_ats_sweep_parks_a_board_that_answers_404(monkeypatch, caplog):
+    """Only 404/410 are cached; a 500 is retried on the next run."""
+    import scrapers.discovery as discovery
+
+    marked: list[str] = []
+    # The autouse fixture no-ops the cache; this test watches the writes.
+    monkeypatch.setattr(discovery, "board_miss_mark", marked.append)
+    scraper = DiscoveryScraper("brave", {"query": "rust", "sweep_ats": True})
+    board = resolve_ats_board("https://jobs.lever.co/gone/1")
+    assert board is not None
+    url = scraper._register_board(board)
+    provider = scraper._board_for(url)
+    assert provider is not None
+
+    status = {"code": 404}
+
+    async def fake_fetch(fetch_url, *, auth=None):
+        raise httpx.HTTPStatusError(
+            str(status["code"]),
+            request=httpx.Request("GET", fetch_url),
+            response=httpx.Response(status["code"]),
+        )
+
+    monkeypatch.setattr(provider, "fetch", fake_fetch)
+
+    with caplog.at_level(logging.WARNING, logger="scrapers.discovery"):
+        page = await scraper.fetch(url)
+
+    assert page.html_content == ""
+    assert marked == [url]
+    assert "ats_board_dead url=" in caplog.text
+
+    status["code"] = 500
+    assert (await scraper.fetch(url)).html_content == ""
+    assert marked == [url]
+
+
+def test_max_age_days_zero_keeps_every_posting():
+    scraper = DiscoveryScraper(
+        "serpapi",
+        {
+            "engine": "google_jobs",
+            "query": "rust",
+            "parse_mode": "results",
+            "max_age_days": 0,
+        },
+        "K",
+    )
+    payload = {
+        "jobs_results": [
+            {
+                "title": "Old Rust",
+                "extensions": ["2 years ago"],
+                "apply_options": [{"link": "https://a.example/1"}],
+            }
+        ]
+    }
+
+    assert len(scraper.parse(_json_page(payload))) == 1
+    assert scraper._stale_dropped == 0
+
+
+async def test_ats_sweep_stops_once_the_job_budget_is_spent():
+    """No point paying for boards whose jobs the ``max_jobs`` cap would drop."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {"queries": ["rust a", "rust b"], "sweep_ats": True, "max_jobs": 1},
+    )
+    board = resolve_ats_board("https://jobs.ashbyhq.com/acme/1")
+    assert board is not None
+    board_url = scraper._register_board(board)
+    page = ScrapedPage(
+        html_content=json.dumps(
+            {
+                "jobs": [
+                    {
+                        "id": "1",
+                        "title": "Rust Engineer",
+                        "jobUrl": "https://jobs.ashbyhq.com/acme/1",
+                    },
+                    {
+                        "id": "2",
+                        "title": "Rust Engineer II",
+                        "jobUrl": "https://jobs.ashbyhq.com/acme/2",
+                    },
+                ]
+            }
+        ),
+        status_code=200,
+        final_url=board_url,
+    )
+
+    assert len(scraper.parse(page)) == 1  # the cap
+    assert scraper.next_page_url(_search_results_page([])) is None
+    later = _search_results_page(["https://jobs.lever.co/x/1"])
+    assert await scraper.discover_urls(later) == []
+
+
+async def test_ats_sweep_stops_once_its_time_budget_is_spent():
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "queries": ["rust a", "rust b"],
+            "sweep_ats": True,
+            "sweep_max_seconds": 60,
+        },
+    )
+    page = _search_results_page(["https://jobs.ashbyhq.com/acme/1"])
+    assert scraper.next_page_url(page)
+
+    scraper._started -= 61
+    assert scraper.next_page_url(page) is None
+    assert await scraper.discover_urls(page) == []
+
+
+async def test_ats_sweep_uses_a_shorter_cooldown_for_board_apis():
+    """Board APIs are read once per run, from a single host."""
+    scraper = DiscoveryScraper("brave", {"query": "rust", "sweep_ats": True})
+    assert (
+        scraper.rate_limit_seconds_for("https://api.search.brave.com/res/v1/web", 30)
+        == 30
+    )
+    board_url = (
+        await scraper.discover_urls(
+            _search_results_page(["https://jobs.lever.co/acme/1"])
+        )
+    )[0]
+    assert scraper.rate_limit_seconds_for(board_url, 30) == 3
+
+    tuned = DiscoveryScraper(
+        "brave", {"query": "rust", "sweep_ats": True, "board_rate_limit_seconds": 10}
+    )
+    tuned_board = (
+        await tuned.discover_urls(
+            _search_results_page(["https://jobs.lever.co/acme/1"])
+        )
+    )[0]
+    assert tuned.rate_limit_seconds_for(tuned_board, 30) == 10
 
 
 # --- fetch_html transport ----------------------------------------------------
@@ -2785,6 +3397,41 @@ async def test_fetch_html_stops_after_too_many_redirects(monkeypatch, offline_fe
     _patch_httpx_transport(monkeypatch, handler)
     with pytest.raises(ValueError, match="Too many redirects"):
         await fetch_html(_OFFLINE_URL)
+
+
+async def test_fetch_html_accepts_a_caller_size_cap(monkeypatch, offline_fetch):
+    """ATS board dumps pass their own cap; the page default would reject them."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="x" * 5000)
+
+    _patch_httpx_transport(monkeypatch, handler)
+    monkeypatch.setattr(utils.settings, "scraper_max_response_bytes", 100)
+
+    with pytest.raises(ValueError, match="scraper_max_response_bytes"):
+        await fetch_html(_OFFLINE_URL)
+
+    page = await fetch_html(_OFFLINE_URL, max_bytes=10_000)
+    assert len(page.html_content) == 5000
+
+
+async def test_ats_providers_fetch_boards_with_the_larger_size_cap(monkeypatch):
+    """A board JSON is bigger than a page, so the provider raises the cap."""
+    import scrapers.discovery as discovery
+
+    seen: list[int | None] = []
+
+    async def fake_fetch_html(url, *, auth=None, max_bytes=None):
+        seen.append(max_bytes)
+        return ScrapedPage(html_content="{}", status_code=200, final_url=url)
+
+    monkeypatch.setattr(discovery, "fetch_html", fake_fetch_html)
+    url = "https://api.ashbyhq.com/posting-api/job-board/openai"
+    page = await AshbyProvider({"org": "openai"}).fetch(url)
+
+    assert page.final_url == url
+    assert seen == [AshbyProvider.max_response_bytes]
+    assert AshbyProvider.max_response_bytes > utils.settings.scraper_max_response_bytes
 
 
 def test_redact_sensitive_hides_json_key_fields():

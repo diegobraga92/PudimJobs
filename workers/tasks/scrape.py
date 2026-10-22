@@ -122,6 +122,19 @@ def _robots_target(scraper, fetch_url: str) -> str | None:
     return hook(fetch_url) if callable(hook) else fetch_url
 
 
+def _rate_limit_seconds(scraper, url: str, source: Source) -> int:
+    """Cooldown to apply to ``url``.
+
+    Scrapers may scope it per target: an ATS sweep reads dozens of public board
+    APIs from one host, so applying the search provider's cooldown to every
+    board would make the run outlive its task time limit.
+    """
+    hook = getattr(scraper, "rate_limit_seconds_for", None)
+    if callable(hook):
+        return hook(url, source.rate_limit_seconds)
+    return source.rate_limit_seconds
+
+
 async def _skip_run(
     source_id: str, run: ScrapeRun, reason: str, *, transient: bool = False
 ) -> dict:
@@ -345,15 +358,22 @@ async def _run_scrape(source_id: str) -> dict:
         # sweep does not wait for its TTL to expire.
         skip_backoff_clear(source_id)
 
-        wait = rate_limit_wait(current_url, source.rate_limit_seconds)
+        cooldown = _rate_limit_seconds(scraper, current_url, source)
+        wait = rate_limit_wait(current_url, cooldown)
         if wait > 0:
             await asyncio.sleep(wait)
-        rate_limit_mark(current_url, source.rate_limit_seconds)
+        rate_limit_mark(current_url, cooldown)
 
         # Aggregators/ATS boards can paginate through several listing pages;
         # discovery sources additionally fetch each discovered detail URL. Paid
         # per-job providers lower the fallback cap (see `default_max_results`).
         max_pages = _config_int(source, "max_pages", 1)
+        # Discovery sweeps read one page per configured query, so their page
+        # budget grows with the query list (see `DiscoveryScraper.page_limit`);
+        # the config value stays "pages per query".
+        page_limit = getattr(scraper, "page_limit", None)
+        if callable(page_limit):
+            max_pages = max(1, int(page_limit(max_pages)))
         default_max_results = int(getattr(scraper, "default_max_results", 20))
         # In a sweep the detail fetch *is* a board, so `max_boards` owns the
         # cap; letting a leftover `max_results` (often 5 for paid search APIs)
@@ -391,10 +411,11 @@ async def _run_scrape(source_id: str) -> dict:
                             ),
                         )
                         continue
-                    wait = rate_limit_wait(detail_url, source.rate_limit_seconds)
+                    detail_cooldown = _rate_limit_seconds(scraper, detail_url, source)
+                    wait = rate_limit_wait(detail_url, detail_cooldown)
                     if wait > 0:
                         await asyncio.sleep(wait)
-                    rate_limit_mark(detail_url, source.rate_limit_seconds)
+                    rate_limit_mark(detail_url, detail_cooldown)
                     detail_page = await scraper.fetch(detail_url, auth=auth)
                     raw_jobs.extend(_enrich_with_json_ld(scraper.parse(detail_page), detail_page))
                     detail_fetched += 1
@@ -416,10 +437,11 @@ async def _run_scrape(source_id: str) -> dict:
                     url=redact_sensitive(current_url, auth.api_key if auth else None),
                 )
                 break
-            wait = rate_limit_wait(current_url, source.rate_limit_seconds)
+            page_cooldown = _rate_limit_seconds(scraper, current_url, source)
+            wait = rate_limit_wait(current_url, page_cooldown)
             if wait > 0:
                 await asyncio.sleep(wait)
-            rate_limit_mark(current_url, source.rate_limit_seconds)
+            rate_limit_mark(current_url, page_cooldown)
 
         normalized = scraper.normalize(raw_jobs)
 

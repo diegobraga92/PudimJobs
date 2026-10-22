@@ -25,6 +25,11 @@ class RawJob:
     description: str | None = None
     tags: list[str] = field(default_factory=list)
     external_id: str | None = None
+    #: Text the local keyword/location filters match when it differs from what
+    #: is worth storing. A board dump carries the whole posting body and the
+    #: tech stack often sits past the stored 2 KB, so Greenhouse matches the
+    #: full text while `description` keeps what the app shows. Never stored.
+    match_text: str | None = None
 
 
 @dataclass
