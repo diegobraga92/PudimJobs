@@ -42,6 +42,7 @@ from scrapers.types import FetchAuth, RawJob, ScrapedPage
 from scrapers.utils import (
     coerce_date,
     fetch_html,
+    location_allowed,
     parse_html_list,
     parse_json_ld_jobs,
     redact_sensitive,
@@ -185,6 +186,63 @@ def test_career_page_parses_json_ld_jobpostings():
     assert str(first.posted_date) == "2026-08-01"
     assert first.tags == ["python", "fastapi"]
     assert first.description == "Build APIs with FastAPI."
+    # schema.org's `jobLocation` is the canonical location, not a tag.
+    assert first.location is None
+
+
+def test_career_page_extracts_json_ld_job_location():
+    """`jobLocation` (PostalAddress, list, telecommute) becomes RawJob.location."""
+    html = """
+    <html><head><script type="application/ld+json">
+    [{
+      "@type": "JobPosting",
+      "title": "Backend Engineer",
+      "hiringOrganization": {"name": "Acme"},
+      "url": "https://acme.example/jobs/1",
+      "jobLocation": [
+        {"@type": "Place", "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "São Paulo",
+          "addressRegion": "SP",
+          "addressCountry": {"@type": "Country", "name": "BR"}
+        }},
+        {"@type": "Place", "address": {"addressLocality": "Remote"}}
+      ]
+    }, {
+      "@type": "JobPosting",
+      "title": "Designer",
+      "hiringOrganization": {"name": "Acme"},
+      "url": "https://acme.example/jobs/2",
+      "jobLocationType": "TELECOMMUTE",
+      "applicantLocationRequirements": {"@type": "Country", "name": "Brazil"}
+    }]
+    </script></head><body></body></html>
+    """
+    jobs = CareerPageScraper().parse(_page(html))
+
+    assert jobs[0].location == "São Paulo, SP, BR, Remote"
+    # TELECOMMUTE without an address is Remote; the eligible country is the
+    # fallback for boards that only say who may apply.
+    assert jobs[1].location == "Remote"
+
+
+def test_location_allowed_keeps_unknown_and_matches_accents():
+    """The gate keeps jobs with no location and ignores case/accents."""
+    assert location_allowed(None, ["brazil"]) is True
+    assert location_allowed("", ["brazil"]) is True
+    assert location_allowed("Remote - Brazil", ["brazil"]) is True
+    assert location_allowed("São Paulo, SP", ["sao paulo"]) is True
+    assert location_allowed("São Paulo, SP", ["SAO PAULO"]) is True
+    assert location_allowed("Lisbon, Portugal", ["brazil", "portugal"]) is True
+    assert location_allowed("Lisbon, Portugal", ["brazil"]) is False
+    # A term must match as a whole word: "us" is not Australia.
+    assert location_allowed("Sydney, Australia", ["us"]) is False
+    # No configured terms disables the gate entirely.
+    assert location_allowed("Lisbon, Portugal", []) is True
+    assert location_allowed("Lisbon, Portugal", " , ") is True
+    # A comma-separated string is accepted (how the Sources form stores it
+    # before the API normalizes it).
+    assert location_allowed("Remote, Brazil", "Portugal, Brazil") is True
 
 
 def test_career_page_normalize_skips_invalid():
@@ -229,6 +287,7 @@ def test_rss_board_flags_split_company_and_enrich_tags():
     assert raw[0].description == "Build and ship Rust services."
     # Only the region-like category and the explicit <region> are kept.
     assert raw[0].tags == ["Remote", "Americas"]
+    assert raw[0].location == "Americas, Remote"
 
 
 def test_rss_include_categories_keeps_every_feed_category():
@@ -252,6 +311,8 @@ def test_rss_company_from_author_strips_jobspresso_location():
     raw = scraper.parse(_page(feed))
     assert raw[0].title == "Senior Rust Engineer"
     assert raw[0].company == "Algolia"
+    # The reading the author suffix carried is still a location.
+    assert raw[0].location == "United States"
 
 
 def test_rss_company_from_title_at_splits_last_company_marker():
@@ -297,9 +358,11 @@ def test_aggregator_generic_html_list_parses():
     assert raw[0].company == "Acme"
     assert raw[0].url == "https://board.example/jobs/1"
     assert raw[0].description == "Location: Remote"
+    assert raw[0].location == "Remote"
     assert raw[1].title == "Data Scientist"
     assert raw[1].url == "https://board.example/jobs/2"
     assert raw[1].description is None
+    assert raw[1].location is None
 
 
 def test_aggregator_discover_urls_applies_exclude_pattern():
@@ -601,6 +664,60 @@ def test_aggregator_detail_mode_parses_detail_page():
     assert raw[0].description is not None
     assert "Own the platform." in raw[0].description
     assert "Remote, Brazil" in raw[0].description
+    assert raw[0].location == "Remote, Brazil"
+
+
+def test_aggregator_detail_mode_uses_card_location_when_detail_omits_it():
+    """A detail page with no location keeps the one printed on its card.
+
+    ``location_selector`` used to be read only in list mode, so ``detail:true``
+    boards (Nerdin, Dev.pro, Geekhunter, …) stored every job with no location
+    even though the listing printed it.
+    """
+    listing = """
+    <html><body>
+      <article class="job">
+        <a href="/jobs/1">Staff Platform Engineer</a>
+        <span class="location">Remote, Brazil</span>
+      </article>
+    </body></html>
+    """
+    detail = """
+    <html><body>
+      <h1 class="job-title">Staff Platform Engineer</h1>
+      <div class="company">Acme</div>
+      <div class="job-description">Own the platform.</div>
+    </body></html>
+    """
+    scraper = GenericHtmlListScraper(
+        {
+            "detail": True,
+            "item_selector": "article.job",
+            "url_selector": "a",
+            "location_selector": ".location",
+            "detail_title_selector": "h1.job-title",
+            "detail_company_selector": ".company",
+            "detail_description_selector": ".job-description",
+        }
+    )
+    detail_url = "https://board.example/jobs/1"
+    assert scraper.discover_urls(_aggregator_page(listing)) == [detail_url]
+
+    raw = scraper.parse(_aggregator_page(detail, detail_url))
+
+    assert len(raw) == 1
+    assert raw[0].location == "Remote, Brazil"
+    # The detail page's own location still wins when it has one.
+    raw_with_location = scraper.parse(
+        _aggregator_page(
+            detail.replace(
+                '<div class="company">Acme</div>',
+                '<div class="company">Acme</div><div class="location">Lisbon</div>',
+            ),
+            detail_url,
+        )
+    )
+    assert raw_with_location[0].location == "Lisbon"
 
 
 def test_aggregator_detail_mode_prefers_json_ld():
@@ -1017,6 +1134,7 @@ def test_greenhouse_provider_parses_jobs():
     assert jobs[0].match_text == jobs[0].description
     # Greenhouse departments are ``{id, name}``, unlike SmartRecruiters' labels.
     assert jobs[0].tags == ["Remote, Brazil", "Engineering"]
+    assert jobs[0].location == "Remote, Brazil"
     assert jobs[0].posted_date == date(2026, 8, 1)
 
 
@@ -1296,6 +1414,7 @@ def test_json_list_provider_parses_nested_items():
     assert first.external_id == "101"
     assert first.posted_date == date(2026, 8, 1)
     assert first.tags == ["python", "fastapi", "Remote, Brazil"]
+    assert first.location == "Remote, Brazil"
     assert first.description is not None
     assert "Build APIs" in first.description
     assert "<b>" not in first.description
@@ -2871,8 +2990,59 @@ def test_ats_sweep_filters_board_jobs_and_caps_max_jobs():
     assert jobs[0].title == "Senior Rust Engineer"
     assert "Remote - Brazil" in jobs[0].tags
     assert "Engineering" in jobs[0].tags
+    assert jobs[0].location == "Remote - Brazil"
     # max_jobs is per source run, not per board page.
     assert scraper.parse(page) == []
+
+
+def test_ats_sweep_location_gate_uses_detected_location_and_keeps_unknown():
+    """A term in the body must not keep a job; a missing location must.
+
+    Regression: the sweep matched ``locations`` against title/tags/description,
+    so a "Portugal" opening that mentioned Brazil was stored while a board that
+    reports no location had every job silently dropped.
+    """
+    scraper = DiscoveryScraper(
+        "brave",
+        {"query": "rust", "sweep_ats": True, "locations": ["brazil"]},
+    )
+    board_url = "https://api.ashbyhq.com/posting-api/job-board/acme"
+    board = resolve_ats_board("https://jobs.ashbyhq.com/acme/1")
+    assert board is not None
+    assert scraper._register_board(board) == board_url
+    payload = {
+        "jobs": [
+            {
+                "id": "1",
+                "title": "Rust Engineer",
+                "location": "Lisbon, Portugal",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/1",
+                "descriptionHtml": "<p>Our team meets in Brazil once a year.</p>",
+            },
+            {
+                "id": "2",
+                "title": "Rust Engineer",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/2",
+                "descriptionHtml": "<p>The board reports no location.</p>",
+            },
+            {
+                "id": "3",
+                "title": "Rust Engineer",
+                "location": "Remote - Brazil",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/3",
+                "descriptionHtml": "<p>Rust services.</p>",
+            },
+        ]
+    }
+    page = ScrapedPage(
+        html_content=json.dumps(payload), status_code=200, final_url=board_url
+    )
+
+    jobs = scraper.parse(page)
+
+    assert [job.external_id for job in jobs] == ["2", "3"]
+    assert scraper._location_dropped == 1
+    assert scraper._location_unknown == 1
 
 
 async def test_ats_sweep_never_forwards_the_search_key_and_isolates_failures(

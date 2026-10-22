@@ -50,6 +50,9 @@ class Job(Base):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     company: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    #: Detected location reported by the source ("Remote - Brazil"). ``None``
+    #: means the board did not report one; it is never invented from tags.
+    location: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     posted_date: Mapped[date | None] = mapped_column(Date, nullable=True)

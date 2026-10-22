@@ -58,6 +58,22 @@
   
       @if (sourceForm.get('type')?.value !== 'manual') {
         <div class="form-field">
+          <label for="source-locations">{{ i18n.t('sources.locations') }}</label>
+          <input
+            id="source-locations"
+            class="input"
+            [(ngModel)]="locations"
+            [ngModelOptions]="{ standalone: true }"
+            [placeholder]="i18n.t('sources.locationsPlaceholder')"
+          />
+          <p class="muted xs">
+            {{ i18n.t('sources.locationsHint') }}
+          </p>
+        </div>
+      }
+
+      @if (sourceForm.get('type')?.value !== 'manual') {
+        <div class="form-field">
           <label for="source-schedule">{{ i18n.t('sources.schedule') }}</label>
           <select id="source-schedule" class="select" formControlName="scrape_interval_minutes">
             @for (option of scheduleOptions; track option.value) {

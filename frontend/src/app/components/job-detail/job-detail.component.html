@@ -36,6 +36,13 @@
       {{ job.company }}
     </p>
 
+    @if (job.location) {
+      <p class="muted">
+        <app-icon name="map-pin" [size]="13" />
+        {{ job.location }}
+      </p>
+    }
+
     @if (job.posted_date) {
       <p class="muted">
         <app-icon name="calendar" [size]="13" />

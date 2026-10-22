@@ -24,6 +24,10 @@ class RawJob:
     posted_date: date | None = None
     description: str | None = None
     tags: list[str] = field(default_factory=list)
+    #: Detected location of the posting ("Remote - Brazil", "Sao Paulo, SP").
+    #: Kept apart from ``tags`` so the per-source ``locations`` filter and the
+    #: jobs UI can rely on it; ``None`` means the board did not report one.
+    location: str | None = None
     external_id: str | None = None
     #: Text the local keyword/location filters match when it differs from what
     #: is worth storing. A board dump carries the whole posting body and the

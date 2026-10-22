@@ -16,7 +16,10 @@ from scrapers.registry import get_scraper
 from scrapers.utils import (
     RobotsDecision,
     as_flag,
+    as_optional_str,
     coerce_date,
+    location_allowed,
+    location_terms,
     parse_json_ld_jobs,
     redact_sensitive,
     robots_decision,
@@ -183,6 +186,41 @@ async def _discover(scraper, page) -> list[str]:
     return result or []
 
 
+def _filter_by_location(normalized: list[dict], source: Source) -> list[dict]:
+    """Keep jobs whose detected location passes ``config['locations']``.
+
+    Any configured term keeps a job, and a job with **no** detected location is
+    kept: whole boards (``detail``-mode aggregators, RSS feeds with no region
+    field) report none, and dropping them made a working source look empty.
+
+    Discovery sweeps already apply the gate while parsing board payloads; the
+    second pass here is harmless and is what covers aggregators, RSS feeds and
+    career pages, which never filtered at all.
+    """
+    terms = location_terms((source.config or {}).get("locations"))
+    if not terms:
+        return normalized
+    kept: list[dict] = []
+    skipped = 0
+    unknown = 0
+    for job in normalized:
+        location = job.get("location")
+        if not location:
+            unknown += 1
+        elif not location_allowed(location, terms):
+            skipped += 1
+            continue
+        kept.append(job)
+    logger.info(
+        "location_filter terms=%s kept=%s skipped=%s unknown=%s",
+        ", ".join(terms),
+        len(kept),
+        skipped,
+        unknown,
+    )
+    return kept
+
+
 def _enrich_with_json_ld(raw_jobs: list, page) -> list:
     """Merge a page's JSON-LD into parsed rows instead of appending duplicates.
 
@@ -213,8 +251,15 @@ def _enrich_with_json_ld(raw_jobs: list, page) -> list:
         raw.description = raw.description or match.description
         raw.posted_date = raw.posted_date or match.posted_date
         raw.tags = raw.tags or list(match.tags)
+        raw.location = raw.location or match.location
         raw.external_id = raw.external_id or match.external_id
     return raw_jobs
+
+
+def _location_value(value: object) -> str | None:
+    """A DB-safe detected location (``jobs.location`` is ``VARCHAR(255)``)."""
+    text = as_optional_str(value)
+    return text[:255] if text else None
 
 
 async def _store_jobs(
@@ -247,6 +292,7 @@ async def _store_jobs(
             # parser bug costing one field instead of the entire run.
             posted_date=coerce_date(data.get("posted_date")),
             tags=data.get("tags") or [],
+            location=_location_value(data.get("location")),
             external_id=external_id,
         )
         session.add(job)
@@ -444,6 +490,10 @@ async def _run_scrape(source_id: str) -> dict:
             rate_limit_mark(current_url, page_cooldown)
 
         normalized = scraper.normalize(raw_jobs)
+        # `config['locations']` keeps jobs whose detected location matches any
+        # term and always keeps jobs with no detected location. It runs on every
+        # source type; discovery sweeps also apply it per board while parsing.
+        filtered = _filter_by_location(normalized, source)
 
         # Fail fast when a source yields no jobs at all: a site format change
         # or broken selectors usually manifests as an empty parse, and treating
@@ -457,14 +507,17 @@ async def _run_scrape(source_id: str) -> dict:
             if configured_allow_empty is not None
             else bool(getattr(scraper, "allow_empty", False))
         )
-        if not normalized and not allow_empty:
+        # A batch emptied *by the location gate* is a successful run: the source
+        # parsed jobs, they simply belong elsewhere. Only a parse that produced
+        # nothing is a format-change signal.
+        if not filtered and not allow_empty and not normalized:
             raise EmptyScrapeError(
                 "parse produced 0 jobs; possible site format change "
                 "(set config['allow_empty']=true to allow empty sources)"
             )
 
         async with async_session_factory() as session:
-            new_count, skip_count, stored = await _store_jobs(source, normalized, session)
+            new_count, skip_count, stored = await _store_jobs(source, filtered, session)
             run_row = await session.get(ScrapeRun, run.id)
             await _finalize_run(
                 session, run_row, status="success", new_jobs=new_count, error=None

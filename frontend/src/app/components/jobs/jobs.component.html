@@ -44,6 +44,25 @@
   </div>
   <div class="search-field">
     <input
+      formControlName="location"
+      class="input"
+      [placeholder]="i18n.t('common.location')"
+      [attr.aria-label]="i18n.t('jobs.aria.filterLocation')"
+    />
+  </div>
+  @if (hasLocationFilter) {
+    <label class="checkbox-row search-toggle">
+      <input
+        type="checkbox"
+        [checked]="includeUnknownLocation"
+        (change)="toggleIncludeUnknownLocation()"
+        [attr.aria-label]="i18n.t('jobs.includeUnknownLocation')"
+      />
+      {{ i18n.t('jobs.includeUnknownLocation') }}
+    </label>
+  }
+  <div class="search-field">
+    <input
       formControlName="tags"
       class="input"
       [placeholder]="i18n.t('jobs.tagsPlaceholder')"
@@ -168,6 +187,16 @@
       <div class="form-field">
         <label for="job-company">{{ i18n.t('common.company') }}</label>
         <input id="job-company" class="input" formControlName="company" placeholder="Acme" />
+      </div>
+
+      <div class="form-field">
+        <label for="job-location">{{ i18n.t('common.location') }}</label>
+        <input
+          id="job-location"
+          class="input"
+          formControlName="location"
+          [placeholder]="i18n.t('jobs.locationPlaceholder')"
+        />
       </div>
   
       <div class="form-field">
@@ -352,6 +381,12 @@
           <app-icon name="home" [size]="13" />
           {{ job.company }}
         </div>
+        @if (job.location) {
+          <div class="job-date">
+            <app-icon name="map-pin" [size]="12" />
+            {{ job.location }}
+          </div>
+        }
         @if (job.posted_date) {
           <div class="job-date">
             <app-icon name="calendar" [size]="12" />

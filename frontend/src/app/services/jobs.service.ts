@@ -8,6 +8,8 @@ export interface JobSummary {
   id: string;
   title: string;
   company: string;
+  /** Detected location from the source; `null` when the board reported none. */
+  location: string | null;
   url: string | null;
   posted_date: string | null;
   tags: string[];
@@ -30,6 +32,10 @@ export interface ParsedJD {
 export interface JobFilters {
   q?: string;
   company?: string;
+  /** Comma-separated location terms (case-insensitive OR). */
+  location?: string;
+  /** `false` narrows the location filter to jobs that do have a location. */
+  location_unknown?: boolean;
   date_from?: string;
   date_to?: string;
   tags?: string;
@@ -78,8 +84,10 @@ export class JobsService {
   list(filters: JobFilters = {}): Observable<JobSummary[]> {
     let params = new HttpParams();
     for (const [key, value] of Object.entries(filters)) {
-      if (value) {
-        params = params.set(key, value);
+      // `false` is meaningful here (`location_unknown=false`), so only drop
+      // absent/empty values — the old truthiness check silently omitted it.
+      if (value !== undefined && value !== null && value !== '') {
+        params = params.set(key, String(value));
       }
     }
     return this.http.get<JobSummary[]>('/api/jobs', { params });

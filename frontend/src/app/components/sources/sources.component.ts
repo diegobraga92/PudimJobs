@@ -116,6 +116,13 @@ export class SourcesComponent implements OnInit, OnDestroy {
   adaptersLoading = false;
   configJson = '';
 
+  /**
+   * Comma-separated location gate (`config.locations`). Kept as its own field
+   * for every fetchable type: it is the one config key users touch routinely,
+   * and the JSON textarea is only rendered for aggregator/discovery sources.
+   */
+  locations = '';
+
   /** Discovery provider + config (shown when type === 'discovery'). */
   providers: DiscoveryProvider[] = [];
   providersLoading = false;
@@ -647,6 +654,7 @@ export class SourcesComponent implements OnInit, OnDestroy {
     });
     this.adapter = 'generic_html_list';
     this.configJson = '';
+    this.locations = '';
     this.discoveryProvider = '';
     this.cadenceDays = this.manualMetadata?.cadence_days.default ?? 7;
     this.notes = '';
@@ -676,6 +684,7 @@ export class SourcesComponent implements OnInit, OnDestroy {
     // Kept so a manual save can merge instead of replacing the whole config.
     this.editingConfig = { ...(source.config ?? {}) };
     this.notes = String(source.config?.['notes'] ?? '');
+    this.locations = this.locationsText(source.config?.['locations']);
     this.avoidSource = source.avoided ?? false;
     this.avoidReason = source.avoid_reason ?? '';
     if (source.type === 'discovery') {
@@ -694,9 +703,26 @@ export class SourcesComponent implements OnInit, OnDestroy {
     this.editingId = null;
     this.editingConfig = {};
     this.notes = '';
+    this.locations = '';
     this.avoidSource = false;
     this.avoidReason = '';
     this.previewResult = null;
+  }
+
+  /** Render a stored `config.locations` value (list or string) in the form. */
+  private locationsText(value: unknown): string {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item).trim()).filter(Boolean).join(', ');
+    }
+    return typeof value === 'string' ? value : '';
+  }
+
+  /** The form's comma-separated locations as the array the API stores. */
+  private parseLocations(): string[] {
+    return this.locations
+      .split(/[,\n]/)
+      .map((term) => term.trim())
+      .filter(Boolean);
   }
 
   /** The `config` to send for the current form state, or null when the JSON is invalid (an error toast is shown). */
@@ -721,6 +747,14 @@ export class SourcesComponent implements OnInit, OnDestroy {
     const parsed = this.parseConfigJson(type);
     if (parsed === null) {
       return null;
+    }
+    // The dedicated field wins over anything left in the JSON textarea: it is
+    // the same `config.locations` key, and clearing it removes the gate.
+    const locations = this.parseLocations();
+    if (locations.length) {
+      parsed['locations'] = locations;
+    } else {
+      delete parsed['locations'];
     }
     if (type === 'aggregator') {
       return { ...parsed, adapter: this.adapter };
@@ -779,7 +813,7 @@ export class SourcesComponent implements OnInit, OnDestroy {
       this.toast.error(this.i18n.t('errors.chooseProvider'));
       return;
     }
-    if (raw.type === 'aggregator' || raw.type === 'discovery' || raw.type === 'manual') {
+    if (raw.type !== 'manual') {
       const config = this.buildConfig(raw.type);
       if (!config) {
         return;

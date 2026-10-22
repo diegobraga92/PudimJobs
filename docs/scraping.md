@@ -49,6 +49,30 @@ Hard limits of the engine — these decide almost every verdict below:
 | Respect robots.txt | default **on** (checked against the URL that gets fetched — the board for renderer providers, see `robots_url` — and each pagination hop) |
 | Auth (optional) | `token` (Bearer) or `api_key` (search providers read `FetchAuth.api_key`, not `token`) |
 
+### Detected locations
+
+Every parser fills `RawJob.location` when the source reports a location, and the
+worker stores it in `jobs.location`:
+
+- **ATS APIs** (`ashby`, `greenhouse`, `lever`, `workable`, `smartrecruiters`,
+  `recruitee`, `personio`, `workday`): the board payload's location fields
+  (`location`, `fullLocation`, `locationsText`, the Personio office(s), …).
+- **JSON/aggregator payloads**: the configured `location_path`.
+- **JSON-LD** `JobPosting.jobLocation` (career pages and detail-mode boards),
+  including `jobLocationType: "TELECOMMUTE"` → `Remote` and
+  `applicantLocationRequirements` as the fallback.
+- **HTML list cards**: `location_selector`. In `detail: true` mode the card's
+  value is remembered for its detail URL, so a board whose detail page omits
+  the location still stores the one printed on the listing.
+- **RSS**: `region`/`location` entry fields, region-like categories when
+  `include_region` is set, and Jobspresso's author suffix (`Algolia ⚲ Brazil`).
+
+`config["locations"]` gates ingestion on that value (see below): a matching term
+keeps the job, a non-matching detected location drops it, and a job with **no**
+detected location is always kept. The jobs API filters on the same field with
+`GET /api/jobs?location=brazil,remote` (comma-separated OR, case-insensitive);
+unknown-location rows are included unless `location_unknown=false` is sent.
+
 Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 
 | Key | Meaning | Default |
@@ -64,12 +88,12 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `query` / `queries` | search providers: one query, or a non-empty list consumed in order (each with its own pagination) | `query` |
 | `sweep_ats` | search providers (`google_cse`, `bing`, `brave`): treat results as ATS board URLs and read the public board APIs instead of fetching each hit | `false` |
 | `keywords` / `exclude_keywords` | sweep-only whole-term filters over title, tags and description (`c++` works); excludes win | — |
-| `locations` | sweep-only case/accent-insensitive substring match over title, tags and description | — |
+| `locations` | ingestion-time location gate for **every** source type: keep a job when any term matches its detected location (case/accent-insensitive, whole term). Jobs with **no** detected location are always kept; `[]`/empty disables the gate | — |
 | `max_boards` / `max_jobs` | sweep-only caps: boards per run; kept jobs per run (`0` = no cap) | `40` / `0` |
 | `board_rate_limit_seconds` | sweep-only: cooldown between two board fetches (the source `rate_limit_seconds` still governs the search API) | `3` |
 | `min_boards_per_query` | sweep-only: board slots reserved for the queries not visited yet, so the first query cannot spend `max_boards` on its own | `2` |
 | `sweep_max_seconds` | sweep-only: wall-clock budget for the run (`0` = no cap) | `0` |
-| `match_in` | sweep-only: `title` restricts `keywords`/`exclude_keywords` to title + tags (`locations` still reads the description) | `anywhere` |
+| `match_in` | sweep-only: `title` restricts `keywords`/`exclude_keywords` to title + tags (the location gate always reads the detected location only) | `anywhere` |
 | `max_age_days` | discovery providers: drop postings older than this many days (`0` = keep everything). Only acts on **dated** postings — undated rows are kept and counted as `undated` in the run log | `0` |
 
 **URL arguments and search terms.** A stored `url` is fetched **verbatim** by
@@ -520,7 +544,15 @@ deduplicated per org and capped by `max_boards` (default 40).
 A board returns every open job, so the sweep filters locally: `keywords` and
 `exclude_keywords` are whole-term, case-insensitive matches over title, tags and
 description (`c++` is handled correctly), and `locations` is a
-case/accent-insensitive substring match over the same text. `match_in: "title"`
+case/accent-insensitive, whole-term match against each posting's **detected
+location** (`RawJob.location`, stored in `jobs.location`) — a country named in
+the body does not keep an opening based elsewhere. Postings whose board reports
+no location are kept (`unknown` in the run log); dropping them used to hide
+whole boards behind an "empty" sweep. This gate is not sweep-only: the worker
+applies `config["locations"]` to every source type after normalization, and the
+Sources form exposes it as a comma-separated field. A batch emptied by the gate
+is a successful run, not an empty-parse failure (the `location_filter kept=…
+skipped=… unknown=…` log line records what happened). `match_in: "title"`
 keeps the keyword/exclude match on title + tags only, which is what a board dump
 needs: the company blurb mentions Rust once and every opening would match.
 `max_jobs` caps the jobs kept per run (`0` means no cap). Once `max_boards` boards

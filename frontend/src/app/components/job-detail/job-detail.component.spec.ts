@@ -12,6 +12,7 @@ const JOB: JobDetail = {
   id: 'job-1',
   title: 'Backend Engineer',
   company: 'Acme',
+  location: 'Remote, Brazil',
   url: 'https://acme.example/jobs/1',
   posted_date: '2026-02-01',
   tags: ['python'],

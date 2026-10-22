@@ -60,6 +60,12 @@ export class JobsComponent implements OnInit {
   hideApplied = false;
   /** When on, soft-hidden (dismissed) jobs are included so they can be restored. */
   showHidden = false;
+  /**
+   * Whether a location search also returns jobs with no detected location.
+   * On by default: many boards report no location, and hiding them would make
+   * the filter look like it deleted real jobs.
+   */
+  includeUnknownLocation = true;
 
   /**
    * Timestamp of the previous successful visit. Read once when the component
@@ -95,6 +101,7 @@ export class JobsComponent implements OnInit {
     this.searchForm = this.fb.group({
       q: [''],
       company: [''],
+      location: [''],
       date_from: [''],
       date_to: [''],
       tags: [''],
@@ -104,6 +111,7 @@ export class JobsComponent implements OnInit {
     this.jobForm = this.fb.group({
       title: ['', Validators.required],
       company: ['', Validators.required],
+      location: [''],
       url: [''],
       posted_date: [''],
       tags: [''],
@@ -167,6 +175,17 @@ export class JobsComponent implements OnInit {
     this.search();
   }
 
+  /** Whether the location input currently narrows the list. */
+  get hasLocationFilter(): boolean {
+    return String(this.searchForm.get('location')?.value ?? '').trim().length > 0;
+  }
+
+  /** Re-run the search including/excluding jobs with no detected location. */
+  toggleIncludeUnknownLocation(): void {
+    this.includeUnknownLocation = !this.includeUnknownLocation;
+    this.search();
+  }
+
   /** Loads the pipeline status map so job cards can show "Applied / Interview / …". */
   private loadPipeline(): void {
     this.applications.list().subscribe({
@@ -196,6 +215,7 @@ export class JobsComponent implements OnInit {
     const value = this.searchForm.value as {
       q: string;
       company: string;
+      location: string;
       date_from: string;
       date_to: string;
       tags: string;
@@ -205,6 +225,11 @@ export class JobsComponent implements OnInit {
     const filters: JobFilters = {
       q: value.q || undefined,
       company: value.company || undefined,
+      location: value.location || undefined,
+      // Only meaningful together with a location search; the API includes
+      // unknown-location jobs by default.
+      location_unknown:
+        value.location && !this.includeUnknownLocation ? false : undefined,
       date_from: value.date_from || undefined,
       date_to: value.date_to || undefined,
       tags: value.tags || undefined,
@@ -342,6 +367,7 @@ export class JobsComponent implements OnInit {
     const value = this.jobForm.value as {
       title: string;
       company: string;
+      location: string;
       url: string;
       posted_date: string;
       tags: string;
@@ -350,6 +376,7 @@ export class JobsComponent implements OnInit {
     const payload: JobInput = {
       title: value.title,
       company: value.company,
+      location: value.location.trim() || null,
       url: value.url,
       posted_date: value.posted_date,
       description: value.description,

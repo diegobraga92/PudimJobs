@@ -6,6 +6,7 @@ import random
 import re
 import socket
 import time
+import unicodedata
 import warnings
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -438,6 +439,63 @@ def as_optional_str(value: object) -> str | None:
     return text or None
 
 
+def fold_text(value: str | None) -> str:
+    """Case- and accent-insensitive text used for location matching.
+
+    ``Sao Paulo``/``São Paulo`` and ``BRAZIL``/``brazil`` must be the same term;
+    a board's payload is rarely consistent about either.
+    """
+    if not value:
+        return ""
+    decomposed = unicodedata.normalize("NFKD", str(value))
+    return "".join(
+        char for char in decomposed if not unicodedata.combining(char)
+    ).casefold()
+
+
+def location_terms(value: object) -> list[str]:
+    """Normalize the ``locations`` config value (list or comma-separated string).
+
+    An empty result means "no location gate": the source keeps every job.
+    """
+    return as_tag_list(value)
+
+
+def _folded_term_pattern(term: str) -> re.Pattern[str]:
+    """Word-aware, accent-insensitive matcher for one folded location term.
+
+    Plain substring matching makes ``us`` match ``Australia`` and ``ba`` match
+    ``Barcelona``; the lookarounds keep a term matching as a whole word (the
+    folded text only contains ``a-z0-9`` after accents are stripped).
+    """
+    escaped = re.escape(term)
+    prefix = r"(?<![a-z0-9])" if term[:1].isalnum() else ""
+    suffix = r"(?![a-z0-9])" if term[-1:].isalnum() else ""
+    return re.compile(prefix + escaped + suffix)
+
+
+def location_allowed(location: str | None, terms: object) -> bool:
+    """Whether a posting passes the configured location gate.
+
+    The gate keeps a job when **any** configured term matches the detected
+    location. Postings with no reported location are always kept: dropping them
+    silently removes whole boards (``detail``-mode aggregators, RSS author
+    locations) and looks like an empty scrape. A blank ``terms`` config also
+    keeps everything.
+
+    Matching is case- and accent-insensitive and term-bounded, so ``brazil``
+    matches ``Remote - Brazil`` but ``us`` does not match ``Australia``.
+    """
+    normalized_terms = [fold_text(term).strip() for term in location_terms(terms)]
+    normalized_terms = [term for term in normalized_terms if term]
+    if not normalized_terms:
+        return True
+    folded = fold_text(location).strip()
+    if not folded:
+        return True
+    return any(_folded_term_pattern(term).search(folded) for term in normalized_terms)
+
+
 _RELATIVE_AGE_RE = re.compile(
     r"(?:(?:h[aá]|faz)\s*)?(\d+)\s*\+?\s*"
     r"(minute|hour|day|week|month|year|minuto|hora|dia|semana|m[eê]s(?:es)?|ano)s?"
@@ -595,6 +653,65 @@ def _json_ld_job_postings(data: object):
         yield from _json_ld_job_postings(graph)
 
 
+def _json_ld_country(value: object) -> str | None:
+    """A country name from a JSON-LD ``addressCountry`` (string or object)."""
+    if isinstance(value, dict):
+        return as_optional_str(value.get("name") or value.get("@id"))
+    return as_optional_str(value)
+
+
+def _json_ld_location(item: dict) -> str | None:
+    """The detected location of a schema.org ``JobPosting``.
+
+    ``jobLocation`` is often a list of ``Place`` objects whose ``address`` is a
+    ``PostalAddress`` — the shape every ``career_page`` source uses. A posting
+    marked ``TELECOMMUTE`` without an address is reported as ``Remote``, and
+    ``applicantLocationRequirements`` (the eligible-countries field) is the
+    fallback for boards that only say who may apply.
+    """
+    parts: list[str] = []
+    raw = item.get("jobLocation")
+    for entry in raw if isinstance(raw, list) else [raw]:
+        if isinstance(entry, str):
+            value = entry.strip()
+            if value:
+                parts.append(value)
+            continue
+        if not isinstance(entry, dict):
+            continue
+        address = entry.get("address") if isinstance(entry.get("address"), dict) else entry
+        pieces = [
+            as_optional_str(address.get("addressLocality")),
+            as_optional_str(address.get("addressRegion")),
+            _json_ld_country(address.get("addressCountry")),
+        ]
+        text = ", ".join(piece for piece in pieces if piece)
+        if text:
+            parts.append(text)
+
+    location_type = item.get("jobLocationType")
+    types = {
+        str(value).lower()
+        for value in (location_type if isinstance(location_type, list) else [location_type])
+        if value
+    }
+    if not parts and "telecommute" in types:
+        parts.append("Remote")
+
+    if not parts:
+        requirements = item.get("applicantLocationRequirements")
+        for requirement in requirements if isinstance(requirements, list) else [requirements]:
+            name = (
+                as_optional_str(requirement.get("name"))
+                if isinstance(requirement, dict)
+                else as_optional_str(requirement)
+            )
+            if name:
+                parts.append(name)
+
+    return ", ".join(dict.fromkeys(parts)) or None
+
+
 def parse_json_ld_jobs(
     html_content: str, fallback_url: str | None = None
 ) -> list[RawJob]:
@@ -637,6 +754,7 @@ def parse_json_ld_jobs(
                     posted_date=_parse_date(item.get("datePosted")),
                     description=item.get("description"),
                     tags=as_tag_list(item.get("skills")),
+                    location=_json_ld_location(item),
                     external_id=identifier,
                 )
             )
@@ -674,6 +792,7 @@ def parse_job_detail(page: ScrapedPage, selectors: dict | None = None) -> list[R
             url=page.final_url,
             posted_date=_parse_date(_first_text(soup, date_sel)),
             description=description,
+            location=location,
         )
     ]
 
@@ -746,6 +865,7 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
                 url=urljoin(page.final_url, str(url)),
                 posted_date=date_from_node(date_node),
                 description=description,
+                location=location,
             )
         )
     return jobs

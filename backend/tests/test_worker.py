@@ -24,7 +24,12 @@ from workers.resilience import (
     skip_backoff_mark,
 )
 from workers.tasks import scrape as scrape_module
-from workers.tasks.scrape import _enrich_with_json_ld, _run_scrape, _store_jobs
+from workers.tasks.scrape import (
+    _enrich_with_json_ld,
+    _filter_by_location,
+    _run_scrape,
+    _store_jobs,
+)
 
 from app.config import settings
 from app.models import Job, Notification, ScrapeRun, Source, SourceAuth
@@ -56,6 +61,7 @@ class FakeScraper:
                 "description": j.description,
                 "posted_date": None,
                 "tags": j.tags,
+                "location": j.location,
                 "external_id": j.external_id,
             }
             for j in raw_jobs
@@ -111,6 +117,7 @@ class FakeSweepScraper:
                 "description": job.description,
                 "posted_date": None,
                 "tags": job.tags,
+                "location": job.location,
                 "external_id": job.external_id,
             }
             for job in raw_jobs
@@ -292,6 +299,83 @@ async def test_store_jobs_coerces_a_string_posted_date(test_engine, db_session):
     assert stored[0].posted_date == date(2026, 2, 27)
     jobs = (await db_session.execute(select(Job))).scalars().all()
     assert jobs[0].posted_date == date(2026, 2, 27)
+
+
+def test_filter_by_location_keeps_matching_and_unknown_jobs():
+    """The gate keeps unknown locations and drops non-matching detected ones."""
+    normalized = [
+        {"title": "A", "location": "Remote - Brazil"},
+        {"title": "B", "location": "Lisbon, Portugal"},
+        {"title": "C", "location": None},
+        {"title": "D", "location": "São Paulo, SP"},
+    ]
+
+    kept = _filter_by_location(normalized, SimpleNamespace(config={"locations": ["brazil"]}))
+
+    assert [job["title"] for job in kept] == ["A", "C"]
+    # Accent/case-insensitive: "sao paulo" matches "São Paulo, SP".
+    kept = _filter_by_location(
+        normalized, SimpleNamespace(config={"locations": "Sao Paulo, Portugal"})
+    )
+    assert [job["title"] for job in kept] == ["B", "C", "D"]
+    # No configured terms means no gate at all.
+    assert _filter_by_location(normalized, SimpleNamespace(config={})) == normalized
+
+
+async def test_scrape_persists_detected_location(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user, config={"locations": ["brazil"]})
+    await _install_fake_scraper(
+        monkeypatch,
+        [
+            RawJob(
+                title="Backend Engineer",
+                company="Acme",
+                url="https://acme.example/jobs/1",
+                location="Remote, Brazil",
+            ),
+            RawJob(
+                title="Data Engineer",
+                company="Acme",
+                url="https://acme.example/jobs/2",
+            ),
+        ],
+    )
+
+    result = await _run_scrape(str(source.id))
+
+    # The job without a location is kept: a board that reports none must not
+    # disappear behind a location gate.
+    assert result["new"] == 2
+    jobs = (await db_session.execute(select(Job).order_by(Job.title))).scalars().all()
+    assert [job.location for job in jobs] == ["Remote, Brazil", None]
+
+
+async def test_scrape_location_filter_emptied_batch_is_not_a_failure(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A batch emptied by the location gate is a success, not an empty parse."""
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user, config={"locations": ["brazil"]})
+    await _install_fake_scraper(
+        monkeypatch,
+        [
+            RawJob(
+                title="Backend Engineer",
+                company="Acme",
+                url="https://acme.example/jobs/1",
+                location="Lisbon, Portugal",
+            )
+        ],
+    )
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["new"] == 0
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert runs[0].status == "success"
 
 
 async def test_scrape_deduplicates_on_second_run(

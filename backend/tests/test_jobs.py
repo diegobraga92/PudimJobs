@@ -83,6 +83,46 @@ async def test_job_search_filters(auth_client):
     assert no_match.json() == []
 
 
+async def test_job_location_is_stored_and_filterable(auth_client):
+    """`location` is CRUD-able and the list filter matches it case-insensitively."""
+    client, _, _ = auth_client
+    for payload in [
+        {"title": "Backend Engineer", "company": "Acme", "location": "Remote, Brazil"},
+        {"title": "Frontend Engineer", "company": "Beta", "location": "Lisbon, Portugal"},
+        {"title": "Data Engineer", "company": "Gamma"},
+    ]:
+        response = await client.post("/api/jobs", json=payload)
+        assert response.status_code == 201
+
+    # The manual create form accepts the field and the API echoes it back.
+    created = await client.post(
+        "/api/jobs",
+        json={"title": "SRE", "company": "Delta", "location": "São Paulo, SP"},
+    )
+    assert created.status_code == 201
+    assert created.json()["location"] == "São Paulo, SP"
+
+    async def titles(params: dict) -> list[str]:
+        response = await client.get("/api/jobs", params=params)
+        assert response.status_code == 200
+        return sorted(job["title"] for job in response.json())
+
+    # Unknown-location jobs are included by default: dropping them would hide
+    # every board that reports none.
+    assert await titles({"location": "brazil"}) == ["Backend Engineer", "Data Engineer"]
+    # Comma-separated terms are OR-ed and the match is case-insensitive.
+    assert await titles({"location": "São Paulo, portugal"}) == [
+        "Data Engineer",
+        "Frontend Engineer",
+        "SRE",
+    ]
+    assert await titles({"location": "brazil", "location_unknown": "false"}) == [
+        "Backend Engineer"
+    ]
+    # LIKE wildcards are matched literally rather than expanding to everything.
+    assert await titles({"location": "%"}) == ["Data Engineer"]
+
+
 async def test_keyword_search_handles_go_cpp_and_tags(auth_client):
     """``go``/``c++`` survive Postgres tokenization, and tags are searchable."""
     client, _, _ = auth_client

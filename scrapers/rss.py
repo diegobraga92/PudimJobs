@@ -58,10 +58,12 @@ class RSSScraper(AbstractScraper):
     - ``company_from_title``: split ``"Company: Job title"`` titles.
     - ``company_from_title_at``: split ``"Job title at Company"`` titles.
     - ``company_from_author``: use the entry author as the employer, dropping
-      any location marker Jobspresso appends to it.
+      any location marker Jobspresso appends to it (only the company is dropped;
+      the reading becomes ``RawJob.location``).
     - ``include_categories``: add every feed category to ``tags``.
     - ``include_region``: add region-like categories (and an explicit
-      ``region``/``location`` entry field) to ``tags``.
+      ``region``/``location`` entry field) to ``tags`` and to the detected
+      location.
     - ``strip_html``: turn an HTML summary into plain text.
 
     The flags are opt-in so existing feeds keep their current rows.
@@ -77,6 +79,18 @@ class RSSScraper(AbstractScraper):
 
     def _company_from_author(self, entry) -> str | None:
         """The employer in an entry author, without Jobspresso's location suffix."""
+        text = self._author_text(entry)
+        if not text:
+            return None
+        # Authors can contain markup (`Acme<br>⚲&nbsp;Brazil`); a newline
+        # separator keeps `<br>` boundaries, then the first line is the company.
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        company = _AUTHOR_LOCATION_RE.split(first_line, maxsplit=1)[0].strip()
+        return company or None
+
+    @staticmethod
+    def _author_text(entry) -> str | None:
+        """The entry author as plain text (markup kept as line boundaries)."""
         author = entry.get("author")
         if not author:
             authors = entry.get("authors") or []
@@ -84,12 +98,43 @@ class RSSScraper(AbstractScraper):
                 author = authors[0].get("name")
         if not author:
             return None
-        # Authors can contain markup (`Acme<br>⚲&nbsp;Brazil`); a newline
-        # separator keeps `<br>` boundaries, then the first line is the company.
-        text = BeautifulSoup(str(author), "lxml").get_text("\n", strip=True)
-        first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-        company = _AUTHOR_LOCATION_RE.split(first_line, maxsplit=1)[0].strip()
-        return company or None
+        return BeautifulSoup(str(author), "lxml").get_text("\n", strip=True)
+
+    def _author_location(self, entry) -> str | None:
+        """The location Jobspresso appends to the author (``Algolia ⚲ Brazil``)."""
+        text = self._author_text(entry)
+        if not text:
+            return None
+        for line in text.splitlines():
+            parts = _AUTHOR_LOCATION_RE.split(line, maxsplit=1)
+            if len(parts) < 2:
+                continue
+            location = parts[1].replace("\xa0", " ").strip()
+            if location:
+                return location
+        return None
+
+    def _location(self, entry) -> str | None:
+        """The posting's detected location, from the fields a feed may carry.
+
+        RSS has no standard location element, so the practical sources are the
+        explicit ``region``/``location`` fields some boards add, region-like
+        categories (only when ``include_region`` opts in), and the location
+        suffix Jobspresso puts in the author.
+        """
+        parts: list[str] = []
+        for key in ("region", "location"):
+            parts.extend(as_tag_list(entry.get(key)))
+        if as_flag(self.config.get("include_region")):
+            parts.extend(
+                category
+                for category in _entry_categories(entry)
+                if _REGION_RE.search(category)
+            )
+        author_location = self._author_location(entry)
+        if author_location:
+            parts.append(author_location)
+        return ", ".join(dict.fromkeys(parts)) or None
 
     @staticmethod
     def _company_from_title_at(title: str) -> tuple[str, str] | None:
@@ -156,6 +201,7 @@ class RSSScraper(AbstractScraper):
                     posted_date=_entry_date(entry),
                     description=self._description(entry),
                     tags=self._tags(entry),
+                    location=self._location(entry),
                     external_id=entry.get("id"),
                 )
             )
@@ -170,6 +216,7 @@ class RSSScraper(AbstractScraper):
                 "url": raw.url,
                 "posted_date": raw.posted_date,
                 "tags": raw.tags or [],
+                "location": raw.location,
                 "external_id": raw.external_id,
             }
             for raw in raw_jobs

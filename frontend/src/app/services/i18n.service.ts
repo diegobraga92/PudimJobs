@@ -32,6 +32,7 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'common.title': { en: 'Title', 'pt-BR': 'Título' },
   'common.url': { en: 'URL', 'pt-BR': 'URL' },
   'common.tags': { en: 'Tags', 'pt-BR': 'Tags' },
+  'common.location': { en: 'Location', 'pt-BR': 'Local' },
   'common.description': { en: 'Description', 'pt-BR': 'Descrição' },
   'common.skills': { en: 'Skills:', 'pt-BR': 'Habilidades:' },
   'common.experience': { en: 'Experience:', 'pt-BR': 'Experiência:' },
@@ -104,6 +105,15 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'jobs.added.30d': { en: 'Added in last 30 days', 'pt-BR': 'Adicionadas nos últimos 30 dias' },
   'jobs.added.lastVisit': { en: 'Added since last visit', 'pt-BR': 'Adicionadas desde a última visita' },
   'jobs.tagsPlaceholder': { en: 'Tags (comma separated)', 'pt-BR': 'Tags (separadas por vírgula)' },
+  'jobs.locationPlaceholder': {
+    en: 'Location (city, country or Remote)',
+    'pt-BR': 'Local (cidade, país ou Remoto)',
+  },
+  'jobs.aria.filterLocation': { en: 'Filter by location', 'pt-BR': 'Filtrar por local' },
+  'jobs.includeUnknownLocation': {
+    en: 'Include jobs without location',
+    'pt-BR': 'Incluir vagas sem local',
+  },
   'jobs.searching': { en: 'Searching…', 'pt-BR': 'Buscando…' },
   'jobs.search': { en: 'Search', 'pt-BR': 'Buscar' },
   'jobs.addJobManually': { en: 'Add job manually', 'pt-BR': 'Adicionar vaga manualmente' },
@@ -219,6 +229,15 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'sources.cadenceHint': {
     en: 'How often this watchlist source should be checked by hand. A reminder appears when it is due.',
     'pt-BR': 'Com que frequência esta fonte de acompanhamento deve ser revisada manualmente. Um lembrete aparece quando estiver na hora.',
+  },
+  'sources.locations': { en: 'Locations', 'pt-BR': 'Locais' },
+  'sources.locationsPlaceholder': {
+    en: 'Brazil, Remote, São Paulo',
+    'pt-BR': 'Brasil, Remoto, São Paulo',
+  },
+  'sources.locationsHint': {
+    en: 'Only keep jobs whose detected location matches one of these terms (comma separated, case/accent-insensitive). Jobs with no detected location are always kept.',
+    'pt-BR': 'Mantém apenas vagas cujo local detectado corresponda a um destes termos (separados por vírgula, sem diferenciar maiúsculas ou acentos). Vagas sem local detectado são sempre mantidas.',
   },
   'sources.schedule': { en: 'Scrape frequency', 'pt-BR': 'Frequência de coleta' },
   'sources.schedule.default': { en: 'Global default', 'pt-BR': 'Padrão global' },

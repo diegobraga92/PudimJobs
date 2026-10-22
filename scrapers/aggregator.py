@@ -84,6 +84,7 @@ class AggregatorScraper(AbstractScraper):
                 "url": raw.url,
                 "posted_date": raw.posted_date,
                 "tags": raw.tags or [],
+                "location": raw.location,
                 "external_id": raw.external_id,
             }
             for raw in raw_jobs
@@ -112,6 +113,11 @@ class GenericHtmlListScraper(AggregatorScraper):
         super().__init__(config)
         #: Pages walked so far, so `next_page_tpl` can render ``{page}``.
         self._page = 1
+        #: Detail URL -> the location printed on its listing card. A board whose
+        #: detail page omits the location (the common case: the card carries a
+        #: city chip, the posting body does not) would otherwise be stored with
+        #: no location at all. Populated by `discover_urls`, read by `parse`.
+        self._card_locations: dict[str, str] = {}
 
     def first_fetch_url(self, source_url: str) -> str:
         """The URL fetched first: the stored URL, or its ``url_tpl`` when set.
@@ -135,7 +141,25 @@ class GenericHtmlListScraper(AggregatorScraper):
             jobs = self._parse_detail(page)
         else:
             jobs = self._parse_list(page)
+        self._apply_card_location(jobs, page)
         return filter_excluded_jobs(jobs, self.config)
+
+    def _apply_card_location(self, jobs: list[RawJob], page: ScrapedPage) -> None:
+        """Fill a detail page's missing location from its listing card.
+
+        ``detail_location_selector`` is optional and many boards only print the
+        city on the card, so the location seen while discovering the URL is the
+        best (sometimes only) source. URLs are compared without the trailing
+        slash because a board may redirect ``/jobs/1`` to ``/jobs/1/``.
+        """
+        if not jobs or not self._card_locations:
+            return
+        card_location = self._card_locations.get(page.final_url.rstrip("/"))
+        if not card_location:
+            return
+        for job in jobs:
+            if not job.location:
+                job.location = card_location
 
     def discover_urls(self, page: ScrapedPage) -> list[str]:
         """Job *detail* URLs for every listing row (only in ``detail`` mode)."""
@@ -144,6 +168,7 @@ class GenericHtmlListScraper(AggregatorScraper):
         soup = BeautifulSoup(page.html_content, "lxml")
         item_selector = self.config.get("item_selector", "article")
         url_selector = self.config.get("url_selector", "a")
+        location_selector = self.config.get("location_selector") or ".location"
         exclude_pattern = compile_exclude_pattern(self.config)
         links: list[str] = []
         for item in soup.select(item_selector):
@@ -158,7 +183,13 @@ class GenericHtmlListScraper(AggregatorScraper):
                 node = item
             href = node.get("href") if node else None
             if href:
-                links.append(urljoin(page.final_url, str(href)))
+                url = urljoin(page.final_url, str(href))
+                location_node = item.select_one(location_selector)
+                if location_node is not None:
+                    location = location_node.get_text(" ", strip=True)
+                    if location:
+                        self._card_locations[url.rstrip("/")] = location
+                links.append(url)
         return links
 
     def _parse_list(self, page: ScrapedPage) -> list[RawJob]:
@@ -213,6 +244,7 @@ class GenericHtmlListScraper(AggregatorScraper):
                     soup.select_one(date_selector) if date_selector else None
                 ),
                 description=description,
+                location=location,
             )
         ]
 
@@ -373,6 +405,7 @@ class EmbeddedJsonListScraper(AggregatorScraper):
             posted_date=coerce_date(field("date_path")),
             description=description,
             tags=tags,
+            location=location,
             external_id=as_optional_str(field("id_path")),
         )
 

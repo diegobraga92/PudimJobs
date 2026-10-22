@@ -168,6 +168,48 @@ describe('SourcesComponent — manual watchlist', () => {
     http.expectOne('/api/sources').flush([]);
   });
 
+  it('prefills and saves the location gate for every fetchable type', () => {
+    const source: Source = {
+      ...MANUAL_SOURCE,
+      id: 'src-loc',
+      type: 'career_page',
+      config: { locations: ['Brazil', 'Remote'] },
+    };
+    component.openEdit(source);
+
+    expect(component.locations).toBe('Brazil, Remote');
+
+    component.locations = 'Brazil, São Paulo';
+    component.save();
+
+    const request = http.expectOne('/api/sources/src-loc');
+    expect(request.request.method).toBe('PUT');
+    // career_page sources had no config editor before: the dedicated field is
+    // what lets them carry the gate, merged over the stored config.
+    expect(request.request.body.config).toEqual({
+      locations: ['Brazil', 'São Paulo'],
+    });
+    request.flush({ ...source, config: request.request.body.config });
+    http.expectOne('/api/sources').flush([]);
+  });
+
+  it('drops the location gate when the field is cleared', () => {
+    component.openEdit({
+      ...MANUAL_SOURCE,
+      id: 'src-loc',
+      type: 'rss',
+      config: { locations: ['Brazil'], company_from_title: true },
+    });
+
+    component.locations = '   ';
+    component.save();
+
+    const request = http.expectOne('/api/sources/src-loc');
+    expect(request.request.body.config).toEqual({ company_from_title: true });
+    request.flush({ ...MANUAL_SOURCE, id: 'src-loc', type: 'rss' });
+    http.expectOne('/api/sources').flush([]);
+  });
+
   it('takes the cadence input bounds from the API', () => {
     expect(component.cadenceMin).toBe(MANUAL_METADATA.cadence_days.min);
     expect(component.cadenceMax).toBe(MANUAL_METADATA.cadence_days.max);

@@ -5,7 +5,6 @@ import json
 import logging
 import re
 import time
-import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -27,6 +26,8 @@ from scrapers.utils import (
     assert_safe_url,
     coerce_date,
     fetch_html,
+    location_allowed,
+    location_terms,
     parse_html_list,
     parse_job_detail,
     parse_json_ld_jobs,
@@ -67,12 +68,6 @@ def _term_pattern(term: str) -> re.Pattern[str]:
     prefix = r"(?<![A-Za-z0-9_])" if term[:1].isalnum() or term[:1] == "_" else ""
     suffix = r"(?![A-Za-z0-9_])" if term[-1:].isalnum() or term[-1:] == "_" else ""
     return re.compile(prefix + escaped + suffix, re.IGNORECASE)
-
-
-def _fold_text(value: str) -> str:
-    """Case- and accent-insensitive text used for location matching."""
-    decomposed = unicodedata.normalize("NFKD", value)
-    return "".join(char for char in decomposed if not unicodedata.combining(char)).casefold()
 
 
 def _matches_any(patterns: list[re.Pattern[str]], text: str) -> bool:
@@ -210,6 +205,7 @@ class DiscoveryProvider(ABC):
                 "url": raw.url,
                 "posted_date": raw.posted_date,
                 "tags": raw.tags or [],
+                "location": raw.location,
                 "external_id": raw.external_id,
             }
             for raw in raw_jobs
@@ -271,6 +267,19 @@ class AshbyProvider(ATSProvider):
                 else as_optional_str(entry)
                 for entry in item.get("secondaryLocations") or []
             ]
+            location = ", ".join(
+                dict.fromkeys(
+                    part
+                    for part in (
+                        _location_name(item.get("location")),
+                        postal.get("addressLocality"),
+                        postal.get("addressRegion"),
+                        postal.get("addressCountry"),
+                        *(part for part in secondary if part),
+                    )
+                    if part
+                )
+            ) or None
             tags = _tags(
                 item.get("location"),
                 *secondary,
@@ -288,6 +297,7 @@ class AshbyProvider(ATSProvider):
                     posted_date=coerce_date(item.get("publishedAt")),
                     description=_strip_html(description) or None,
                     tags=list(dict.fromkeys(tags)),
+                    location=location,
                     external_id=str(item["id"]) if item.get("id") else None,
                 )
             )
@@ -368,6 +378,7 @@ class GreenhouseProvider(ATSProvider):
                     ),
                     description=description[:2000] if description else None,
                     tags=_tags(location, *departments),
+                    location=location or None,
                     external_id=str(item["id"]) if item.get("id") else None,
                     match_text=description or None,
                 )
@@ -404,6 +415,10 @@ class LeverProvider(ATSProvider):
             description = (
                 item.get("descriptionPlain") or _strip_html(item.get("description"))
             )[:2000] or None
+            all_locations = as_tag_list(cats.get("allLocations"))
+            location = as_optional_str(cats.get("location")) or (
+                all_locations[0] if all_locations else None
+            )
             jobs.append(
                 RawJob(
                     title=item.get("text") or "",
@@ -415,10 +430,11 @@ class LeverProvider(ATSProvider):
                     tags=_tags(
                         cats.get("commitment"),
                         cats.get("location"),
-                        *as_tag_list(cats.get("allLocations")),
+                        *all_locations,
                         cats.get("team"),
                         item.get("workplaceType"),
                     ),
+                    location=location,
                     external_id=str(item["id"]) if item.get("id") else None,
                 )
             )
@@ -444,6 +460,7 @@ class WorkableProvider(ATSProvider):
                     ),
                     description=description,
                     tags=_tags(location) if location else [],
+                    location=location or None,
                 )
             )
         return [j for j in jobs if j.title and j.url]
@@ -466,6 +483,9 @@ class SmartRecruitersProvider(ATSProvider):
             company_obj = item.get("company") if isinstance(item.get("company"), dict) else {}
             identifier = company_obj.get("identifier") or self.config.get("company") or ""
             location = item.get("location") if isinstance(item.get("location"), dict) else {}
+            location_name = as_optional_str(location.get("fullLocation")) or _location_name(
+                location
+            )
             jobs.append(
                 RawJob(
                     title=item.get("name") or "",
@@ -480,8 +500,9 @@ class SmartRecruitersProvider(ATSProvider):
                         _label(item.get("typeOfEmployment")),
                         _label(item.get("department")),
                         _label(item.get("function")),
-                        location.get("fullLocation"),
+                        location_name,
                     ),
+                    location=location_name or None,
                     external_id=str(item["id"]) if item.get("id") else None,
                 )
             )
@@ -520,6 +541,7 @@ class RecruiteeProvider(ATSProvider):
                     description=description,
                     tags=as_tag_list(item.get("tags"))
                     + _tags(item.get("department"), location),
+                    location=location or None,
                     external_id=str(item["id"]) if item.get("id") else None,
                 )
             )
@@ -591,6 +613,7 @@ class PersonioProvider(ATSProvider):
                         _xml_text(position, "seniority"),
                         location,
                     ),
+                    location=location or None,
                     external_id=position_id,
                 )
             )
@@ -656,6 +679,7 @@ class WorkdayProvider(ATSProvider):
                     url=url,
                     posted_date=coerce_date(item.get("postedOn")),
                     tags=_tags(item.get("locationsText"), *bullets),
+                    location=as_optional_str(item.get("locationsText")),
                     external_id=bullets[0] if bullets else None,
                 )
             )
@@ -929,6 +953,7 @@ class JsonListProvider(DiscoveryProvider):
             posted_date=coerce_date(field("date_path")),
             description=description,
             tags=tags,
+            location=location,
             external_id=as_optional_str(field("id_path")),
         )
 
@@ -1451,6 +1476,7 @@ class SerpApiProvider(SearchApiProvider):
                     posted_date=self._posted_date(item, detected),
                     description=description,
                     tags=tags,
+                    location=location,
                     external_id=self._external_id(item),
                 )
             )
@@ -1985,8 +2011,9 @@ class DiscoveryScraper(AbstractScraper):
 
     The sweep filters locally because a board returns every job, not just the
     ones a search query would have found: ``keywords``/``exclude_keywords``
-    match title, tags and description, and ``locations`` matches the title,
-    location tags and description (case/accent-insensitive).
+    match title, tags and description, and ``locations`` matches the posting's
+    detected location (case/accent-insensitive). Openings with no reported
+    location are kept; dropping them hid whole boards behind an "empty" run.
     """
 
     def __init__(
@@ -2036,11 +2063,12 @@ class DiscoveryScraper(AbstractScraper):
             for term in as_tag_list(self.provider.config.get("exclude_keywords"))
             if term.strip()
         ]
-        self._locations = [
-            _fold_text(term)
-            for term in as_tag_list(self.provider.config.get("locations"))
-            if term.strip()
-        ]
+        self._locations = location_terms(self.provider.config.get("locations"))
+        # Run counters for the location gate: `unknown` is what the gate kept
+        # because the board reported no location at all, `dropped` what it
+        # rejected. Both surface in the once-per-run summary.
+        self._location_dropped = 0
+        self._location_unknown = 0
 
     @property
     def sweep_enabled(self) -> bool:
@@ -2048,10 +2076,14 @@ class DiscoveryScraper(AbstractScraper):
 
     @property
     def allow_empty(self) -> bool:
-        """A sweep can legitimately find no matching jobs on a given day."""
+        """A sweep can legitimately find no matching jobs on a given day.
+
+        A ``locations`` gate can empty any source (a board whose openings are
+        all elsewhere), so it also opts out of the empty-parse failure.
+        """
         if "allow_empty" in self.provider.config:
             return as_flag(self.provider.config["allow_empty"])
-        return self._sweep
+        return self._sweep or bool(self._locations)
 
     def first_fetch_url(self, source_url: str) -> str:
         return self.provider.results_url()
@@ -2226,8 +2258,12 @@ class DiscoveryScraper(AbstractScraper):
         ``match_in: title`` restricts keyword and exclusion matching to the
         title and tags. A board returns every opening the company has, so
         matching the description too keeps "Growth Lead" because the company
-        blurb mentions Rust once. Locations still match the description: a
-        board often carries the remote flag only in the body.
+        blurb mentions Rust once.
+
+        Locations match the posting's *detected* location only (``RawJob.location``):
+        matching the description made a term such as "Brazil" match an ad that
+        merely mentioned the country, and a job with no detected location is
+        kept rather than silently dropped (see ``location_allowed``).
         """
         if not (self._keyword_patterns or self._exclude_patterns or self._locations):
             kept = list(jobs)
@@ -2249,8 +2285,10 @@ class DiscoveryScraper(AbstractScraper):
                 ):
                     continue
                 if self._locations:
-                    folded = _fold_text(full_text)
-                    if not any(location in folded for location in self._locations):
+                    if not job.location:
+                        self._location_unknown += 1
+                    elif not location_allowed(job.location, self._locations):
+                        self._location_dropped += 1
                         continue
                 kept.append(job)
 
@@ -2381,6 +2419,17 @@ class DiscoveryScraper(AbstractScraper):
                 self._stale_dropped,
                 self._undated_kept,
                 len(normalized),
+            )
+        if self._locations:
+            # Unknown locations are deliberately kept; seeing a high `unknown`
+            # count here means the board does not report one and the gate is
+            # only doing half its job.
+            logger.info(
+                "discovery_location_filter terms=%s kept=%s skipped=%s unknown=%s",
+                ", ".join(self._locations),
+                len(normalized),
+                self._location_dropped,
+                self._location_unknown,
             )
         if self._sweep:
             # One line per run so a silently shrinking sweep (dead boards, an

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class JobCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     company: str = Field(min_length=1, max_length=255)
+    location: str | None = Field(default=None, max_length=255)
     description: str | None = None
     url: str | None = Field(default=None, max_length=1024)
     source_id: uuid.UUID | None = None
@@ -17,6 +18,7 @@ class JobCreate(BaseModel):
 class JobUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     company: str | None = Field(default=None, min_length=1, max_length=255)
+    location: str | None = Field(default=None, max_length=255)
     description: str | None = None
     url: str | None = Field(default=None, max_length=1024)
     source_id: uuid.UUID | None = None
@@ -31,6 +33,7 @@ class JobSummary(BaseModel):
     id: uuid.UUID
     title: str
     company: str
+    location: str | None = None
     url: str | None
     posted_date: date | None
     tags: list[str]

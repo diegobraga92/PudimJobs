@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import ARRAY, String, bindparam, delete, func, select, text
+from sqlalchemy import ARRAY, String, bindparam, delete, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +42,11 @@ async def get_owned_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> Job:
     return job
 
 
+def _escape_like(term: str) -> str:
+    """Escape LIKE wildcards so a location is matched literally (``sp`` ≠ ``sp%``)."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def validate_source(source_id: uuid.UUID | None, user: User, db: AsyncSession) -> None:
     """Ensure an optional source belongs to the current user."""
     if source_id is None:
@@ -59,6 +64,8 @@ async def list_jobs(
     request: Request,
     q: str | None = None,
     company: str | None = None,
+    location: str | None = None,
+    location_unknown: bool = True,
     date_from: date | None = None,
     date_to: date | None = None,
     tags: str | None = None,
@@ -108,6 +115,20 @@ async def list_jobs(
 
     if company:
         stmt = stmt.where(Job.company.ilike(f"%{company.strip()}%"))
+    if location:
+        # Comma-separated OR, case-insensitive substring — the same shape as the
+        # per-source ingestion gate. Jobs with no detected location are included
+        # unless `location_unknown=false`: a board that reports none must not be
+        # invisible just because the user narrowed by location.
+        terms = [term.strip().lower() for term in location.split(",") if term.strip()]
+        if terms:
+            clauses = [
+                Job.location.ilike(f"%{_escape_like(term)}%", escape="\\")
+                for term in terms
+            ]
+            if location_unknown:
+                clauses.extend((Job.location.is_(None), Job.location == ""))
+            stmt = stmt.where(or_(*clauses))
     if date_from:
         stmt = stmt.where(Job.posted_date >= date_from)
     if date_to:

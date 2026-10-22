@@ -13,6 +13,7 @@ const JOB: JobSummary = {
   id: 'job-1',
   title: 'Backend Engineer',
   company: 'Acme',
+  location: 'Remote, Brazil',
   url: null,
   posted_date: null,
   tags: [],
@@ -88,6 +89,26 @@ describe('JobsComponent (bulk cleanup, ADR 023)', () => {
     const list = http.expectOne((c) => c.url === '/api/jobs');
 
     expect(list.request.params.has('created_after')).toBeFalse();
+    list.flush([]);
+  });
+
+  it('sends the location filter and can exclude unknown locations', () => {
+    flushInit();
+
+    component.searchForm.patchValue({ location: 'Brazil' });
+    component.search();
+    let list = http.expectOne((c) => c.url === '/api/jobs');
+
+    expect(list.request.params.get('location')).toBe('Brazil');
+    // Unknown-location jobs are included by default.
+    expect(list.request.params.has('location_unknown')).toBeFalse();
+    list.flush([]);
+
+    component.toggleIncludeUnknownLocation();
+    list = http.expectOne((c) => c.url === '/api/jobs');
+
+    // `false` is a meaningful value here, so the service must not drop it.
+    expect(list.request.params.get('location_unknown')).toBe('false');
     list.flush([]);
   });
 
