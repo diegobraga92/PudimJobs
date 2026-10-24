@@ -22,7 +22,7 @@ Hard limits of the engine — these decide almost every verdict below:
    (Angular, pure SPA) is invisible unless it is embedded as JSON
    (`embedded_json_list` reads `__NEXT_DATA__` / `window.__NUXT__`) or the page
    fetches it from a JSON API we can call ourselves (`json_list` — Working
-   Nomads, RemoteOK).
+   Nomads, RemoteOK, FullStack Talent).
 2. **No cookie/session auth.** `source_auth` supports `none`, `token` (bearer)
    and `api_key` only; cookie auth was removed deliberately
    (`app/models/source_auth.py`) because automating logged-in sessions violates
@@ -173,7 +173,8 @@ are redacted before they are stored or returned).
 | `url` / `url_tpl` | endpoint template; any config key plus the reserved `{api_key}`, `{page}` and `{page_size}` renders into it (`{api_key}` in the template means "the key goes right here") |
 | `auth` | where the key travels: `"query"` or `{"in": "query", "name": "app_key"}`, `{"in": "header", "name": "X-Api-Key"}`, or nothing at all so the `{api_key}` marker above decides. Names default to `X-API-Key` |
 | `method` + `body` | `POST` + a JSON `body` template for vendors that only answer to POST; body placeholders render as **text**, so quote them (`"page": "{page}"`, not `"page": {page}`) |
-| `next_page_tpl` / `max_pages` | pagination. Providers that page through the body (Jooble) keep the same URL and send `{page}` in the body — the worker knows such a URL is not "no more pages" (`pagination_in_body`) |
+| `next_page_tpl` / `next_page_path` / `max_pages` | pagination. Providers that page through the body (Jooble) keep the same URL and send `{page}` in the body — the worker knows such a URL is not "no more pages" (`pagination_in_body`). `next_page_path` reads the API's own flag (a dotted path such as `meta.hasNextPage`) and stops the walk when it is false or missing, so a board that grows does not need `max_pages` retuned |
+| `url_path` + `job_url_tpl` | `url_path` extracts the item's link; when the payload only carries an id/slug (`url_path: "id"`), `job_url_tpl` renders any item field plus `{url}` into the public posting URL (`"https://talent.fullstack.com/jobs/{id}"`) instead of letting the id resolve against the API host. A placeholder with no matching field fails the run |
 | `items_path`, `title_path`, … | field mapping, exactly as for any other `json_list` source |
 
 | Provider | Endpoint / key | Notes |
@@ -514,6 +515,57 @@ Nomads is collected (`/api/exposed_jobs/` is a bare array of
 `{url,title,description,company_name,category_name,tags,location,pub_date}`, so
 `"tags"` is a comma-separated string that `tags_path` already splits).
 
+**Id-only JSON boards (FullStack Talent).** `talent.fullstack.com/jobs` is an
+Angular shell, but the board reads a public, unauthenticated API:
+`https://api-v1.fullstack.com/api/job-postings/public` answers
+`{data: [...], meta: {hasNextPage, pageCount, filteredCount, ...}}` with `id`,
+`jobTitle`, `region`, `regionGroup`, `city`, `state`, `createdAt` and
+`skillsNames` per posting. The page size is fixed at `take=30` (any other value
+is rejected with `Invalid take value`), and one `filter` argument carries
+`key=value` pairs joined by `&` (encode `=` as `%3D` and `&` as `%26`):
+
+| Filter | Postings | Query argument |
+|---|---|---|
+| Latam | 2450 | `filter=regionGroup%3DLatam` |
+| Brazil | 275 | `filter=region%3D*Brazil*` |
+| São Paulo | 25 | `filter=countryId%3D<country-uuid>%26cityId%3D<city-uuid>` |
+| every country | 2897 | omit `filter` |
+
+The public posting page is `talent.fullstack.com/jobs/<id>`, so `url_path: "id"`
+plus `job_url_tpl` yields a readable link; `company` is a fixed string because
+the board lists a single company:
+
+```json
+{
+  "provider": "json_list",
+  "url_tpl": "https://api-v1.fullstack.com/api/job-postings/public?page={page}&take=30&filter=regionGroup%3DLatam",
+  "max_pages": 200,
+  "next_page_path": "meta.hasNextPage",
+  "items_path": "data",
+  "id_path": "id",
+  "title_path": "jobTitle",
+  "url_path": "id",
+  "job_url_tpl": "https://talent.fullstack.com/jobs/{id}",
+  "location_path": "region",
+  "date_path": "createdAt",
+  "tags_path": "skillsNames",
+  "company": "FullStack"
+}
+```
+
+At 30 postings per request, Latam is 82 requests — a live run took 5m10s at
+`rate_limit_seconds: 3` (the API answers in a second or two; the documented
+ceiling is 20 req/min, so a 3 s cooldown leaves headroom), and a daily
+`scrape_interval_minutes` is plenty.
+`order`/`orderBy` are accepted but ignored, so every run walks the board and
+dedupes on `external_id`; `next_page_path` ends the walk on the last page instead
+of over-fetching up to `max_pages`. The **list payload carries no description**:
+`/api/job-postings/{id}` does, but it costs one request per posting, so these
+rows hold title, company, location, date and `skillsNames` as tags, and
+`POST /api/jobs/{id}/parse` has no body to read. Narrow the volume with the
+Brazil/São Paulo filter, `max_age_days`, or a `locations` eligibility gate
+(keyword filters only apply to sweeps).
+
 **Paid search providers** (`type = discovery`, key via `PUT /sources/{id}/auth`
 with `auth_type=api_key`): `brightdata` for LinkedIn (`{"engine": "linkedin",
 "query": "...", "location": "Brazil", "zone": "web_unlocker1",
@@ -774,12 +826,15 @@ incomplete and drops valid Glassdoor jobs.
 
 ## Out of scope (documented, not attempted)
 
+Moved out of these buckets: FullStack Talent (`talent.fullstack.com`) is now
+collected through its public JSON API — see *Id-only JSON boards* above.
+
 - **Login-walled dashboards / talent networks** (Outlier, Alignerr, Toptal,
   Turing, Upwork, Revelo, Lemon.io, FlexJobs, VanHack, Proxify and similar) —
   need authenticated candidate context (cookies + often 2FA/SSO). Track them as
   `type = manual` sources instead (ADR 018): the user re-checks them by hand and
   the app reminds them when due. Verified into this bucket: arc.dev, beon.tech,
-  Crossover, Encora (`careers.encora.com`), FullStack Talent, Greenhouse's
+  Crossover, Encora (`careers.encora.com`), Greenhouse's
   candidate dashboard, Impulso, Randstad, Remotar, Trampos, Tecla, X-Team
   (`x-team.com/remote-jobs` 404s; `jobs.x-team.com` is a shell — see the JS-only
   shells below), Vagas.com.br's *meu-perfil* — none of
@@ -803,8 +858,7 @@ incomplete and drops valid Glassdoor jobs.
   (its JSON-LD blocks describe the *site*, not jobs), `br.jobsora.com/empregos`,
   `remotar.com.br` (`__NEXT_DATA__` present but `pageProps` is empty),
   `jobs.x-team.com` (`x-team.com/remote-jobs` is a 404 and the current host is an
-  SPA shell), `app.tecla.io/jobs`, `work.turing.com/jobs`,
-  `talent.fullstack.com/jobs` (734 bytes of shell), `himalayas.app`
+  SPA shell), `app.tecla.io/jobs`, `work.turing.com/jobs`, `himalayas.app`
   (HTTP 403). Keep them `manual` (ADR 018) or wire up a provider — a stored URL
   with extra query arguments does not help when the listing is fetched by JS.
 - **Hash-route SPAs** — `jobs.hirewithnear.com/#/` renders its list from the URL

@@ -861,11 +861,14 @@ class JsonListProvider(DiscoveryProvider):
     One config drives the whole request: ``url``/``url_tpl`` render with any
     config key plus the reserved ``{api_key}``, ``{page}`` and ``{page_size}``;
     ``method: POST`` + ``body`` covers APIs that only answer to POST (Jooble);
-    ``auth`` says where the key travels (``query``/``header``/``path``); and
-    ``next_page_tpl``/``max_pages`` paginate. Body placeholders substitute as
-    text, so quote them the way the vendor expects (``"page": "{page}"``). The
-    API key comes from the source's stored credentials, never from the config, so
-    ``GET /api/sources`` keeps returning ``config`` verbatim.
+    ``auth`` says where the key travels (``query``/``header``/``path``);
+    ``next_page_tpl``/``max_pages`` paginate, and ``next_page_path`` stops on the
+    API's own ``hasNextPage`` flag. Body placeholders substitute as text, so
+    quote them the way the vendor expects (``"page": "{page}"``). ``url_path``
+    extracts an id/slug and ``job_url_tpl`` turns it into the public posting URL
+    when the API carries no link. The API key comes from the source's stored
+    credentials, never from the config, so ``GET /api/sources`` keeps returning
+    ``config`` verbatim.
     """
 
     provider_name = "json_list"
@@ -1059,6 +1062,8 @@ class JsonListProvider(DiscoveryProvider):
         """The next results URL, or None (single-page sources stop here)."""
         if self._page >= self.max_pages():
             return None
+        if self._has_next_page(page) is False:
+            return None
         tpl = self.config.get("next_page_tpl")
         if not tpl and not self.pagination_in_body and not self._paginates_in_url():
             return None
@@ -1069,6 +1074,21 @@ class JsonListProvider(DiscoveryProvider):
         # number reaches the request through `request_spec`.
         return self.results_url()
 
+    def _has_next_page(self, page: ScrapedPage) -> bool | None:
+        """Read the API's own pagination flag (``next_page_path``), if configured.
+
+        ``meta.hasNextPage`` (FullStack) tells the walk where the board ends, so
+        it does not fetch empty pages up to ``max_pages``. ``None`` means the
+        config does not say, and the URL/body heuristics decide.
+        """
+        path = self.config.get("next_page_path")
+        if not path:
+            return None
+        try:
+            payload = json.loads(page.html_content or "")
+        except json.JSONDecodeError:
+            return False
+        return as_flag(resolve_path(payload, path))
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         try:
@@ -1095,6 +1115,24 @@ class JsonListProvider(DiscoveryProvider):
         max_results = int(self.config.get("max_results") or 0)
         return jobs[:max_results] if max_results > 0 else jobs
 
+    def _render_job_url(self, url: str | None, item: dict) -> str | None:
+        """Turn an id/slug into the posting URL (``job_url_tpl``), if configured.
+
+        APIs that expose only ids (FullStack) would otherwise link to the API
+        host through ``urljoin``. The template renders any item field plus
+        ``{url}`` (the ``url_path`` value); an unknown placeholder fails the
+        parse with an actionable message instead of storing a broken link.
+        """
+        tpl = self.config.get("job_url_tpl")
+        if not tpl or url is None:
+            return url
+        try:
+            return str(tpl).format(**{**item, "url": url})
+        except (KeyError, IndexError, ValueError) as exc:
+            raise ValueError(
+                f"json_list could not render 'job_url_tpl' {tpl!r}: {exc}"
+            ) from exc
+
     def _job_from_item(
         self, item: dict, company_fallback: str, base_url: str
     ) -> RawJob:
@@ -1104,7 +1142,7 @@ class JsonListProvider(DiscoveryProvider):
                 return None
             return resolve_path(item, path)
 
-        url = as_optional_str(field("url_path"))
+        url = self._render_job_url(as_optional_str(field("url_path")), item)
         location = as_optional_str(field("location_path"))
         tags = as_tag_list(field("tags_path"))
         if location:
@@ -2016,6 +2054,7 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
             "id_path",
             "title_path",
             "url_path",
+            "job_url_tpl",
             "company_path",
             "company",
             "location_path",
@@ -2028,6 +2067,7 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
             "headers",
             "page_size",
             "next_page_tpl",
+            "next_page_path",
             "max_pages",
             "max_results",
         ),

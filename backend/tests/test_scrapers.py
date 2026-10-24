@@ -1412,6 +1412,44 @@ JSON_LIST_CONFIG = {
     "description_path": "description",
 }
 
+#: FullStack Talent's public board: ids only, a `hasNextPage` flag and a
+#: URL-encoded filter. This is the config documented in docs/scraping.md.
+FULLSTACK_URL = (
+    "https://api-v1.fullstack.com/api/job-postings/public"
+    "?page={page}&take=30&filter=regionGroup%3DLatam"
+)
+FULLSTACK_CONFIG = {
+    "provider": "json_list",
+    "url_tpl": FULLSTACK_URL,
+    "max_pages": 200,
+    "next_page_path": "meta.hasNextPage",
+    "items_path": "data",
+    "id_path": "id",
+    "title_path": "jobTitle",
+    "company": "FullStack",
+    "url_path": "id",
+    "job_url_tpl": "https://talent.fullstack.com/jobs/{id}",
+    "location_path": "region",
+    "date_path": "createdAt",
+    "tags_path": "skillsNames",
+}
+FULLSTACK_PAYLOAD = {
+    "data": [
+        {
+            "id": "6f0b2c1e-8a4d-4c1f-9f6e-2b1d0c3a4e5f",
+            "jobTitle": "Senior Backend Engineer",
+            "region": "Brazil",
+            "regionGroup": "Latam",
+            "city": "São Paulo",
+            "createdAt": "2026-10-01T12:00:00.000Z",
+            "skillsNames": ["Python", "AWS"],
+        },
+        # A posting without a title cannot be stored, so it is skipped.
+        {"id": "a1b2c3d4", "region": "Argentina", "createdAt": None},
+    ],
+    "meta": {"page": 1, "take": 30, "pageCount": 82, "hasNextPage": True},
+}
+
 
 def test_json_list_provider_parses_nested_items():
     provider = JsonListProvider(JSON_LIST_CONFIG)
@@ -1531,6 +1569,84 @@ def test_json_list_provider_is_registered_and_dispatched():
         )
     )
     assert scraper.first_fetch_url("https://ignored.example") == ("https://api.example/list")
+
+
+def test_json_list_provider_renders_job_url_tpl_from_item_fields():
+    """`job_url_tpl` turns an id/slug into the public posting URL."""
+    provider = JsonListProvider(
+        {
+            "url": "https://api.example/jobs",
+            "items_path": "data",
+            "id_path": "id",
+            "title_path": "title",
+            "url_path": "id",
+            "job_url_tpl": "https://board.example/jobs/{id}",
+        }
+    )
+    assert provider.results_url() == "https://api.example/jobs"
+    jobs = provider.parse(_json_page({"data": [{"id": "abc", "title": "Dev"}]}))
+    # Without the template the id would have resolved against the API host.
+    assert jobs[0].url == "https://board.example/jobs/abc"
+    assert jobs[0].external_id == "abc"
+
+    slugged = JsonListProvider(
+        {
+            "url": "https://api.example/jobs",
+            "items_path": "data",
+            "title_path": "title",
+            "url_path": "slug",
+            "job_url_tpl": "https://{lang}.board.example/{url}",
+        }
+    )
+    page = _json_page({"data": [{"slug": "dev", "title": "Dev", "lang": "br"}]})
+    assert slugged.parse(page)[0].url == "https://br.board.example/dev"
+
+
+def test_json_list_provider_rejects_a_bad_job_url_tpl():
+    provider = JsonListProvider(
+        {
+            "url": "https://api.example/jobs",
+            "items_path": "data",
+            "title_path": "title",
+            "url_path": "id",
+            "job_url_tpl": "https://board.example/jobs/{nope}",
+        }
+    )
+    with pytest.raises(ValueError, match="job_url_tpl"):
+        provider.parse(_json_page({"data": [{"id": "abc", "title": "Dev"}]}))
+
+
+def test_json_list_provider_stops_paging_on_next_page_path():
+    """The API's own flag ends the walk instead of an empty page after it."""
+    provider = JsonListProvider(FULLSTACK_CONFIG)
+    more = _json_page({"data": [], "meta": {"hasNextPage": True}})
+    assert provider.next_page_url(more) == FULLSTACK_URL.format(page=2)
+    # The provider is now on page 2 and the API reports the last page.
+    last = _json_page({"data": [], "meta": {"hasNextPage": False}})
+    assert provider.next_page_url(last) is None
+    # A missing flag means "no more pages", never a broken URL.
+    assert provider.next_page_url(_json_page({"data": [], "meta": {}})) is None
+
+
+def test_fullstack_config_parses_the_public_board():
+    JsonListProvider.validate_config(FULLSTACK_CONFIG)
+    provider = JsonListProvider(FULLSTACK_CONFIG)
+    assert provider.results_url() == FULLSTACK_URL.format(page=1)
+
+    page = _json_page(FULLSTACK_PAYLOAD)
+    jobs = provider.parse(page)
+
+    assert [job.title for job in jobs] == ["Senior Backend Engineer"]
+    first = jobs[0]
+    assert first.company == "FullStack"
+    assert first.external_id == "6f0b2c1e-8a4d-4c1f-9f6e-2b1d0c3a4e5f"
+    assert first.url == "https://talent.fullstack.com/jobs/6f0b2c1e-8a4d-4c1f-9f6e-2b1d0c3a4e5f"
+    assert first.location == "Brazil"
+    assert first.posted_date == date(2026, 10, 1)
+    assert first.tags == ["Python", "AWS", "Brazil"]
+    # The list payload carries no body; descriptions need the detail endpoint.
+    assert first.description is None
+    assert provider.next_page_url(page) == FULLSTACK_URL.format(page=2)
 
 # --- Keyed JSON APIs (json_list auth/POST/paging, Adzuna, Jooble, JSearch) -----
 
