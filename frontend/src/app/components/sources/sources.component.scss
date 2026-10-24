@@ -38,7 +38,7 @@
 }
 
 .avoid-reason {
-  margin-left: var(--space-1);
+  margin-top: 0.15rem;
 }
 
 .list-toggle {
@@ -212,6 +212,66 @@
   }
 }
 
+/* The row carries up to six action buttons, so every cell must stay compact:
+ * a top-aligned row, one single-line name and one single-line schedule summary.
+ * Before this, the unbounded `· Scrape frequency: … · Next run: …` meta text
+ * wrapped to 3–5 lines at typical widths and stretched every row with it. */
+.sources-table {
+  &.table {
+    th,
+    td {
+      padding-block: 0.55rem;
+      vertical-align: top;
+    }
+  }
+
+  .source-name {
+    min-width: 12rem;
+    max-width: 22rem;
+  }
+
+  /* Name + status badges share one line; only the link truncates, so a long
+   * board name can never push the badges onto a second row. */
+  .source-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+
+    .badge {
+      flex: none;
+    }
+  }
+
+  .source-name-link,
+  .avoid-reason,
+  .scraped-meta {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .source-name-row .source-name-link {
+    min-width: 0;
+  }
+
+  .scraped-cell {
+    min-width: 12rem;
+    max-width: 15rem;
+    white-space: nowrap;
+  }
+
+  .scraped-date {
+    display: block;
+  }
+
+  /* The actions stay on one line; `.table-scroll` handles the overflow. */
+  td.row-actions {
+    vertical-align: top;
+  }
+}
+
 /* Page-level nudge: a degraded board must be discoverable without sorting. */
 .attention-banner {
   align-items: center;
@@ -243,7 +303,7 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  max-width: 260px;
+  max-width: 180px;
   margin-top: var(--space-1);
 }
 

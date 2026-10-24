@@ -15,6 +15,7 @@ CATALOG = [
         "url": "https://acme.example/jobs",
         "type": "discovery",
         "config": {"provider": "greenhouse", "board_token": "acme"},
+        "notes": "manual search: https://boards.greenhouse.io/acme?q=rust",
     },
     {"name": "Acme feed", "url": "https://acme.example/feed.xml", "type": "rss"},
 ]
@@ -61,7 +62,12 @@ async def test_import_creates_sources_and_skips_duplicates(auth_client):
     again = await client.post("/api/sources/import", json={"sources": CATALOG})
     assert again.json()["created"] == 0
     assert again.json()["skipped"] == 2
-    assert len((await client.get("/api/sources")).json()) == 2
+    listing = (await client.get("/api/sources")).json()
+    assert len(listing) == 2
+    # The human note is imported into its own column, not into `config`.
+    imported = next(item for item in listing if item["name"] == "Acme greenhouse")
+    assert imported["notes"] == "manual search: https://boards.greenhouse.io/acme?q=rust"
+    assert "notes" not in imported["config"]
 
 
 async def test_import_dry_run_writes_nothing(auth_client):

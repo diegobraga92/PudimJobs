@@ -18,6 +18,10 @@ class SourceBase(BaseModel):
     # longer values are rejected so a typo cannot silently freeze a source.
     scrape_interval_minutes: int | None = Field(default=None, ge=60, le=20160)
     respect_robots_txt: bool = True
+    # Free-form, human-only note (manual search URL, what to look for, why the
+    # board is configured this way). Never read by a scraper; the UIs show it
+    # only in the edit form. Blank is normalized to NULL by the router.
+    notes: str | None = Field(default=None, max_length=2000)
 
 
 class SourceCreate(SourceBase):
@@ -32,6 +36,8 @@ class SourceUpdate(BaseModel):
     rate_limit_seconds: int | None = Field(default=None, ge=0, le=86400)
     scrape_interval_minutes: int | None = Field(default=None, ge=60, le=20160)
     respect_robots_txt: bool | None = None
+    # Sending an explicit `null` (or blanks) clears the note.
+    notes: str | None = Field(default=None, max_length=2000)
     # Soft-avoid flag (ADR 019): stops fetching/reminders, keeps the source listed.
     avoided: bool | None = None
     avoid_reason: str | None = Field(default=None, max_length=280)

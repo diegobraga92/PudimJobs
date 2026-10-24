@@ -774,9 +774,9 @@ def test_validator_accepts_valid_configs():
     )
     validate_source_config(SourceType.aggregator, {"adapter": "generic_html_list"})
     validate_source_config(SourceType.aggregator, None)
-    # Manual watchlist sources only need a cadence (and free-form notes).
+    # Manual watchlist sources only need a cadence.
     validate_source_config(SourceType.manual, None)
-    validate_source_config(SourceType.manual, {"cadence_days": 1, "notes": "watch here"})
+    validate_source_config(SourceType.manual, {"cadence_days": 1})
     validate_source_config(SourceType.manual, {"cadence_days": 365})
     # Non-dispatching source types take no config at all.
     validate_source_config(SourceType.rss, None)
@@ -842,7 +842,7 @@ def test_manual_metadata_matches_the_validator():
     assert meta["type"] == "manual"
     assert bounds == {"default": 7, "min": 1, "max": 365}
     assert meta["required_config"] == []
-    assert meta["optional_config"] == ["cadence_days", "notes"]
+    assert meta["optional_config"] == ["cadence_days"]
     assert meta["example_config"]["cadence_days"] == bounds["default"]
     validate_source_config(SourceType.manual, {"cadence_days": bounds["min"]})
     validate_source_config(SourceType.manual, {"cadence_days": bounds["max"]})
@@ -1053,7 +1053,7 @@ async def test_manual_metadata_publishes_the_cadence_contract(auth_client):
     assert body["type"] == "manual"
     assert body["cadence_days"] == {"default": 7, "min": 1, "max": 365}
     assert body["required_config"] == []
-    assert set(body["optional_config"]) >= {"cadence_days", "notes"}
+    assert body["optional_config"] == ["cadence_days"]
     assert body["example_config"]["cadence_days"] == 7
 
 
@@ -1061,9 +1061,10 @@ async def test_update_manual_source_keeps_the_config_the_client_sends(auth_clien
     """PUT round-trips engine-managed keys, so merging in the UI is enough.
 
     Both clients used to rebuild ``config`` as ``{cadence_days}`` only, which
-    dropped ``next_check_at``/``reminded_at``/``notes`` and made the sweep
-    re-remind an already-checked source. The API must never be the one losing
-    those keys: whatever the client sends is what comes back.
+    dropped ``next_check_at``/``reminded_at`` and made the sweep re-remind an
+    already-checked source. The API must never be the one losing those keys:
+    whatever the client sends is what comes back. The human note is no longer
+    part of ``config`` — it has its own column (``sources.notes``).
     """
     client, _, _ = auth_client
     created = await client.post(
@@ -1073,31 +1074,79 @@ async def test_update_manual_source_keeps_the_config_the_client_sends(auth_clien
             "url": "https://protected.example/jobs",
             "type": "manual",
             "config": {"cadence_days": 5, "next_check_at": "2030-01-01T00:00:00+00:00"},
+            "notes": "  check the Slack #hiring channel  ",
         },
     )
     source_id = created.json()["id"]
+    # Trimmed on write, and never mixed into the scraper config.
+    assert created.json()["notes"] == "check the Slack #hiring channel"
+    assert "notes" not in created.json()["config"]
 
     response = await client.put(
         f"/api/sources/{source_id}",
         json={
             "config": {
                 "cadence_days": 9,
-                "notes": "check the Slack #hiring channel",
                 "next_check_at": "2030-01-01T00:00:00+00:00",
                 "reminded_at": "2030-01-01T00:00:00+00:00",
-            }
+            },
+            "notes": "watch the design roles",
         },
     )
 
     assert response.status_code == 200
     assert response.json()["config"] == {
         "cadence_days": 9,
-        "notes": "check the Slack #hiring channel",
         "next_check_at": "2030-01-01T00:00:00+00:00",
         "reminded_at": "2030-01-01T00:00:00+00:00",
     }
+    assert response.json()["notes"] == "watch the design roles"
     # An untouched source is still not due, and the reminder stays recorded.
     assert response.json()["due"] is False
+
+
+async def test_notes_are_available_on_every_source_type(auth_client):
+    """A note is human-only: any type can carry one, and blank clears it."""
+    client, _, _ = auth_client
+    created = await client.post(
+        "/api/sources",
+        json={
+            "name": "Ashby board",
+            "url": "https://jobs.ashbyhq.com/acme",
+            "type": "discovery",
+            "config": {"provider": "ashby", "org": "acme"},
+            "notes": "manual search: https://jobs.ashbyhq.com/acme?q=rust",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["notes"] == "manual search: https://jobs.ashbyhq.com/acme?q=rust"
+    # The scraper contract stays clean: the note has its own column.
+    assert "notes" not in created.json()["config"]
+
+    source_id = created.json()["id"]
+    cleared = await client.put(f"/api/sources/{source_id}", json={"notes": "   "})
+    assert cleared.status_code == 200
+    assert cleared.json()["notes"] is None
+
+    # Omitting the field on update leaves the stored note untouched.
+    await client.put(f"/api/sources/{source_id}", json={"notes": "keep me"})
+    renamed = await client.put(f"/api/sources/{source_id}", json={"name": "Ashby"})
+    assert renamed.json()["notes"] == "keep me"
+
+
+async def test_notes_reject_more_than_2000_characters(auth_client):
+    """The column is free-form, not unbounded: the API caps it at 2000 chars."""
+    client, _, _ = auth_client
+    response = await client.post(
+        "/api/sources",
+        json={
+            "name": "Too chatty",
+            "url": "https://acme.example",
+            "type": "rss",
+            "notes": "x" * 2001,
+        },
+    )
+    assert response.status_code == 422
 
 
 async def test_check_manual_source_reschedules_it(auth_client):
@@ -1258,8 +1307,8 @@ async def test_restore_re_arms_exactly_one_nudge(auth_client):
                 "cadence_days": 7,
                 "next_check_at": "2020-01-01T00:00:00+00:00",
                 "reminded_at": "2020-01-01T00:00:00+00:00",
-                "notes": "check the Slack #hiring channel",
             },
+            "notes": "check the Slack #hiring channel",
         },
     )
     source_id = created.json()["id"]
@@ -1277,8 +1326,9 @@ async def test_restore_re_arms_exactly_one_nudge(auth_client):
     # Overdue again, and the stale reminder is gone → one fresh notification.
     assert body["due"] is True
     assert "reminded_at" not in (body["config"] or {})
-    # The rest of the watchlist config is untouched.
-    assert body["config"]["notes"] == "check the Slack #hiring channel"
+    # The rest of the watchlist config is untouched, and so is its human note.
+    assert "notes" not in (body["config"] or {})
+    assert body["notes"] == "check the Slack #hiring channel"
     assert body["config"]["next_check_at"] == "2020-01-01T00:00:00+00:00"
 
 

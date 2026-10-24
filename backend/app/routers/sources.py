@@ -25,6 +25,7 @@ from app.schemas.source import (
     SourceAvoidRequest,
     SourceCreate,
     SourceDiagnosticsResponse,
+    SourceImportItem,
     SourceImportRequest,
     SourceImportResponse,
     SourceImportResult,
@@ -119,6 +120,20 @@ def _validate_config(source_type, config: dict | None) -> None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+
+def _clean_notes(notes: str | None) -> str | None:
+    """Trim a note, storing an all-blank one as NULL instead of ""."""
+    if notes is None:
+        return None
+    return notes.strip() or None
+
+
+def _source_values(payload: SourceCreate | SourceImportItem) -> dict:
+    """Column values of a create/import payload, with the note normalized."""
+    values = payload.model_dump()
+    values["notes"] = _clean_notes(values.get("notes"))
+    return values
 
 
 @router.get("", response_model=list[SourceResponse])
@@ -218,7 +233,7 @@ async def import_sources(
             )
             continue
 
-        source = Source(user_id=user.id, **item.model_dump())
+        source = Source(user_id=user.id, **_source_values(item))
         db.add(source)
         await db.flush()
         results.append(
@@ -243,7 +258,7 @@ async def create_source(
     user: User = Depends(get_current_user),
 ):
     _validate_config(payload.type, payload.config)
-    source = Source(user_id=user.id, **payload.model_dump())
+    source = Source(user_id=user.id, **_source_values(payload))
     db.add(source)
     await db.commit()
     await db.refresh(source)
@@ -362,6 +377,9 @@ async def update_source(
 ):
     source = await get_owned_source(source_id, user, db)
     updates = payload.model_dump(exclude_unset=True)
+    if "notes" in updates:
+        # Blank note == no note: keeps the column free of whitespace-only rows.
+        updates["notes"] = _clean_notes(updates["notes"])
     if "config" in updates or "type" in updates:
         # `config` is replaced wholesale, so validate exactly what will be stored.
         effective_type = updates.get("type") or source.type

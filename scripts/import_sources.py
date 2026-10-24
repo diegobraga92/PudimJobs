@@ -14,7 +14,8 @@ the API's source model::
     [
       {"name": "Acme board", "url": "https://boards.example/acme",
        "type": "discovery",
-       "config": {"provider": "greenhouse", "board_token": "acme"}},
+       "config": {"provider": "greenhouse", "board_token": "acme"},
+       "notes": "manual search: https://boards.example/acme?q=rust"},
       {"name": "Acme feed", "url": "https://boards.example/feed.xml", "type": "rss"}
     ]
 
@@ -22,7 +23,12 @@ Service ``type`` reasoning: ``discovery`` for ATS/JSON/search providers,
 ``aggregator`` for selector-driven HTML boards, ``rss`` for feeds,
 ``career_page`` for a single listing and ``manual`` for watchlist boards the
 engine cannot scrape (login-walled or JS-only), where ``config`` takes
-``cadence_days`` and free-form ``notes``.
+``cadence_days``.
+
+Every entry may carry a free-form top-level ``notes`` string for humans: a
+manual search URL, what to look for, why the board is configured this way. It is
+never scraped (the API stores it in its own column) and both UIs only show it
+when editing the source.
 
 Credentials are never imported — set them per source afterwards with
 ``PUT /api/sources/{id}/auth``. Imports are idempotent (matched on ``url`` +

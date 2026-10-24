@@ -132,7 +132,7 @@ export class SourcesComponent implements OnInit, OnDestroy {
   manualMetadata: ManualMetadata | null = null;
   /** Manual watchlist re-check cadence (shown when type === 'manual'). */
   cadenceDays = 7;
-  /** Free-form note kept with a manual source. */
+  /** Free-form human note kept with the source (any type; shown when editing). */
   notes = '';
   /** Avoid-flag form state (edit form only) — never fetched, never reminded (ADR 019). */
   avoidSource = false;
@@ -338,6 +338,50 @@ export class SourcesComponent implements OnInit, OnDestroy {
       return this.i18n.t('sources.overdueByOneDay');
     }
     return this.i18n.t('sources.overdueByDays', { days: Math.abs(days) });
+  }
+
+  /**
+   * One-line schedule summary rendered under the last-scraped date, or `''`
+   * when there is nothing to say.
+   *
+   * It is deliberately a single line: this cell used to append an unbounded
+   * `· Scrape frequency: … · Next run: …` run of text that wrapped to 3–5 lines
+   * at typical widths and stretched every row of the table. The cell clips it
+   * with an ellipsis and repeats the full text in its `title`.
+   */
+  scrapedMeta(source: Source): string {
+    if (source.type === 'manual') {
+      const next = this.formatDateTime(source.next_check_at);
+      if (!next) {
+        return '';
+      }
+      return [`${this.i18n.t('sources.nextCheck')}: ${next}`, this.dueText(source)]
+        .filter(Boolean)
+        .join(' · ');
+    }
+    const parts = [this.scheduleLabel(source)];
+    if (source.scrape_due) {
+      parts.push(this.i18n.t('sources.dueNow'));
+    } else {
+      const next = this.formatDateTime(source.next_scrape_at) || this.i18n.t('sources.nextSweep');
+      parts.push(`${this.i18n.t('sources.nextRun')}: ${next}`);
+    }
+    return parts.join(' · ');
+  }
+
+  /** Short local date+time in the UI language (same shape as `date: 'short'`). */
+  private formatDateTime(value: string | null | undefined): string {
+    if (!value) {
+      return '';
+    }
+    const time = new Date(value);
+    if (Number.isNaN(time.getTime())) {
+      return '';
+    }
+    return new Intl.DateTimeFormat(this.i18n.current, {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(time);
   }
 
   /** The adapter currently selected in the form. */
@@ -683,7 +727,10 @@ export class SourcesComponent implements OnInit, OnDestroy {
     );
     // Kept so a manual save can merge instead of replacing the whole config.
     this.editingConfig = { ...(source.config ?? {}) };
-    this.notes = String(source.config?.['notes'] ?? '');
+    // The human note now has its own column. A legacy `config.notes` (pre-0024)
+    // must never be echoed back, or the next save would recreate the duplicate.
+    delete this.editingConfig['notes'];
+    this.notes = source.notes ?? '';
     this.locations = this.locationsText(source.config?.['locations']);
     this.avoidSource = source.avoided ?? false;
     this.avoidReason = source.avoid_reason ?? '';
@@ -731,18 +778,10 @@ export class SourcesComponent implements OnInit, OnDestroy {
       // Merge with what the source already carries: `next_check_at` and
       // `reminded_at` are engine-managed and PUT replaces config wholesale, so
       // dropping them would make the sweep re-remind a fresh source.
-      const config: Record<string, unknown> = {
+      return {
         ...this.editingConfig,
         cadence_days: this.cadenceDays,
       };
-      const notes = this.notes.trim();
-      if (notes) {
-        config['notes'] = notes;
-      } else {
-        // Clearing the field removes the note rather than storing an empty one.
-        delete config['notes'];
-      }
-      return config;
     }
     const parsed = this.parseConfigJson(type);
     if (parsed === null) {
@@ -807,19 +846,23 @@ export class SourcesComponent implements OnInit, OnDestroy {
       // Manual sources are never fetched; their cadence lives in config.
       scrape_interval_minutes: raw.type === 'manual' ? null : raw.scrape_interval_minutes,
       respect_robots_txt: raw.respect_robots_txt,
+      // Human-only note (any type): blank clears it instead of storing "".
+      notes: this.notes.trim() || null,
     };
     if (raw.type === 'discovery' && !this.discoveryProvider) {
       this.error = this.i18n.t('errors.chooseProvider');
       this.toast.error(this.i18n.t('errors.chooseProvider'));
       return;
     }
-    if (raw.type !== 'manual') {
-      const config = this.buildConfig(raw.type);
-      if (!config) {
-        return;
-      }
-      payload.config = config;
+    // Every type sends its config: `manual` merges the engine-managed watchlist
+    // keys, `aggregator`/`discovery` keep their adapter/provider, and rss /
+    // career_page keep what the JSON textarea shows plus the location gate —
+    // PUT replaces the whole config, so omitting it would wipe stored keys.
+    const config = this.buildConfig(raw.type);
+    if (!config) {
+      return;
     }
+    payload.config = config;
     if (this.editingId) {
       // The avoid flag is a statement, not a partial patch: sending the form's
       // value is what restores a source the user un-checks. Only edits can flip

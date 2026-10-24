@@ -194,8 +194,9 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'sources.dueNow': { en: 'due now', 'pt-BR': 'agora' },
   'sources.notes': { en: 'Notes', 'pt-BR': 'Notas' },
   'sources.notesHint': {
-    en: 'What to look for when you open the board — optional, kept with the source.',
-    'pt-BR': 'O que procurar ao abrir o quadro — opcional, fica salvo com a fonte.',
+    en: 'Anything worth remembering about this source — a manual search URL, what to look for, why it is set up this way. Shown only here: it is never scraped.',
+    'pt-BR':
+      'Qualquer coisa que valha lembrar sobre esta fonte — uma URL de busca manual, o que procurar, por que ela está configurada assim. Aparece só aqui: nunca é coletada.',
   },
   'sources.due': { en: 'Due for a check', 'pt-BR': 'Revisão pendente' },
   'sources.dueToday': { en: 'Due today', 'pt-BR': 'Revisar hoje' },

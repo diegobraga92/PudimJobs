@@ -151,15 +151,20 @@ export function SourcesScreen() {
         source.scrape_interval_minutes == null ? 'default' : String(source.scrape_interval_minutes),
       respect_robots_txt: source.respect_robots_txt ?? true,
       cadence_days: String(source.config?.['cadence_days'] ?? cadenceBounds.default),
-      notes: String(source.config?.['notes'] ?? ''),
+      // The human note is a column of its own now, not part of `config`.
+      notes: source.notes ?? '',
       avoided: source.avoided ?? false,
       avoid_reason: source.avoid_reason ?? '',
     });
     // Kept so a manual save can merge instead of replacing the whole config.
-    setEditingConfig({ ...(source.config ?? {}) });
+    const storedConfig = { ...(source.config ?? {}) };
+    // A legacy `config.notes` (pre-0024) must never be echoed back, or the next
+    // save would recreate the duplicate the migration removed.
+    delete storedConfig['notes'];
+    setEditingConfig(storedConfig);
     setAdapter((source.config?.['adapter'] as string) ?? 'generic_html_list');
     setDiscoveryProvider((source.config?.['provider'] as string) ?? '');
-    const rest = { ...(source.config ?? {}) };
+    const rest = { ...storedConfig };
     delete rest['adapter'];
     delete rest['provider'];
     setConfigJson(Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '');
@@ -209,6 +214,8 @@ export function SourcesScreen() {
       rate_limit_seconds: rate,
       scrape_interval_minutes: interval,
       respect_robots_txt: form.respect_robots_txt,
+      // Human-only note (any type): blank clears it instead of storing "".
+      notes: form.notes.trim() || null,
     };
     if (form.type === 'aggregator') {
       const config: Record<string, unknown> = { adapter };
@@ -244,15 +251,7 @@ export function SourcesScreen() {
       // Merge with what the source already carries: `next_check_at` and
       // `reminded_at` are engine-managed and PUT replaces config wholesale, so
       // dropping them would make the sweep re-remind a fresh source.
-      const config: Record<string, unknown> = { ...editingConfig, cadence_days: cadence };
-      const notes = form.notes.trim();
-      if (notes) {
-        config.notes = notes;
-      } else {
-        // Clearing the field removes the note rather than storing an empty one.
-        delete config.notes;
-      }
-      payload.config = config;
+      payload.config = { ...editingConfig, cadence_days: cadence };
     }
     if (editingId) {
       // The avoid flag is a statement, not a patch: sending the form's value is
@@ -508,18 +507,22 @@ export function SourcesScreen() {
               <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
                 {i18n.t('sources.cadenceHint')}
               </Text>
-              <FormField label={i18n.t('sources.notes')}>
-                <TextArea
-                  value={form.notes}
-                  onChangeText={(value) => update('notes', value)}
-                  minHeight={60}
-                />
-              </FormField>
-              <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
-                {i18n.t('sources.notesHint')}
-              </Text>
             </>
           ) : null}
+
+          {/* Human-only note: every source type can carry one, and it is only
+              ever shown here (never scraped, never part of `config`). */}
+          <FormField label={i18n.t('sources.notes')}>
+            <TextArea
+              value={form.notes}
+              onChangeText={(value) => update('notes', value)}
+              maxLength={2000}
+              minHeight={60}
+            />
+          </FormField>
+          <Text style={[styles.hint, { color: theme.colors.textMuted }]}>
+            {i18n.t('sources.notesHint')}
+          </Text>
 
           <View style={styles.row}>
             <FormField label={i18n.t('sources.rateLimit')} style={styles.rowField}>

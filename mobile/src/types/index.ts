@@ -154,6 +154,12 @@ export interface Source {
   /** Manual (watchlist) sources: true when the board is due for a hand-check. */
   due?: boolean;
   /**
+   * Free-form, human-only note (manual search URL, what to look for, why the
+   * board is configured this way). Never scraped; the edit form is the only
+   * place that shows it.
+   */
+  notes?: string | null;
+  /**
    * Soft-avoid flag (any source type): an avoided source is never fetched and
    * never reminded about, but stays listed as a visible reminder (ADR 019).
    */
@@ -170,7 +176,7 @@ export type SourceInput = Pick<
 > & { config?: Record<string, unknown> | null } & Partial<
     Pick<
       Source,
-      'id' | 'health' | 'scrape_interval_minutes' | 'avoided' | 'avoided_at' | 'avoid_reason'
+      'id' | 'health' | 'scrape_interval_minutes' | 'notes' | 'avoided' | 'avoided_at' | 'avoid_reason'
     >
   >;
 

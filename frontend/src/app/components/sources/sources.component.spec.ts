@@ -14,7 +14,7 @@ const MANUAL_METADATA: ManualMetadata = {
   cadence_days: { default: 7, min: 1, max: 365 },
   required_config: [],
   required_any: [],
-  optional_config: ['cadence_days', 'notes'],
+  optional_config: ['cadence_days'],
   example_config: { cadence_days: 7 },
 };
 
@@ -35,10 +35,11 @@ const MANUAL_SOURCE: Source = {
   type: 'manual',
   config: {
     cadence_days: 5,
-    notes: 'check the Slack #hiring channel',
     next_check_at: '2030-01-01T00:00:00+00:00',
     reminded_at: '2026-01-01T00:00:00+00:00',
   },
+  // The human note has its own column; it never travels inside `config`.
+  notes: 'check the Slack #hiring channel',
   health: 'healthy',
   last_scraped: '2026-01-01T00:00:00+00:00',
   created_at: '2026-01-01T00:00:00+00:00',
@@ -73,7 +74,7 @@ describe('SourcesComponent — manual watchlist', () => {
 
   afterEach(() => http.verify());
 
-  it('keeps engine-managed config keys when a manual source is edited', () => {
+  it('keeps engine-managed config keys and sends the note separately', () => {
     component.openEdit(MANUAL_SOURCE);
 
     component.save();
@@ -84,15 +85,16 @@ describe('SourcesComponent — manual watchlist', () => {
     expect(request.request.method).toBe('PUT');
     expect(request.request.body.config).toEqual({
       cadence_days: 5,
-      notes: 'check the Slack #hiring channel',
       next_check_at: '2030-01-01T00:00:00+00:00',
       reminded_at: '2026-01-01T00:00:00+00:00',
     });
+    // A human-only field, so it lives at the top level (sources.notes).
+    expect(request.request.body.notes).toBe('check the Slack #hiring channel');
     request.flush(MANUAL_SOURCE);
     http.expectOne('/api/sources').flush([]); // save() refreshes the list
   });
 
-  it('drops the notes key when the field is cleared', () => {
+  it('sends a null note when the field is cleared', () => {
     component.openEdit(MANUAL_SOURCE);
     component.cadenceDays = 21;
     component.notes = '   ';
@@ -105,8 +107,70 @@ describe('SourcesComponent — manual watchlist', () => {
       next_check_at: '2030-01-01T00:00:00+00:00',
       reminded_at: '2026-01-01T00:00:00+00:00',
     });
+    expect(request.request.body.notes).toBeNull();
     request.flush(MANUAL_SOURCE);
     http.expectOne('/api/sources').flush([]);
+  });
+
+  it('round-trips a note on a source type that is not a watchlist', () => {
+    const source: Source = {
+      ...MANUAL_SOURCE,
+      id: 'src-rss',
+      type: 'rss',
+      config: { adapter: null },
+      notes: 'feed drops the salary field',
+    };
+    component.openEdit(source);
+    expect(component.notes).toBe('feed drops the salary field');
+
+    component.notes = '  feed sometimes repeats jobs  ';
+    component.save();
+
+    const request = http.expectOne('/api/sources/src-rss');
+    expect(request.request.body.notes).toBe('feed sometimes repeats jobs');
+    request.flush(source);
+    http.expectOne('/api/sources').flush([]);
+  });
+
+  it('never renders the note in the sources table', () => {
+    component.sources = [MANUAL_SOURCE];
+    fixture.detectChanges();
+
+    const table = fixture.nativeElement.querySelector('.sources-table');
+    expect(table.textContent).toContain('Login-walled board');
+    expect(table.textContent).not.toContain('check the Slack #hiring channel');
+  });
+
+  it('shows the notes field when editing any source type', async () => {
+    component.openEdit({ ...MANUAL_SOURCE, id: 'src-rss', type: 'rss', notes: 'keep this' });
+    fixture.detectChanges();
+    // `ngModel` writes its initial value after the first change-detection pass.
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const field = fixture.nativeElement.querySelector('#source-notes');
+    expect(field).not.toBeNull();
+    expect(field.value).toBe('keep this');
+  });
+
+  it('summarizes the schedule in a single-line meta under the last scrape', () => {
+    // Manual: next check + how far away it is.
+    expect(component.scrapedMeta(MANUAL_SOURCE)).toContain('Next check:');
+    expect(component.scrapedMeta(MANUAL_SOURCE)).toContain('Due in');
+
+    const rss: Source = {
+      ...MANUAL_SOURCE,
+      type: 'rss',
+      scrape_interval_minutes: 1440,
+      next_scrape_at: '2026-03-01T00:00:00+00:00',
+      scrape_due: false,
+    };
+    expect(component.scrapedMeta(rss)).toContain('Next run:');
+    expect(component.scrapedMeta(rss)).not.toContain('\n');
+    expect(component.scrapedMeta({ ...rss, scrape_due: true })).toContain('due now');
+
+    // Nothing scheduled yet: no meta line at all (the date still renders).
+    expect(component.scrapedMeta({ ...MANUAL_SOURCE, next_check_at: null })).toBe('');
   });
 
   it('seeds a new manual source with the cadence the API publishes', () => {
@@ -481,6 +545,10 @@ describe('SourcesComponent — manual watchlist', () => {
       rate_limit_seconds: 30,
       scrape_interval_minutes: null,
       respect_robots_txt: true,
+      notes: null,
+      // No JSON in the textarea: the config is sent (PUT/POST replace it
+      // wholesale) but carries no keys.
+      config: {},
     });
     request.flush(ACTIVE_SOURCE);
     http.expectOne('/api/sources').flush([]);

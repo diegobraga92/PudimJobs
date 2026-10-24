@@ -4,16 +4,16 @@ import re
 
 from app.models.enums import SourceType
 
-#: Config contract of ``manual`` (watchlist) sources. ``cadence_days`` and
-#: ``notes`` are optional; ``next_check_at``/``reminded_at`` are engine-managed
-#: (see :mod:`app.services.source_watchlist`) and must survive a client update,
-#: which is why both UIs merge instead of replacing ``config``.
+#: Config contract of ``manual`` (watchlist) sources. ``cadence_days`` is
+#: optional; ``next_check_at``/``reminded_at`` are engine-managed (see
+#: :mod:`app.services.source_watchlist`) and must survive a client update, which
+#: is why both UIs merge instead of replacing ``config``. Free-form human notes
+#: are *not* part of it: they live in the ``sources.notes`` column (any type).
 MANUAL_CONFIG: dict = {
     "required": (),
-    "optional": ("cadence_days", "notes"),
+    "optional": ("cadence_days",),
     "example": {
         "cadence_days": 7,
-        "notes": "anti-bot board — try the serpapi provider later",
     },
 }
 

@@ -113,20 +113,6 @@
             {{ i18n.t('sources.cadenceHint') }}
           </p>
         </div>
-  
-        <div class="form-field">
-          <label for="source-notes">{{ i18n.t('sources.notes') }}</label>
-          <textarea
-            id="source-notes"
-            class="input"
-            rows="2"
-            [(ngModel)]="notes"
-            [ngModelOptions]="{ standalone: true }"
-          ></textarea>
-          <p class="muted xs">
-            {{ i18n.t('sources.notesHint') }}
-          </p>
-        </div>
       }
   
       @if (sourceForm.get('type')?.value === 'aggregator') {
@@ -252,6 +238,23 @@
         </div>
       }
   
+      <!-- Human-only note: every source type can carry one, and it is only ever
+           shown here (never scraped, never a list column). -->
+      <div class="form-field">
+        <label for="source-notes">{{ i18n.t('sources.notes') }}</label>
+        <textarea
+          id="source-notes"
+          class="input"
+          rows="2"
+          maxlength="2000"
+          [(ngModel)]="notes"
+          [ngModelOptions]="{ standalone: true }"
+        ></textarea>
+        <p class="muted xs">
+          {{ i18n.t('sources.notesHint') }}
+        </p>
+      </div>
+
       <div class="ethics-section">
         <h4>
           <app-icon name="shield-check" [size]="14" />
@@ -772,7 +775,7 @@
     }
   } @else {
     <div class="table-scroll">
-    <table class="table">
+    <table class="table sources-table">
       <thead>
         <tr>
           @for (column of sortableColumns; track column.key) {
@@ -800,23 +803,33 @@
       <tbody>
         @for (source of visibleSources; track source.id) {
           <tr [class.is-avoided]="source.avoided">
-            <td>
-              <a [href]="source.url" target="_blank" rel="noopener noreferrer">
-                {{ source.name }}
-              </a>
-              @if (source.avoided) {
-                <span class="badge source-avoided-badge" [attr.title]="source.avoid_reason">
-                  <app-icon name="eye-off" [size]="12" />
-                  {{ i18n.t('sources.avoidedBadge') }}
-                </span>
-                @if (source.avoid_reason) {
-                  <span class="muted xs avoid-reason">· {{ source.avoid_reason }}</span>
+            <td class="source-name">
+              <div class="source-name-row">
+                <a
+                  class="source-name-link"
+                  [href]="source.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  [attr.title]="source.name"
+                >
+                  {{ source.name }}
+                </a>
+                @if (source.avoided) {
+                  <span class="badge source-avoided-badge" [attr.title]="source.avoid_reason">
+                    <app-icon name="eye-off" [size]="12" />
+                    {{ i18n.t('sources.avoidedBadge') }}
+                  </span>
                 }
-              }
-              @if (source.type === 'manual' && source.due) {
-                <span class="badge badge-warning">
-                  <app-icon name="bell-ring" [size]="12" />
-                  {{ i18n.t('sources.due') }}
+                @if (source.type === 'manual' && source.due) {
+                  <span class="badge badge-warning">
+                    <app-icon name="bell-ring" [size]="12" />
+                    {{ i18n.t('sources.due') }}
+                  </span>
+                }
+              </div>
+              @if (source.avoided && source.avoid_reason) {
+                <span class="muted xs avoid-reason" [attr.title]="source.avoid_reason">
+                  {{ source.avoid_reason }}
                 </span>
               }
             </td>
@@ -872,27 +885,14 @@
                 </button>
               }
             </td>
-            <td>
-              {{ source.last_scraped ? (source.last_scraped | date: 'short') : '—' }}
-              @if (source.type === 'manual' && source.next_check_at) {
-                <span class="muted xs">
-                  · {{ i18n.t('sources.nextCheck') }}: {{ source.next_check_at | date: 'short' }}
-                  @if (dueText(source)) {
-                    — {{ dueText(source) }}
-                  }
-                </span>
-              }
-              @if (source.type !== 'manual') {
-                <span class="muted xs">
-                  · {{ i18n.t('sources.schedule') }}: {{ scheduleLabel(source) }}
-                  @if (source.scrape_due) {
-                    — {{ i18n.t('sources.dueNow') }}
-                  } @else if (source.next_scrape_at) {
-                    · {{ i18n.t('sources.nextRun') }}:
-                    {{ source.next_scrape_at | date: 'short' }}
-                  } @else {
-                    · {{ i18n.t('sources.nextRun') }}: {{ i18n.t('sources.nextSweep') }}
-                  }
+            <td class="scraped-cell">
+              <span class="scraped-date">
+                {{ source.last_scraped ? (source.last_scraped | date: 'short') : '—' }}
+              </span>
+              @if (scrapedMeta(source)) {
+                <!-- One line on purpose: the full text stays in the tooltip. -->
+                <span class="scraped-meta muted xs" [attr.title]="scrapedMeta(source)">
+                  {{ scrapedMeta(source) }}
                 </span>
               }
             </td>

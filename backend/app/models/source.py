@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,6 +45,13 @@ class Source(Base):
     # flag and as *avoided since*.
     avoided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     avoid_reason: Mapped[str | None] = mapped_column(String(280), nullable=True)
+    # Free-form reminder attached to the source for humans only: a manual search
+    # URL, what to look for by hand, why a board is configured this way. It is
+    # never scraped, validated or shown in the list — only in the edit form.
+    # It lives in its own column (it used to be ``config.notes`` for manual
+    # sources only) so every source type can carry one without the scraper
+    # contracts having to know about it.
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
