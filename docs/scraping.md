@@ -528,18 +528,25 @@ is rejected with `Invalid take value`), and one `filter` argument carries
 |---|---|---|
 | Latam | 2450 | `filter=regionGroup%3DLatam` |
 | Brazil | 275 | `filter=region%3D*Brazil*` |
-| São Paulo | 25 | `filter=countryId%3D<country-uuid>%26cityId%3D<city-uuid>` |
+| São Paulo | 25 | `filter=countryId%3D1ae07c37-d911-413f-9160-8cd2a5d93257%26cityId%3Df9719e6f-bb3a-4a22-b3d7-ce53dbc1c7c5` |
 | every country | 2897 | omit `filter` |
+
+The board **repeats each role once per city**: the 2450 Latam rows collapse to
+34 distinct titles in the DB, and Brazil's 275 are exactly 25 roles × 11 cities
+(25 rows per city, 25 distinct `jobId`s — which is why every per-city count came
+out identical). The São Paulo slice is therefore one row per real role, which
+makes the city facet the only way to get a usable board, not just a volume cut.
 
 The public posting page is `talent.fullstack.com/jobs/<id>`, so `url_path: "id"`
 plus `job_url_tpl` yields a readable link; `company` is a fixed string because
-the board lists a single company:
+the board lists a single company. The live source runs the São Paulo slice;
+swapping `filter` back to `regionGroup%3DLatam` sweeps the whole board:
 
 ```json
 {
   "provider": "json_list",
-  "url_tpl": "https://api-v1.fullstack.com/api/job-postings/public?page={page}&take=30&filter=regionGroup%3DLatam",
-  "max_pages": 200,
+  "url_tpl": "https://api-v1.fullstack.com/api/job-postings/public?page={page}&take=30&filter=countryId%3D1ae07c37-d911-413f-9160-8cd2a5d93257%26cityId%3Df9719e6f-bb3a-4a22-b3d7-ce53dbc1c7c5",
+  "max_pages": 5,
   "next_page_path": "meta.hasNextPage",
   "items_path": "data",
   "id_path": "id",
@@ -553,10 +560,14 @@ the board lists a single company:
 }
 ```
 
-At 30 postings per request, Latam is 82 requests — a live run took 5m10s at
+At 30 postings per request the São Paulo slice is **one** request (a live run
+took 1.6 s and stored 25 rows); Latam is 82 requests — a live run took 5m10s at
 `rate_limit_seconds: 3` (the API answers in a second or two; the documented
 ceiling is 20 req/min, so a 3 s cooldown leaves headroom), and a daily
-`scrape_interval_minutes` is plenty.
+`scrape_interval_minutes` is plenty. The vendor also throttles per client and
+answers `429 ThrottlerException` when hammered (e.g. a burst of manual probes);
+the worker's retry/backoff absorbs it, so keep `rate_limit_seconds` at 3 and
+`max_pages` tight for a narrow filter.
 `order`/`orderBy` are accepted but ignored, so every run walks the board and
 dedupes on `external_id`; `next_page_path` ends the walk on the last page instead
 of over-fetching up to `max_pages`. The **list payload carries no description**:
