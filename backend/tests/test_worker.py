@@ -760,6 +760,53 @@ async def test_scrape_fetches_discovered_detail_pages(
     assert runs[0].status == "success"
 
 
+async def test_scrape_fetches_the_boards_a_sweep_parked(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """The links a sweep parks for lack of budget are read once it is known.
+
+    `drain_urls` returns the boards the per-query share could not afford; the
+    worker has to fetch them like any other discovered URL or the leftover
+    budget is wasted and those boards wait for the next run.
+    """
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user, type="discovery")
+    source.config = {"provider": "brave", "sweep_ats": True, "max_boards": 2}
+    await db_session.commit()
+
+    class DrainingScraper(FakeDiscoveryScraper):
+        def __init__(self):
+            super().__init__(["https://a.example/j1", "https://b.example/j2"])
+            self.drained = False
+
+        def drain_urls(self) -> list[str]:
+            if self.drained:
+                return []
+            self.drained = True
+            return ["https://c.example/j3"]
+
+    fake = DrainingScraper()
+    monkeypatch.setattr(scrape_module, "get_scraper", lambda source, api_key=None: fake)
+    monkeypatch.setattr(scrape_module, "publish_job_new", lambda event: None)
+    _fake_robots(monkeypatch)
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["new"] == 3
+    assert fake.fetched == [
+        "https://engine.example/results",
+        "https://a.example/j1",
+        "https://b.example/j2",
+        "https://c.example/j3",
+    ]
+    jobs = (await db_session.execute(select(Job))).scalars().all()
+    assert {job.url for job in jobs} == {
+        "https://a.example/j1",
+        "https://b.example/j2",
+        "https://c.example/j3",
+    }
+
+
 async def test_scrape_sweep_uses_its_board_cap_not_stale_max_results(
     test_engine, db_session, monkeypatch, redis_client
 ):

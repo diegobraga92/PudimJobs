@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from abc import ABC, abstractmethod
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from xml.etree import ElementTree
@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.services.board_health import board_miss_active, board_miss_clear, board_miss_mark
+from app.services.board_memory import board_forget, board_last_seen, board_mark_seen
 from scrapers.ats_boards import AtsBoard, resolve_ats_board
 from scrapers.base import AbstractScraper
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
@@ -52,6 +53,12 @@ _AGE_LABEL_RE = re.compile(
 )
 
 logger = logging.getLogger(__name__)
+
+#: Separators between a posting's title and its trailing metadata
+#: ("Go Engineer - Remote, Brazil", "Engineer | São Paulo").
+_TITLE_SEGMENT_RE = re.compile(r"\s+[-\u2013\u2014|/]\s+|,\s+")
+#: A location in parentheses, usually at the end of the title.
+_TITLE_PAREN_RE = re.compile(r"\(([^()]{2,60})\)\s*$")
 
 
 def _term_pattern(term: str) -> re.Pattern[str]:
@@ -123,6 +130,14 @@ def _xml_text(node: ElementTree.Element, tag: str) -> str | None:
     return text or None
 
 
+def _int_config(config: dict, key: str, default: int = 0) -> int:
+    """Read an int config entry, falling back to ``default`` when unusable."""
+    try:
+        return int(config.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
 class DiscoveryProvider(ABC):
     """Base class for all discovery providers."""
 
@@ -153,6 +168,16 @@ class DiscoveryProvider(ABC):
     def discover_urls(self, page: ScrapedPage) -> list[str]:
         """Extract job *detail* URLs from a results page (two-stage providers)."""
         return []
+
+    def result_items(self, page: ScrapedPage) -> list[dict]:
+        """Search results with their snippet metadata.
+
+        A sweep uses this to spend a bounded board budget on the results whose
+        snippet mentions the configured keywords or locations first.  Providers
+        that expose no snippet fall back to the bare link, which keeps the
+        previous ordering.
+        """
+        return [{"url": url} for url in self.result_links(page)]
 
     def parse_listing(self) -> bool:
         """True when jobs are parsed from the results page itself.
@@ -223,6 +248,14 @@ class ATSProvider(DiscoveryProvider):
     #: is ~13 MB, and an ATS sweep reads dozens of boards per run). Only these
     #: public board endpoints get the bigger budget.
     max_response_bytes: int = 16_000_000
+    #: Postings requested per board page.  100 keeps a description-heavy board
+    #: inside ``max_response_bytes`` while still reading a 715-posting board in
+    #: eight requests instead of reading 100 and silently dropping 615.
+    board_page_size: int = 100
+    #: Postings folded into one board payload (``board_max_jobs`` wins, then
+    #: ``max_results``). A board that reports more is logged as truncated rather
+    #: than looking like a small board.
+    default_board_max_jobs: int = 1000
 
     def results_url(self) -> str:
         try:
@@ -232,8 +265,106 @@ class ATSProvider(DiscoveryProvider):
                 f"{self.provider_name} requires a '{exc.args[0]}' entry in source config"
             ) from exc
 
-    async def fetch(self, url: str, *, auth: FetchAuth | None = None) -> ScrapedPage:
+    def board_page_size_for(self) -> int:
+        """Postings per board request (``board_page_size``/``limit``/default)."""
+        size = _int_config(self.config, "board_page_size")
+        if size <= 0:
+            size = _int_config(self.config, "limit")
+        return max(1, size or self.board_page_size)
+
+    def board_max_jobs(self) -> int:
+        """Postings read from one board before the sweep stops paging.
+
+        ``max_results`` is honoured because :meth:`parse` already truncates a
+        board to it; keeping the read at the same size avoids fetching pages
+        that would be thrown away.
+        """
+        cap = _int_config(self.config, "board_max_jobs")
+        if cap <= 0:
+            cap = _int_config(self.config, "max_results")
+        return cap if cap > 0 else self.default_board_max_jobs
+
+    def _page_url(self, url: str, skip: int) -> str | None:
+        """URL of the board page that starts at ``skip`` postings, or ``None``.
+
+        ``None`` marks a board that answers with every posting in one response
+        (Greenhouse, Ashby, Workable, Recruitee, Personio, Workday): those must
+        not be re-requested with a cursor they do not have.
+        """
+        return None
+
+    def _payload_items(self, data: object) -> list:
+        """The postings inside one board page (a bare list by default)."""
+        return list(data) if isinstance(data, list) else []
+
+    def _merge_payload(self, first: object, items: list) -> object:
+        """Rebuild the board payload from the postings of every page."""
+        return items
+
+    async def _fetch_page(self, url: str, auth: FetchAuth | None = None) -> ScrapedPage:
         return await fetch_html(url, auth=auth, max_bytes=self.max_response_bytes)
+
+    async def fetch(self, url: str, *, auth: FetchAuth | None = None) -> ScrapedPage:
+        """Read a board, following its cursor instead of keeping page one.
+
+        A board that paginates is read page by page until it is exhausted or
+        ``board_max_jobs`` is reached, and the pages are folded back into one
+        payload so :meth:`parse` keeps working on a whole board.  The folded
+        page keeps the *requested* URL as ``final_url``: the sweep looks its
+        board parser up by that URL.
+        """
+        if self._page_url(url, 0) is None:
+            return await self._fetch_page(url, auth)
+
+        page_size = self.board_page_size_for()
+        cap = self.board_max_jobs()
+        payload: object | None = None
+        items: list = []
+        pages = 0
+        last_batch: list = []
+        page: ScrapedPage | None = None
+        while True:
+            try:
+                page = await self._fetch_page(self._page_url(url, len(items)), auth)
+            except (httpx.HTTPError, ValueError) as exc:
+                if pages == 0:
+                    # The first page failing is the board failing: the caller
+                    # marks it dead/retried exactly as before.
+                    raise
+                # A later page failing (429, size cap, truncated JSON) must not
+                # throw away the postings already read.
+                logger.warning(
+                    "ats_board_page_failed url=%s page=%s error=%s",
+                    url,
+                    pages + 1,
+                    exc,
+                )
+                break
+            pages += 1
+            data = json.loads(page.html_content)
+            if payload is None:
+                payload = data
+            last_batch = self._payload_items(data)
+            items.extend(last_batch)
+            # A short page is the last page; the cap ends the read early.
+            if len(last_batch) < page_size or len(items) >= cap:
+                break
+        if len(items) > cap:
+            items = items[:cap]
+        logger.info(
+            "ats_board_read url=%s pages=%s postings=%s", url, pages, len(items)
+        )
+        if len(last_batch) >= page_size and len(items) >= cap:
+            # The cap cut the read while the last page was still full: the board
+            # may hold more. Logged so a truncated board never looks complete.
+            logger.info(
+                "ats_board_truncated url=%s postings=%s cap=%s", url, len(items), cap
+            )
+        return ScrapedPage(
+            html_content=json.dumps(self._merge_payload(payload, items)),
+            status_code=page.status_code if page else 0,
+            final_url=url,
+        )
 
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         data = json.loads(page.html_content)
@@ -325,7 +456,7 @@ class GreenhouseProvider(ATSProvider):
         host = self.config.get("api_host") or "boards-api.greenhouse.io"
         return f"https://{host}/v1/boards/{token}/jobs?content=true"
 
-    async def fetch(self, url: str, *, auth: FetchAuth | None = None) -> ScrapedPage:
+    async def _fetch_page(self, url: str, auth: FetchAuth | None = None) -> ScrapedPage:
         """Fetch the board with each posting's body, falling back to the listing.
 
         A host that rejects ``content=true`` must not cost the sweep the whole
@@ -394,7 +525,8 @@ class LeverProvider(ATSProvider):
         """The board API, optionally paged and pointed at Lever's EU host.
 
         A large Lever board can easily exceed the 2 MB response cap when it
-        returns every description; ``limit=100`` keeps the listing inside it.
+        returns every description; ``limit=100`` keeps one response inside it,
+        and :meth:`_page_url` walks the rest with ``skip``.
         """
         try:
             company = self.config["company"]
@@ -402,19 +534,30 @@ class LeverProvider(ATSProvider):
             raise ValueError("lever requires a 'company' entry in source config") from exc
         host = self.config.get("api_host") or "api.lever.co"
         url = f"https://{host}/v0/postings/{company}?mode=json"
-        try:
-            limit = int(self.config.get("limit") or 0)
-        except (TypeError, ValueError):
-            limit = 0
-        return f"{url}&limit={limit}" if limit > 0 else url
+        return f"{url}&limit={self.board_page_size_for()}"
+
+    def _page_url(self, url: str, skip: int) -> str | None:
+        """Lever pages with ``skip``; ``limit`` sizes each page.
+
+        The board used to be read as one ``limit=100`` request, so a 715-posting
+        board lost 615 postings without a trace.
+        """
+        company = self.config.get("company")
+        if not company:
+            return None
+        host = self.config.get("api_host") or "api.lever.co"
+        params = {"mode": "json", "limit": self.board_page_size_for()}
+        if skip:
+            params["skip"] = skip
+        return f"https://{host}/v0/postings/{company}?" + urlencode(params)
 
     def _jobs_from_payload(self, data):
         jobs: list[RawJob] = []
         for item in data or []:
             cats = item.get("categories") or {}
-            description = (
-                item.get("descriptionPlain") or _strip_html(item.get("description"))
-            )[:2000] or None
+            full_description = (
+                item.get("descriptionPlain") or _strip_html(item.get("description")) or ""
+            )
             all_locations = as_tag_list(cats.get("allLocations"))
             location = as_optional_str(cats.get("location")) or (
                 all_locations[0] if all_locations else None
@@ -426,7 +569,7 @@ class LeverProvider(ATSProvider):
                     url=item.get("hostedUrl"),
                     # Lever reports ``createdAt`` as epoch milliseconds.
                     posted_date=coerce_date(item.get("createdAt")),
-                    description=description,
+                    description=full_description[:2000] or None,
                     tags=_tags(
                         cats.get("commitment"),
                         cats.get("location"),
@@ -436,6 +579,10 @@ class LeverProvider(ATSProvider):
                     ),
                     location=location,
                     external_id=str(item["id"]) if item.get("id") else None,
+                    # Match on the whole body but store the 2 KB slice: the
+                    # tech stack sits well past it, so truncating the haystack
+                    # hid most of a board's matches.
+                    match_text=full_description or None,
                 )
             )
         return [j for j in jobs if j.title and j.url]
@@ -473,9 +620,31 @@ class SmartRecruitersProvider(ATSProvider):
     endpoint_tpl = "https://api.smartrecruiters.com/v1/companies/{company}/postings"
 
     def results_url(self) -> str:
-        """The postings URL, with ``limit`` taken from ``max_results``."""
-        limit = int(self.config.get("max_results") or 100)
-        return f"{super().results_url()}?limit={limit}"
+        """The postings URL, one board page at a time."""
+        return f"{super().results_url()}?limit={self.board_page_size_for()}"
+
+    def _page_url(self, url: str, skip: int) -> str | None:
+        """SmartRecruiters pages with ``offset`` (its ``limit`` caps at 100)."""
+        company = self.config.get("company")
+        if not company:
+            return None
+        params = {"limit": self.board_page_size_for()}
+        if skip:
+            params["offset"] = skip
+        return (
+            f"https://api.smartrecruiters.com/v1/companies/{company}/postings?"
+            + urlencode(params)
+        )
+
+    def _payload_items(self, data: object) -> list:
+        return list(data.get("content") or []) if isinstance(data, dict) else []
+
+    def _merge_payload(self, first: object, items: list) -> object:
+        # ``totalFound`` describes the board, not the page, so it stays as the
+        # first page reported it.
+        merged = dict(first) if isinstance(first, dict) else {}
+        merged["content"] = items
+        return merged
 
     def _jobs_from_payload(self, data):
         jobs: list[RawJob] = []
@@ -1123,14 +1292,35 @@ class SearchApiProvider(TwoStageProvider):
         self._pages_used = 0
 
     def _queries(self) -> list[str]:
-        """The configured query list, falling back to the single ``query`` key."""
+        """The configured query list, expanded with the source's query hints.
+
+        ``query_hints`` exists because a query is the only lever over *which*
+        boards the index ranks: measured on Brave, ``golang site:greenhouse.io``
+        never returns Alpaca's board (pages 1-4), while
+        ``golang remote brazil site:greenhouse.io`` returns three of its
+        postings.  The hints are the source owner's own wording - the sweep
+        never invents location vocabulary - and they only widen what is
+        *offered*: ``locations``/``keywords`` still decide what is kept.
+        """
         raw = self.config.get("queries")
+        queries: list[str] = []
         if isinstance(raw, (list, tuple)):
             queries = [str(query).strip() for query in raw if str(query).strip()]
-            if queries:
-                return queries
-        query = str(self.config.get("query") or "").strip()
-        return [query] if query else []
+        if not queries:
+            query = str(self.config.get("query") or "").strip()
+            queries = [query] if query else []
+        hints = self.query_hints()
+        if not hints or not queries:
+            return queries
+        return queries + [f"{query} {hint}" for hint in hints for query in queries]
+
+    def query_hints(self) -> list[str]:
+        """Extra words appended to every query (``config['query_hints']``)."""
+        return [
+            str(hint).strip()
+            for hint in as_tag_list(self.config.get("query_hints"))
+            if str(hint).strip()
+        ]
 
     def current_query(self) -> str:
         queries = self._queries()
@@ -1149,6 +1339,11 @@ class SearchApiProvider(TwoStageProvider):
     def queries_after_current(self) -> int:
         """How many queries still follow the one being read."""
         return max(0, self.query_count - (self._query_index + 1))
+
+    @property
+    def queries_remaining(self) -> int:
+        """Queries left to read, the current one included."""
+        return max(1, self.query_count - self._query_index)
 
     @property
     def pages_per_query(self) -> int:
@@ -1173,6 +1368,18 @@ class SearchApiProvider(TwoStageProvider):
                 raise ValueError("config['queries'] must be a list of query strings")
             if any(not isinstance(query, str) or not query.strip() for query in queries):
                 raise ValueError("config['queries'] must contain only non-empty strings")
+        hints = config.get("query_hints")
+        if hints is not None:
+            if not isinstance(hints, (list, tuple)):
+                raise ValueError("config['query_hints'] must be a list of strings")
+            if any(not isinstance(hint, str) or not hint.strip() for hint in hints):
+                raise ValueError("config['query_hints'] must contain only non-empty strings")
+        seeds = config.get("seed_urls")
+        if seeds is not None:
+            if not isinstance(seeds, (list, tuple)):
+                raise ValueError("config['seed_urls'] must be a list of board/job URLs")
+            if any(not isinstance(seed, str) or not seed.strip() for seed in seeds):
+                raise ValueError("config['seed_urls'] must contain only non-empty strings")
         if has_api_key is False:
             raise ValueError(
                 f"{cls.provider_name} needs an API key — add one in the source's "
@@ -1309,13 +1516,26 @@ class BraveProvider(SearchApiProvider):
                 params[key] = self.config[key]
         return "https://api.search.brave.com/res/v1/web/search?" + urlencode(params)
 
-    def result_links(self, page: ScrapedPage) -> list[str]:
+    def result_items(self, page: ScrapedPage) -> list[dict]:
+        """Brave results with the snippet fields the sweep ranks boards by.
+
+        ``result_links`` used to throw ``title``/``description`` away, so a
+        budget-bound sweep had no way to tell a board whose snippet mentions the
+        queried stack from an unrelated one.
+        """
         data = json.loads(page.html_content)
         return [
-            item.get("url")
-            for item in data.get("web", {}).get("results", [])
+            {
+                "url": item["url"],
+                "title": item.get("title") or "",
+                "description": item.get("description") or "",
+            }
+            for item in (data.get("web") or {}).get("results") or []
             if item.get("url")
         ]
+
+    def result_links(self, page: ScrapedPage) -> list[str]:
+        return [item["url"] for item in self.result_items(page)]
 
     def _next_offset(self, page: ScrapedPage) -> int | None:
         data = json.loads(page.html_content)
@@ -1720,6 +1940,19 @@ _SWEEP_OPTIONS = (
     "board_rate_limit_seconds",
     "min_boards_per_query",
     "sweep_max_seconds",
+    # Boards a source names itself (job urls are enough) and extra query
+    # wording: the two levers over *which* boards the index offers, which the
+    # budget cannot buy.
+    "seed_urls",
+    "query_hints",
+    # Postings read from one board before paging stops (default 1000).
+    "board_max_jobs",
+    # How long a board keeps its place at the back of the queue after being
+    # read: the rotation that turns a bounded per-run budget into coverage
+    # across runs.
+    "board_reread_days",
+    # Ceiling on how many postings one board may contribute to a run.
+    "max_jobs_per_board",
     # Freshness gate; generic to every discovery source, exposed here so a
     # sweep can be bounded from the API form.
     "max_age_days",
@@ -2000,6 +2233,16 @@ def get_discovery_provider(
     return provider_cls(config, api_key)
 
 
+@dataclass(frozen=True)
+class _BoardCandidate:
+    """One board a search page offered, resolved and ready to be read."""
+
+    board: AtsBoard
+    provider: DiscoveryProvider
+    url: str
+    score: int = 0
+
+
 class DiscoveryScraper(AbstractScraper):
     """Adapter exposing a ``DiscoveryProvider`` through the scraper contract.
 
@@ -2014,6 +2257,12 @@ class DiscoveryScraper(AbstractScraper):
     match title, tags and description, and ``locations`` matches the posting's
     detected location (case/accent-insensitive). Openings with no reported
     location are kept; dropping them hid whole boards behind an "empty" run.
+
+    A sweep offers more boards than ``max_boards`` affords, and the boards that
+    lose that race used to lose it every single run.  Boards are therefore
+    ranked by *when they were last read* (``board_reread_days``) before their
+    snippet score, so the budget rotates over the offered set and coverage
+    accumulates across runs instead of repeating the same slice.
     """
 
     def __init__(
@@ -2021,8 +2270,13 @@ class DiscoveryScraper(AbstractScraper):
         provider_name: str,
         config: dict | None = None,
         api_key: str | None = None,
+        *,
+        source_id: str | None = None,
     ):
         self.provider = get_discovery_provider(provider_name, config, api_key)
+        # Rotation state is per source: two sources sharing a board must not
+        # hide it from each other. No id (previews, tests) disables rotation.
+        self._source_id = str(source_id).strip() if source_id else None
         self._sweep = as_flag(self.provider.config.get("sweep_ats")) and isinstance(
             self.provider, TwoStageProvider
         )
@@ -2069,6 +2323,24 @@ class DiscoveryScraper(AbstractScraper):
         # rejected. Both surface in the once-per-run summary.
         self._location_dropped = 0
         self._location_unknown = 0
+        # Boards named directly by the source (`config['seed_urls']`) are read
+        # once, before the first search page: a board the index does not rank
+        # for a query is otherwise invisible however large `max_boards` is.
+        self._seeds_registered = False
+        # Boards the per-query share left unread. They are parked here instead
+        # of dropped and read by `drain_urls` once the last query is done, so a
+        # budget that ends up unused (thin late queries) is still spent.
+        self._deferred: dict[tuple[str, str], _BoardCandidate] = {}
+        # url -> last read (epoch seconds, or None for "never"), looked up once
+        # per run: rotation must not cost one Redis round-trip per board visit.
+        self._seen_cache: dict[str, float | None] = {}
+        # Boards read for the first time inside the rotation window; the
+        # summary's `first=` tells a fully-covered sweep from a repeating one.
+        self._first_read = 0
+        # Per-query board accounting. With a bounded budget, which query found a
+        # board and which one was left without a slot is the diagnosis that
+        # separates "the index did not offer it" from "we could not afford it".
+        self._query_stats: dict[str, dict[str, int]] = {}
 
     @property
     def sweep_enabled(self) -> bool:
@@ -2175,15 +2447,21 @@ class DiscoveryScraper(AbstractScraper):
     def _board_allowance(self) -> int:
         """Board slots the current search page may still use.
 
-        Queries are visited in order, so the first query's boards could spend
-        ``max_boards`` on their own and the later ATS queries would never run:
-        every query not visited yet keeps ``min_boards_per_query`` slots.
+        Queries are visited in order, so the first ones used to spend the whole
+        budget and every later query got exactly the ``min_boards_per_query``
+        floor.  Measured on a 12-query sweep, that turned the run into an Ashby
+        sweep and left the two ``site:greenhouse.io`` queries with two boards
+        each - both of them already read.  Each query now gets an equal share of
+        what is left (carry-over included: a query that finds fewer boards than
+        its share leaves the difference to the ones after it), and the floor is
+        still reserved for the queries that have not run yet.
         """
         budget = max(0, self._max_boards() - len(self._board_keys))
         if not isinstance(self.provider, SearchApiProvider):
             return budget
+        share = -(-budget // self.provider.queries_remaining)
         reserve = self._min_boards_per_query() * self.provider.queries_after_current
-        return max(0, budget - reserve)
+        return max(0, min(share, budget - reserve))
 
     def _jobs_budget_spent(self) -> bool:
         max_jobs = self._max_jobs()
@@ -2207,6 +2485,161 @@ class DiscoveryScraper(AbstractScraper):
     def _board_for(self, url: str) -> DiscoveryProvider | None:
         return self._board_providers.get(url.rstrip("/"))
 
+    def _note_query(self, query: str) -> dict[str, int]:
+        """The running per-query board counters."""
+        return self._query_stats.setdefault(
+            query, {"offered": 0, "read": 0, "blocked": 0, "dead": 0}
+        )
+
+    def _board_score(self, item: dict) -> int:
+        """How strongly a result's own snippet points at this source's query.
+
+        Only a ranking signal for a bounded budget: a board is never dropped for
+        scoring zero, it just waits behind the boards whose snippet mentions the
+        queried stack or the configured regions.  Keyword hits weigh more than a
+        location hit because those are the words the keyword filter will later
+        match on.
+        """
+        text = f"{item.get('title') or ''} {item.get('description') or ''}".strip()
+        if not text:
+            return 0
+        score = 2 * sum(1 for pattern in self._keyword_patterns if pattern.search(text))
+        if self._locations and location_allowed(text, self._locations):
+            score += 1
+        return score
+
+    def _board_reread_days(self) -> int:
+        """Days a board stays behind the ones not read recently (``0`` = off)."""
+        return max(0, self._config_int("board_reread_days", 3))
+
+    def _rotation_enabled(self) -> bool:
+        return self._source_id is not None and self._board_reread_days() > 0
+
+    def _board_last_seen(self, url: str) -> float | None:
+        """When this source last read ``url`` (``None`` = never, or unknown)."""
+        if not self._rotation_enabled():
+            return None
+        key = url.rstrip("/")
+        if key not in self._seen_cache:
+            self._seen_cache[key] = board_last_seen(self._source_id, key)
+        return self._seen_cache[key]
+
+    def _mark_board_seen(self, url: str) -> None:
+        """Record a successful board read for the rotation."""
+        if not self._rotation_enabled():
+            return
+        key = url.rstrip("/")
+        self._seen_cache[key] = time.time()
+        board_mark_seen(self._source_id, key)
+
+    def _rotation_key(self, url: str) -> tuple[int, float]:
+        """Where ``url`` sits in the rotation: never read, due again, fresh.
+
+        The bucket, not the raw timestamp, is what orders boards: anything
+        unread or last read outside ``board_reread_days`` is preferred over a
+        board read yesterday. Within a bucket the oldest read goes first, so a
+        sweep that cannot read every board still walks the whole offered set
+        in a stable order instead of re-reading the same head every run.
+        """
+        if not self._rotation_enabled():
+            return (0, 0.0)
+        last = self._board_last_seen(url)
+        if last is None:
+            return (0, 0.0)
+        fresh_for = self._board_reread_days() * 86400
+        if fresh_for and time.time() - last < fresh_for:
+            return (2, last)
+        return (1, last)
+
+    def _rank_boards(self, candidates: list[_BoardCandidate]) -> list[_BoardCandidate]:
+        """Rotation first, snippet relevance second (stable, so index last)."""
+        return sorted(
+            candidates,
+            key=lambda candidate: (-candidate.score, *self._rotation_key(candidate.url)),
+        )
+
+    def _defer(self, candidate: _BoardCandidate) -> None:
+        """Park a board this page could not afford (see :meth:`drain_urls`)."""
+        existing = self._deferred.get(candidate.board.key)
+        if existing is None or candidate.score > existing.score:
+            self._deferred[candidate.board.key] = candidate
+
+    def _max_jobs_per_board(self) -> int:
+        """Postings one board may contribute to a run (``0`` = no cap)."""
+        return max(0, self._config_int("max_jobs_per_board", 0))
+
+    def _seed_urls(self) -> list[str]:
+        return [
+            str(url).strip()
+            for url in as_tag_list(self.provider.config.get("seed_urls"))
+            if str(url).strip()
+        ]
+
+    def _seed_board_urls(self) -> list[str]:
+        """Register the boards named by ``seed_urls`` and return their URLs.
+
+        A sweep can only read boards the index offers it, and an index does not
+        rank every company for every query: measured on Brave,
+        ``golang site:greenhouse.io`` never returns Alpaca's board (pages 1-4)
+        while ``golang remote brazil site:greenhouse.io`` returns three of its
+        postings.  No board budget recovers that; a job URL the source owner
+        already found does, without inventing location vocabulary for the
+        queries.  Seeds are read first and count against ``max_boards``.
+        """
+        if self._seeds_registered:
+            return []
+        self._seeds_registered = True
+        urls: list[str] = []
+        for seed in self._seed_urls():
+            board = resolve_ats_board(seed)
+            if board is None:
+                logger.warning(
+                    "ats_sweep_seed_skipped url=%s reason=not_an_ats_board", seed
+                )
+                continue
+            if board.key in self._board_keys:
+                continue
+            if len(self._board_keys) >= self._max_boards():
+                logger.warning(
+                    "ats_sweep_seed_skipped url=%s reason=board_budget", seed
+                )
+                continue
+            try:
+                provider, url = self._board_target(board)
+            except ValueError as exc:
+                logger.warning("ats_sweep_seed_skipped url=%s error=%s", seed, exc)
+                continue
+            self._register_board_url(board, provider, url, "seed")
+            urls.append(url)
+        return urls
+
+    def _register_board_url(
+        self,
+        board: AtsBoard,
+        provider: DiscoveryProvider,
+        url: str,
+        query: str,
+    ) -> None:
+        self._board_providers[url.rstrip("/")] = provider
+        self._board_keys.add(board.key)
+        self._offered_keys.add(board.key)
+        self._note_query(query)["read"] += 1
+        # `first` vs `repeat` is the rotation working: a sweep that only ever
+        # logs `repeat` is re-reading the same head of the queue.
+        first_time = self._board_last_seen(url) is None
+        if first_time:
+            self._first_read += 1
+        # One line per board keeps the run's board manifest greppable: the
+        # summary only carries totals, and a board that returns 404 would
+        # otherwise vanish without a trace.
+        logger.info(
+            "ats_sweep_board query=%s ats=%s url=%s visit=%s",
+            query,
+            board.ats,
+            url,
+            "first" if first_time else "repeat",
+        )
+
     async def fetch(
         self, url: str, *, auth: FetchAuth | None = None
     ) -> ScrapedPage:
@@ -2224,6 +2657,9 @@ class DiscoveryScraper(AbstractScraper):
                 # The index keeps offering boards that no longer exist; park
                 # them so the next sweeps spend their budget on live ones.
                 board_miss_mark(url)
+                # Its recency says nothing about a board that is gone: if it
+                # comes back once the miss cache expires, read it first.
+                board_forget(self._source_id, url)
                 logger.warning("ats_board_dead url=%s status=%s", url, status)
             else:
                 logger.warning(
@@ -2234,6 +2670,9 @@ class DiscoveryScraper(AbstractScraper):
             logger.warning("ats_board_fetch_failed url=%s error=%s", url, exc)
             return ScrapedPage(html_content="", status_code=0, final_url=url)
         board_miss_clear(url)
+        # The board has now been read: it goes to the back of the rotation for
+        # `board_reread_days` while the boards this run could not afford move up.
+        self._mark_board_seen(url)
         return page
 
     def robots_url(self, url: str) -> str | None:
@@ -2252,8 +2691,32 @@ class DiscoveryScraper(AbstractScraper):
         has_api_key = has_api_key or bool(self.provider.api_key)
         type(self.provider).validate_config(self.provider.config, has_api_key=has_api_key)
 
-    def _filter_jobs(self, jobs: list[RawJob]) -> list[RawJob]:
-        """Apply the local keyword/location filters and the ``max_jobs`` cap.
+    def _location_from_title(self, title: str) -> str | None:
+        """The location a board only mentions in the posting's title.
+
+        Only the *trailing* segment is considered, and only when it matches a
+        configured term: "Remote Sensing Engineer" must not become a remote job
+        while "Go Engineer - Remote, Brazil" may.  Nothing is dropped because of
+        this (the gate keeps postings with no detected location); it makes a
+        title-only location filterable and stored instead of unknown.
+        """
+        if not title or not self._locations:
+            return None
+        parenthesised = _TITLE_PAREN_RE.search(title)
+        if parenthesised and location_allowed(parenthesised.group(1), self._locations):
+            return parenthesised.group(1).strip()
+        parts = _TITLE_SEGMENT_RE.split(title, maxsplit=1)
+        if len(parts) < 2:
+            return None
+        tail = parts[1].strip(" -\u2013\u2014|/,.;:")
+        if 2 <= len(tail) <= 60 and location_allowed(tail, self._locations):
+            return tail
+        return None
+
+    def _filter_jobs(
+        self, jobs: list[RawJob], *, board: str | None = None
+    ) -> list[RawJob]:
+        """Apply the local keyword/location filters and the ``max_jobs`` caps.
 
         ``match_in: title`` restricts keyword and exclusion matching to the
         title and tags. A board returns every opening the company has, so
@@ -2264,6 +2727,11 @@ class DiscoveryScraper(AbstractScraper):
         matching the description made a term such as "Brazil" match an ad that
         merely mentioned the country, and a job with no detected location is
         kept rather than silently dropped (see ``location_allowed``).
+
+        ``max_jobs`` caps the whole run and ``max_jobs_per_board`` one board's
+        contribution to it. The per-board cap is off by default: it truncates
+        the same board on every visit, so rotation is the better remedy for a
+        board that eats the run.
         """
         if not (self._keyword_patterns or self._exclude_patterns or self._locations):
             kept = list(jobs)
@@ -2286,12 +2754,26 @@ class DiscoveryScraper(AbstractScraper):
                     continue
                 if self._locations:
                     if not job.location:
+                        # A board often writes the region only in the title
+                        # ("Engineer - Remote, Brazil"); deriving it here keeps
+                        # the posting from counting as "unknown".
+                        job.location = self._location_from_title(job.title)
+                    if not job.location:
                         self._location_unknown += 1
                     elif not location_allowed(job.location, self._locations):
                         self._location_dropped += 1
                         continue
                 kept.append(job)
 
+        per_board = self._max_jobs_per_board()
+        if per_board > 0 and len(kept) > per_board:
+            logger.info(
+                "ats_sweep_board_capped url=%s kept=%s cap=%s",
+                board or "-",
+                len(kept),
+                per_board,
+            )
+            kept = kept[:per_board]
         max_jobs = self._max_jobs()
         if max_jobs > 0:
             remaining = max_jobs - self._jobs_emitted
@@ -2318,7 +2800,7 @@ class DiscoveryScraper(AbstractScraper):
             return self._drop_stale(jobs)
         # Age first: a stale opening must not consume a `max_jobs` slot that a
         # fresh one would have used.
-        kept = self._filter_jobs(self._drop_stale(jobs))
+        kept = self._filter_jobs(self._drop_stale(jobs), board=page.final_url)
         # Openings vs kept separates "the board is dead/empty" from "the filter
         # dropped everything" — the two look identical in the job counts.
         logger.info(
@@ -2345,14 +2827,23 @@ class DiscoveryScraper(AbstractScraper):
 
         # `result_links` is used directly because a source may also set
         # `parse_listing`; that flag only affects the non-sweep path.
-        allowance = self._board_allowance()
         query = (
             self.provider.current_query()
             if isinstance(self.provider, SearchApiProvider)
             else ""
         )
-        urls: list[str] = []
-        for link in self.provider.result_links(page):
+        stats = self._note_query(query)
+        # Boards the source names explicitly are read before anything the index
+        # offers, so a board no query ranks for is still swept every run.
+        urls: list[str] = self._seed_board_urls()
+        allowance = self._board_allowance()
+        candidates: list[_BoardCandidate] = []
+        # Boards registered by *this* page: two search results often point at
+        # the same board (two jobs of one company), and `_board_keys` is only
+        # updated once the candidate is actually read.
+        seen_keys: set[tuple[str, str]] = set()
+        for item in self.provider.result_items(page):
+            link = item.get("url") or ""
             board = resolve_ats_board(link)
             if board is None:
                 continue
@@ -2360,8 +2851,9 @@ class DiscoveryScraper(AbstractScraper):
             # is still a board the query offered, and that gap is the number
             # `max_boards` has to grow by.
             self._offered_keys.add(board.key)
-            if board.key in self._board_keys:
+            if board.key in self._board_keys or board.key in seen_keys:
                 continue
+            stats["offered"] += 1
             try:
                 provider, url = self._board_target(board)
             except ValueError as exc:
@@ -2371,17 +2863,73 @@ class DiscoveryScraper(AbstractScraper):
                 # A board that answered 404 last week is still a 404: skip it
                 # without spending a slot or a request. It still counts as
                 # offered, so `offered` keeps measuring the index, not us.
+                stats["dead"] += 1
                 logger.info("ats_sweep_board_skipped url=%s reason=dead", url)
                 continue
-            if len(urls) >= allowance:
+            candidates.append(
+                _BoardCandidate(board, provider, url, self._board_score(item))
+            )
+            seen_keys.add(board.key)
+        # Registered by *this* page: the seeds above already spent their slots.
+        spent = 0
+        for candidate in self._rank_boards(candidates):
+            if spent >= allowance:
+                # Parked, not dropped: `drain_urls` spends whatever budget the
+                # later queries leave unused on exactly these boards.
+                stats["blocked"] += 1
+                self._defer(candidate)
                 continue
-            self._board_providers[url.rstrip("/")] = provider
-            self._board_keys.add(board.key)
-            # One line per board keeps the run's board manifest greppable:
-            # the summary only carries totals, and a board that returns 404
-            # would otherwise vanish without a trace.
-            logger.info("ats_sweep_board query=%s ats=%s url=%s", query, board.ats, url)
-            urls.append(url)
+            self._register_board_url(
+                candidate.board, candidate.provider, candidate.url, query
+            )
+            urls.append(candidate.url)
+            spent += 1
+        return urls
+
+    def drain_urls(self) -> list[str]:
+        """Read the boards the per-query share left unread, budget permitting.
+
+        The equal share stops the first query from spending the whole budget,
+        but it also parks good boards whenever a later query comes back thin.
+        The worker calls this once the last page has been read: what `max_boards`
+        still allows is registered now, so leftover budget is spent instead of
+        dropped, and the rotation interval over the offered set gets shorter.
+        """
+        if not self._sweep or not self._deferred:
+            return []
+        parked = len(self._deferred)
+        if self._jobs_budget_spent() or self._sweep_expired():
+            logger.info(
+                "ats_sweep_deferred registered=0 parked=%s reason=run_budget_spent",
+                parked,
+            )
+            self._deferred.clear()
+            return []
+        urls: list[str] = []
+        skipped_dead = 0
+        for candidate in self._rank_boards(list(self._deferred.values())):
+            if len(self._board_keys) >= self._max_boards():
+                break
+            if candidate.board.key in self._board_keys:
+                continue
+            if board_miss_active(candidate.url):
+                # Went dead since it was offered; the miss cache covers it.
+                skipped_dead += 1
+                continue
+            self._register_board_url(
+                candidate.board, candidate.provider, candidate.url, "deferred"
+            )
+            urls.append(candidate.url)
+        logger.info(
+            "ats_sweep_deferred registered=%s parked=%s dead=%s "
+            "blocked=%s boards=%s",
+            len(urls),
+            parked,
+            skipped_dead,
+            parked - len(urls) - skipped_dead,
+            len(self._board_keys),
+        )
+        self._deferred.clear()
         return urls
 
     def next_page_url(self, page: ScrapedPage) -> str | None:
@@ -2437,7 +2985,7 @@ class DiscoveryScraper(AbstractScraper):
             # visible in the worker log.
             logger.info(
                 "ats_sweep_summary boards=%s offered=%s jobs=%s stale=%s "
-                "undated=%s queries=%s",
+                "undated=%s queries=%s seeds=%s first=%s",
                 len(self._board_providers),
                 len(self._offered_keys),
                 len(normalized),
@@ -2446,5 +2994,21 @@ class DiscoveryScraper(AbstractScraper):
                 self.provider.query_count
                 if isinstance(self.provider, SearchApiProvider)
                 else 1,
+                len(self._seed_urls()),
+                # Boards this run read for the first time in the rotation
+                # window: equal to `boards` means the sweep is still exploring.
+                self._first_read,
             )
+            # One line per query: `blocked` boards are what a larger
+            # `max_boards` would buy, and a query that reads boards an earlier
+            # one already had (read > offered) is a wasted slot.
+            for name, stats in self._query_stats.items():
+                logger.info(
+                    "ats_sweep_query query=%s offered=%s read=%s blocked=%s dead=%s",
+                    name or "-",
+                    stats["offered"],
+                    stats["read"],
+                    stats["blocked"],
+                    stats["dead"],
+                )
         return normalized

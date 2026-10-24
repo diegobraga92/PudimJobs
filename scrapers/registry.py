@@ -36,7 +36,9 @@ def get_scraper(source, api_key: str | None = None) -> AbstractScraper:
         provider = config.get("provider")
         if not provider:
             raise ValueError("discovery source requires a 'provider' entry in config")
-        return DiscoveryScraper(provider, config, api_key)
+        return DiscoveryScraper(
+            provider, config, api_key, source_id=getattr(source, "id", None)
+        )
     if source.type == SourceType.rss:
         return RSSScraper(source.config or {})
     return scraper_cls()

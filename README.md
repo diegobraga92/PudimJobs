@@ -290,7 +290,16 @@ Workday), generic JSON APIs and search providers (Google CSE, Bing, Brave,
 SerpApi, Bright Data — the paid route to LinkedIn/Indeed). Search providers can
 run an ATS **sweep** (`config.sweep_ats`): results that point at an Ashby,
 Lever, Greenhouse or SmartRecruiters board are re-read through the board's live
-public API instead of the stale search snippet. Reprocessing is
+public API instead of the stale search snippet. Boards are read page by page
+(Lever `skip`, SmartRecruiters `offset`) rather than as their first 100
+postings, the board budget is split evenly between queries, and two config keys
+cover boards the index never ranks for the configured queries: `query_hints`
+(extra wording appended to every query) and `seed_urls` (board/job URLs read on
+every run). The budget **rotates** across runs (`board_reread_days`, Redis-backed
+last-read timestamps): a board the budget could not afford this run is read
+first next time, and boards parked by the per-query share are drained at the end
+of the run, so coverage accumulates instead of repeating the same slice — see
+`docs/scraping.md`. Reprocessing is
 backed by the durable `scrape_runs` failed-run log with admin DLQ list + replay.
 Versioned `job.new` events live in `api/events/` (JSON on a topic exchange).
 
@@ -304,7 +313,8 @@ sweep raises **one** in-app reminder per due source until
 `POST /api/sources/{id}/check` marks it checked (stamps `last_scraped`, clears
 the reminder and pushes `next_check_at` out); the Sources UI on web and mobile
 shows the due badge, the next due date with a "due in / overdue by N days" hint
-and the *Mark checked* button, and keeps a free-form `config.notes` per board.
+and the *Mark checked* button, and keeps a free-form `notes` field on the source
+(any type, in its own column — never scraped, never part of `config`).
 
 **JD parsing & CV tailoring** — a spaCy worker extracts skills, years of
 experience, education level and keywords into `jobs.parsed_jd` (JSONB), backed

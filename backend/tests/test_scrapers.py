@@ -57,15 +57,21 @@ from app.models.enums import SourceType
 def _board_cache_is_offline(monkeypatch):
     """Keep the unit tests off Redis.
 
-    The negative board cache is a Redis read on every discovered board; these
-    tests are about discovery/parsing, and CI (and a bare checkout) may have no
-    Redis at all. Tests that exercise the cache patch these functions again.
+    Both the negative board cache and the rotation memory are Redis reads on
+    every discovered board; these tests are about discovery/parsing, and CI
+    (and a bare checkout) may have no Redis at all. Tests that exercise either
+    one patch these functions again.
     """
     import scrapers.discovery as discovery
 
     monkeypatch.setattr(discovery, "board_miss_active", lambda url: False)
     monkeypatch.setattr(discovery, "board_miss_mark", lambda url, **kwargs: None)
     monkeypatch.setattr(discovery, "board_miss_clear", lambda url: None)
+    monkeypatch.setattr(discovery, "board_last_seen", lambda source_id, url: None)
+    monkeypatch.setattr(
+        discovery, "board_mark_seen", lambda source_id, url, **kwargs: None
+    )
+    monkeypatch.setattr(discovery, "board_forget", lambda source_id, url: None)
 
 
 CAREER_PAGE_HTML = """
@@ -1348,13 +1354,20 @@ def test_eu_board_hosts_and_lever_limit_are_honoured():
         ).results_url()
         == "https://boards.eu.greenhouse.io/v1/boards/acme/jobs?content=true"
     )
+    # A board is read page by page, so the page size is always in the URL: a
+    # 715-posting Lever board used to be read as its first 100 postings.
     assert (
         LeverProvider({"company": "acme"}).results_url()
-        == "https://api.lever.co/v0/postings/acme?mode=json"
-    )
-    assert (
-        LeverProvider({"company": "acme", "limit": 100}).results_url()
         == "https://api.lever.co/v0/postings/acme?mode=json&limit=100"
+    )
+    pager = LeverProvider({"company": "acme", "limit": 50})
+    assert pager.results_url() == "https://api.lever.co/v0/postings/acme?mode=json&limit=50"
+    # `skip` walks the board; the first page carries no cursor at all.
+    assert pager._page_url(pager.results_url(), 0) == (
+        "https://api.lever.co/v0/postings/acme?mode=json&limit=50"
+    )
+    assert pager._page_url(pager.results_url(), 50) == (
+        "https://api.lever.co/v0/postings/acme?mode=json&limit=50&skip=50"
     )
 
 
@@ -1808,8 +1821,14 @@ SMARTRECRUITERS_PAYLOAD = {
 
 def test_smartrecruiters_provider_parses_postings():
     provider = SmartRecruitersProvider({"company": "acme", "max_results": 5})
+    # `max_results` caps what is kept; the board itself is read page by page
+    # (SmartRecruiters caps `limit` at 100 per request and pages with `offset`).
     assert provider.results_url() == (
-        "https://api.smartrecruiters.com/v1/companies/acme/postings?limit=5"
+        "https://api.smartrecruiters.com/v1/companies/acme/postings?limit=100"
+    )
+    assert provider._page_url(provider.results_url(), 100) == (
+        "https://api.smartrecruiters.com/v1/companies/acme/postings"
+        "?limit=100&offset=100"
     )
     jobs = provider.parse(_json_page(SMARTRECRUITERS_PAYLOAD))
     assert jobs[0].title == "Maintenance Technician"
@@ -2816,9 +2835,45 @@ def test_ats_sweep_budget_knobs_are_published_in_the_provider_metadata():
         "min_boards_per_query",
         "sweep_max_seconds",
         "max_age_days",
+        # The levers over *which* boards the index offers, the per-board read
+        # cap and the rotation that spreads the budget across runs: a sweep
+        # without them cannot grow beyond what the index ranks.
+        "seed_urls",
+        "query_hints",
+        "board_max_jobs",
+        "board_reread_days",
+        "max_jobs_per_board",
     }
     for cls in (GoogleCseProvider, BingProvider, BraveProvider):
         assert expected <= set(cls.config_metadata()["optional"]), cls.provider_name
+
+
+def test_query_hints_expand_every_configured_query():
+    """The query wording is the only automatic lever on which boards appear.
+
+    Measured: Brave never ranks Alpaca's Greenhouse board for
+    ``golang site:greenhouse.io`` (pages 1-4), but does for
+    ``golang remote brazil site:greenhouse.io``.  A hint is source-owned wording
+    appended to each query; it never filters a posting.
+    """
+    provider = BraveProvider(
+        {"queries": ["golang", "rust"], "query_hints": ["remote brazil"]}
+    )
+
+    assert provider._queries() == [
+        "golang",
+        "rust",
+        "golang remote brazil",
+        "rust remote brazil",
+    ]
+    assert provider.query_count == 4
+    # Without hints the configured queries are used verbatim.
+    assert BraveProvider({"query": "golang"})._queries() == ["golang"]
+
+    with pytest.raises(ValueError):
+        BraveProvider.validate_config({"query_hints": "remote brazil"})
+    with pytest.raises(ValueError):
+        BraveProvider.validate_config({"seed_urls": "https://jobs.lever.co/acme"})
 
 
 async def test_ats_sweep_does_not_reparse_board_payloads_as_search_results():
@@ -3043,6 +3098,394 @@ def test_ats_sweep_location_gate_uses_detected_location_and_keeps_unknown():
     assert [job.external_id for job in jobs] == ["2", "3"]
     assert scraper._location_dropped == 1
     assert scraper._location_unknown == 1
+
+
+# --- whole-board reads -------------------------------------------------------
+# A board is a JSON dump of every opening the company has. Reading it as one
+# `limit=100` request is how a 715-posting Lever board lost 615 postings without
+# a single log line saying so.
+
+
+def _lever_board_page(start: int, count: int) -> list[dict]:
+    return [
+        {
+            "id": str(start + index),
+            "text": f"Go Engineer {start + index}",
+            "hostedUrl": f"https://jobs.lever.co/acme/{start + index}",
+            "createdAt": 1_700_000_000_000,
+            "categories": {"location": "Remote - Brazil"},
+            "descriptionPlain": "Go services",
+        }
+        for index in range(count)
+    ]
+
+
+def _lever_skip(url: str) -> int:
+    return int(url.split("skip=")[1].split("&")[0]) if "skip=" in url else 0
+
+
+async def test_lever_board_is_read_page_by_page(monkeypatch, caplog):
+    """Every posting of a Lever board is read, not the first page only."""
+    import scrapers.discovery as discovery
+
+    requested: list[str] = []
+
+    async def fake_fetch_html(url, *, auth=None, max_bytes=None):
+        requested.append(url)
+        skip = _lever_skip(url)
+        # 250 postings in pages of 100: 100 + 100 + 50.
+        count = max(0, min(100, 250 - skip))
+        return ScrapedPage(
+            html_content=json.dumps(_lever_board_page(skip, count)),
+            status_code=200,
+            final_url=url,
+        )
+
+    monkeypatch.setattr(discovery, "fetch_html", fake_fetch_html)
+    provider = LeverProvider({"company": "acme", "limit": 100})
+    url = provider.results_url()
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        page = await provider.fetch(url)
+
+    assert len(requested) == 3
+    assert _lever_skip(requested[1]) == 100
+    assert _lever_skip(requested[2]) == 200
+    jobs = provider.parse(page)
+    assert len(jobs) == 250
+    assert jobs[-1].external_id == "249"
+    # The sweep looks the board parser up by the URL it registered.
+    assert page.final_url == url
+    assert "ats_board_read url=" in caplog.text
+    assert "pages=3 postings=250" in caplog.text
+    # Nothing was cut, so nothing may look truncated.
+    assert "ats_board_truncated" not in caplog.text
+
+
+async def test_board_read_stops_at_board_max_jobs_and_logs_truncation(monkeypatch, caplog):
+    """A cap that silently shortens a board is what hid 615 Lever postings."""
+    import scrapers.discovery as discovery
+
+    requested: list[str] = []
+
+    async def fake_fetch_html(url, *, auth=None, max_bytes=None):
+        requested.append(url)
+        skip = _lever_skip(url)
+        count = max(0, min(100, 250 - skip))
+        return ScrapedPage(
+            html_content=json.dumps(_lever_board_page(skip, count)),
+            status_code=200,
+            final_url=url,
+        )
+
+    monkeypatch.setattr(discovery, "fetch_html", fake_fetch_html)
+    provider = LeverProvider({"company": "acme", "limit": 100, "board_max_jobs": 120})
+    url = provider.results_url()
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        page = await provider.fetch(url)
+
+    # Two pages (100 + 100) reach the 120 cap; the third is never requested.
+    assert len(requested) == 2
+    assert len(provider.parse(page)) == 120
+    assert "ats_board_truncated url=" in caplog.text
+    assert "postings=120 cap=120" in caplog.text
+
+
+async def test_board_read_keeps_pages_already_read_when_a_later_page_fails(
+    monkeypatch, caplog
+):
+    """A 429 on page 3 must cost the board the rest, not everything read so far."""
+    import scrapers.discovery as discovery
+
+    async def fake_fetch_html(url, *, auth=None, max_bytes=None):
+        skip = _lever_skip(url)
+        if skip >= 200:
+            raise httpx.ConnectError("board throttled")
+        return ScrapedPage(
+            html_content=json.dumps(_lever_board_page(skip, 100)),
+            status_code=200,
+            final_url=url,
+        )
+
+    monkeypatch.setattr(discovery, "fetch_html", fake_fetch_html)
+    provider = LeverProvider({"company": "acme", "limit": 100})
+
+    with caplog.at_level(logging.WARNING, logger="scrapers.discovery"):
+        page = await provider.fetch(provider.results_url())
+
+    assert len(provider.parse(page)) == 200
+    assert "ats_board_page_failed url=" in caplog.text
+    assert "page=3" in caplog.text
+
+
+def test_board_read_cap_prefers_board_max_jobs_then_max_results():
+    assert LeverProvider({"company": "acme"}).board_max_jobs() == 1000
+    assert LeverProvider({"company": "acme", "max_results": 5}).board_max_jobs() == 5
+    assert (
+        LeverProvider({"company": "acme", "max_results": 5, "board_max_jobs": 700})
+        .board_max_jobs()
+        == 700
+    )
+
+
+def _smartrecruiters_page(offset: int, count: int) -> dict:
+    return {
+        "totalFound": 150,
+        "content": [
+            {
+                "id": f"{900000 + offset + index}",
+                "name": f"Go Engineer {offset + index}",
+                "company": {"identifier": "acme", "name": "Acme"},
+                "location": {"fullLocation": "Remote - Brazil"},
+                "releasedDate": "2026-10-01",
+            }
+            for index in range(count)
+        ],
+    }
+
+
+async def test_smartrecruiters_board_is_read_page_by_page(monkeypatch):
+    """SmartRecruiters pages with ``offset``; the folded payload keeps its shape."""
+    import scrapers.discovery as discovery
+
+    requested: list[str] = []
+
+    async def fake_fetch_html(url, *, auth=None, max_bytes=None):
+        requested.append(url)
+        offset = int(url.split("offset=")[1].split("&")[0]) if "offset=" in url else 0
+        count = max(0, min(100, 150 - offset))
+        return ScrapedPage(
+            html_content=json.dumps(_smartrecruiters_page(offset, count)),
+            status_code=200,
+            final_url=url,
+        )
+
+    monkeypatch.setattr(discovery, "fetch_html", fake_fetch_html)
+    provider = SmartRecruitersProvider({"company": "acme"})
+    url = provider.results_url()
+
+    page = await provider.fetch(url)
+
+    assert len(requested) == 2
+    assert "offset=100" in requested[1]
+    assert page.final_url == url
+    jobs = provider.parse(page)
+    assert len(jobs) == 150
+    assert jobs[-1].external_id == "900149"
+
+
+# --- board budget ------------------------------------------------------------
+
+
+def _query_page(prefix: str, count: int = 4) -> ScrapedPage:
+    """A search page offering ``count`` Ashby boards, with a next page."""
+    return _json_page(
+        {
+            "web": {
+                "results": [
+                    {"url": f"https://jobs.ashbyhq.com/{prefix}{index}/1"}
+                    for index in range(count)
+                ]
+            },
+            "query": {"more_results_available": True},
+        }
+    )
+
+
+async def test_ats_sweep_shares_the_board_budget_between_queries(caplog):
+    """Each query gets an equal share; the first one cannot eat the budget.
+
+    Measured before the fix: on a 12-query sweep the first two queries spent 30
+    of the 50 slots, and the two ``site:greenhouse.io`` queries registered two
+    boards each - both already read by an earlier query.
+    """
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "queries": ["q1", "q2", "q3"],
+            "sweep_ats": True,
+            "max_boards": 6,
+            "min_boards_per_query": 0,
+        },
+    )
+    first = _query_page("a")
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        urls = await scraper.discover_urls(first)
+        assert scraper.next_page_url(first) is not None
+        second = _query_page("b")
+        urls += await scraper.discover_urls(second)
+        assert scraper.next_page_url(second) is not None
+        urls += await scraper.discover_urls(_query_page("c"))
+        scraper.normalize([])
+
+    # Six slots, three queries, four boards offered each: 2 + 2 + 2.
+    assert len(urls) == 6
+    assert "ats_sweep_query query=q1 offered=4 read=2 blocked=2 dead=0" in caplog.text
+    assert "ats_sweep_query query=q2 offered=4 read=2 blocked=2 dead=0" in caplog.text
+    assert "ats_sweep_query query=q3 offered=4 read=2 blocked=2 dead=0" in caplog.text
+
+
+async def test_ats_sweep_reads_seed_boards_before_the_index(caplog):
+    """A board the index never offers is still swept when the source names it.
+
+    Measured: ``golang site:greenhouse.io`` does not return Alpaca's Greenhouse
+    board on pages 1-4, so no board budget recovers the postings that the same
+    source finds by hand with ``golang remote brazil site:greenhouse.io``.
+    """
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "golang site:greenhouse.io",
+            "sweep_ats": True,
+            "max_boards": 2,
+            "seed_urls": [
+                "https://job-boards.greenhouse.io/alpaca/jobs/6195696004",
+                "https://job-boards.greenhouse.io/alpaca/jobs/6233042004",  # same board
+                "https://example.com/not-a-board",
+            ],
+        },
+    )
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        urls = await scraper.discover_urls(
+            _search_results_page(["https://jobs.lever.co/acme/1"])
+        )
+        scraper.normalize([])
+
+    # The seed board is read first and deduplicated to one board; the rest of
+    # the budget still goes to the index.
+    assert urls == [
+        "https://boards-api.greenhouse.io/v1/boards/alpaca/jobs?content=true",
+        "https://api.lever.co/v0/postings/acme?mode=json&limit=100",
+    ]
+    assert (
+        "ats_sweep_seed_skipped url=https://example.com/not-a-board "
+        "reason=not_an_ats_board" in caplog.text
+    )
+    assert "seeds=3" in caplog.text
+    # Seeds are registered once, not once per search page.
+    assert await scraper.discover_urls(_search_results_page([])) == []
+
+
+async def test_ats_sweep_seed_boards_consume_the_budget(caplog):
+    """A seed is not a free extra request: it takes a slot like any board."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "golang",
+            "sweep_ats": True,
+            "max_boards": 1,
+            "seed_urls": [
+                "https://job-boards.greenhouse.io/alpaca/jobs/6195696004",
+                "https://jobs.lever.co/acme/1",
+            ],
+        },
+    )
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        urls = await scraper.discover_urls(
+            _search_results_page(["https://jobs.ashbyhq.com/acme/1"])
+        )
+
+    assert urls == [
+        "https://boards-api.greenhouse.io/v1/boards/alpaca/jobs?content=true"
+    ]
+    assert (
+        "ats_sweep_seed_skipped url=https://jobs.lever.co/acme/1 reason=board_budget"
+        in caplog.text
+    )
+
+
+async def test_ats_sweep_reads_the_best_matching_board_first():
+    """With one slot left, the result's own snippet decides which board is read."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "golang remote",
+            "sweep_ats": True,
+            "max_boards": 1,
+            "keywords": ["golang"],
+            "locations": ["brazil"],
+        },
+    )
+    page = _json_page(
+        {
+            "web": {
+                "results": [
+                    {
+                        "url": "https://boards.greenhouse.io/acme/jobs/1",
+                        "title": "Product Designer",
+                        "description": "Design systems.",
+                    },
+                    {
+                        "url": "https://boards.greenhouse.io/alpaca/jobs/6195696004",
+                        "title": "Software Engineer - Crypto",
+                        "description": "Golang services, remote from Brazil.",
+                    },
+                ]
+            }
+        }
+    )
+
+    urls = await scraper.discover_urls(page)
+
+    assert urls == [
+        "https://boards-api.greenhouse.io/v1/boards/alpaca/jobs?content=true"
+    ]
+
+
+def test_ats_sweep_derives_a_title_only_location():
+    """A region written only in the title becomes a stored, filterable location.
+
+    Only the trailing segment may count: "Remote Sensing Engineer" must never
+    turn into a remote posting.
+    """
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "engineer",
+            "sweep_ats": True,
+            "keywords": ["engineer"],
+            "locations": ["brazil"],
+        },
+    )
+    board = resolve_ats_board("https://jobs.ashbyhq.com/acme/1")
+    assert board is not None
+    board_url = scraper._register_board(board)
+    titles = [
+        "Go Engineer - Remote, Brazil",
+        "Go Engineer (Remote, Brazil)",
+        "Go Engineer - Remote Sensing",
+        "Remote Sensing Engineer",
+    ]
+    payload = {
+        "jobs": [
+            {
+                "id": str(index),
+                "title": title,
+                "jobUrl": f"https://jobs.ashbyhq.com/acme/{index}",
+                "descriptionHtml": "<p>Go services.</p>",
+            }
+            for index, title in enumerate(titles)
+        ]
+    }
+
+    jobs = scraper.parse(
+        ScrapedPage(
+            html_content=json.dumps(payload), status_code=200, final_url=board_url
+        )
+    )
+
+    assert {job.external_id: job.location for job in jobs} == {
+        "0": "Remote, Brazil",
+        "1": "Remote, Brazil",
+        "2": None,
+        "3": None,
+    }
+    assert scraper._location_unknown == 2
+    assert scraper._location_dropped == 0
 
 
 async def test_ats_sweep_never_forwards_the_search_key_and_isolates_failures(
@@ -3432,6 +3875,351 @@ async def test_ats_sweep_uses_a_shorter_cooldown_for_board_apis():
         )
     )[0]
     assert tuned.rate_limit_seconds_for(tuned_board, 30) == 10
+
+
+# --- board rotation and deferred drain --------------------------------------
+# A sweep offers far more boards than `max_boards` affords (~170 vs 50 in the
+# audited run). Before rotation, the boards that lost that race lost it every
+# run, so their postings were missed for as long as they stayed open.
+
+
+class _StubBoardProvider:
+    """Board provider whose fetch succeeds or fails on demand."""
+
+    def __init__(self, error: Exception | None = None):
+        self.error = error
+
+    async def fetch(self, url: str, **kwargs) -> ScrapedPage:
+        if self.error is not None:
+            raise self.error
+        return ScrapedPage(html_content="{}", status_code=200, final_url=url)
+
+
+async def test_ats_sweep_rotation_reads_the_least_recently_seen_boards_first(
+    monkeypatch,
+):
+    """Never read, then due again, then recently read — relevance breaks ties.
+
+    Without this the 3-day window buys nothing: the index keeps offering the
+    same boards and the same ones keep winning the budget.
+    """
+    import time as time_module
+
+    import scrapers.discovery as discovery
+
+    now = time_module.time()
+    fresh = "https://api.lever.co/v0/postings/fresh?mode=json&limit=100"
+    stale = "https://api.ashbyhq.com/posting-api/job-board/stale"
+    monkeypatch.setattr(
+        discovery,
+        "board_last_seen",
+        lambda source_id, url: {fresh: now - 3600, stale: now - 10 * 86400}.get(url),
+    )
+    scraper = DiscoveryScraper(
+        "brave",
+        {"query": "golang", "sweep_ats": True, "max_boards": 3},
+        source_id="src-1",
+    )
+    page = _search_results_page(
+        [
+            "https://jobs.lever.co/fresh/1",
+            "https://jobs.ashbyhq.com/unread/1",
+            "https://jobs.ashbyhq.com/stale/1",
+        ]
+    )
+
+    urls = await scraper.discover_urls(page)
+
+    assert urls == [
+        "https://api.ashbyhq.com/posting-api/job-board/unread",
+        stale,
+        fresh,
+    ]
+
+
+async def test_ats_sweep_rotation_never_hides_a_board(monkeypatch):
+    """Rotation is a permutation, not a filter: every board is still offered."""
+    import time as time_module
+
+    import scrapers.discovery as discovery
+
+    fresh = "https://api.ashbyhq.com/posting-api/job-board/fresh"
+    monkeypatch.setattr(
+        discovery,
+        "board_last_seen",
+        lambda source_id, url: time_module.time() if url == fresh else None,
+    )
+    scraper = DiscoveryScraper(
+        "brave",
+        {"query": "golang", "sweep_ats": True, "max_boards": 5},
+        source_id="src-1",
+    )
+
+    urls = await scraper.discover_urls(
+        _search_results_page(
+            ["https://jobs.ashbyhq.com/fresh/1", "https://jobs.ashbyhq.com/new/1"]
+        )
+    )
+
+    assert set(urls) == {fresh, "https://api.ashbyhq.com/posting-api/job-board/new"}
+    assert len(urls) == 2
+
+
+@pytest.mark.parametrize(
+    ("source_id", "reread_days"),
+    [(None, None), ("src-1", 0)],
+    ids=["no_source_id", "rotation_disabled"],
+)
+async def test_ats_sweep_without_rotation_keeps_the_index_order(
+    monkeypatch, source_id, reread_days
+):
+    """No source id (tests, previews) or ``board_reread_days: 0`` = no lookups.
+
+    Rotation must be opt-outable and must never be the reason a backend-only
+    deployment needs Redis.
+    """
+    import scrapers.discovery as discovery
+
+    def _no_lookup(*args, **kwargs):  # pragma: no cover - fails the test if used
+        raise AssertionError("rotation must not touch board memory")
+
+    monkeypatch.setattr(discovery, "board_last_seen", _no_lookup)
+    config = {"query": "golang", "sweep_ats": True, "max_boards": 5}
+    if reread_days is not None:
+        config["board_reread_days"] = reread_days
+    scraper = DiscoveryScraper("brave", config, source_id=source_id)
+
+    urls = await scraper.discover_urls(
+        _search_results_page(
+            ["https://jobs.ashbyhq.com/one/1", "https://jobs.ashbyhq.com/two/1"]
+        )
+    )
+
+    assert urls == [
+        "https://api.ashbyhq.com/posting-api/job-board/one",
+        "https://api.ashbyhq.com/posting-api/job-board/two",
+    ]
+
+
+async def test_ats_sweep_remembers_a_board_only_after_a_successful_read(monkeypatch):
+    """A failed fetch must not count as reviewed: the board stays at the front.
+
+    Marking on registration instead of on success would rotate broken boards as
+    if they had been read, which is exactly how a board's postings go missing.
+    """
+    import scrapers.discovery as discovery
+
+    marked: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        discovery,
+        "board_mark_seen",
+        lambda source_id, url, **kwargs: marked.append((source_id, url)),
+    )
+    forgotten: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        discovery,
+        "board_forget",
+        lambda source_id, url: forgotten.append((source_id, url)),
+    )
+    scraper = DiscoveryScraper(
+        "brave", {"query": "golang", "sweep_ats": True}, source_id="src-1"
+    )
+    board_url = "https://api.ashbyhq.com/posting-api/job-board/acme"
+    request = httpx.Request("GET", board_url)
+
+    def _http_error(status: int) -> httpx.HTTPStatusError:
+        return httpx.HTTPStatusError(
+            "boom", request=request, response=httpx.Response(status, request=request)
+        )
+
+    scraper._board_providers[board_url] = _StubBoardProvider(error=_http_error(500))
+    failed = await scraper.fetch(board_url)
+    assert failed.status_code == 0
+    assert marked == []
+    # A 500 says nothing about the board: keep its place in the rotation.
+    assert forgotten == []
+
+    # A board that is gone is not "recently read": forget it, so a re-registered
+    # URL starts at the front of the queue.
+    scraper._board_providers[board_url] = _StubBoardProvider(error=_http_error(404))
+    await scraper.fetch(board_url)
+    assert marked == []
+    assert forgotten == [("src-1", board_url)]
+
+    scraper._board_providers[board_url] = _StubBoardProvider()
+    await scraper.fetch(board_url)
+    assert marked == [("src-1", board_url)]
+
+
+async def test_ats_sweep_parks_what_the_share_cannot_afford_and_drains_it(caplog):
+    """A board the per-query share parked is read when the budget is left over.
+
+    Measured on the audited sweep: the equal share left a query with slots it
+    never used while ~90 offered boards went unread. Parking them and draining
+    afterwards spends the budget instead of dropping the boards.
+    """
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "queries": ["q1", "q2"],
+            "sweep_ats": True,
+            "max_boards": 4,
+            "min_boards_per_query": 0,
+        },
+    )
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        first = _query_page("a")
+        urls = await scraper.discover_urls(first)
+        assert len(urls) == 2  # half of the budget, the other half reserved
+        # q2 offers nothing: its reserved slots would go unspent.
+        assert scraper.next_page_url(first) is not None
+        assert await scraper.discover_urls(_search_results_page([])) == []
+        drained = scraper.drain_urls()
+        scraper.normalize([])
+
+    assert (
+        "ats_sweep_query query=q1 offered=4 read=2 blocked=2 dead=0" in caplog.text
+    )
+
+    assert drained == [
+        "https://api.ashbyhq.com/posting-api/job-board/a2",
+        "https://api.ashbyhq.com/posting-api/job-board/a3",
+    ]
+    assert (
+        "ats_sweep_deferred registered=2 parked=2 dead=0 blocked=0 boards=4"
+        in caplog.text
+    )
+    # Parked once: draining twice must not re-read or double-count.
+    assert scraper.drain_urls() == []
+
+
+async def test_ats_sweep_drain_stops_at_the_board_budget(caplog):
+    """The drained boards still obey ``max_boards`` (one slot left, two parked)."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "queries": ["q1", "q2"],
+            "sweep_ats": True,
+            "max_boards": 3,
+            "min_boards_per_query": 0,
+        },
+    )
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        first = _query_page("a")
+        await scraper.discover_urls(first)
+        scraper.next_page_url(first)
+        await scraper.discover_urls(_search_results_page([]))
+        drained = scraper.drain_urls()
+
+    assert drained == ["https://api.ashbyhq.com/posting-api/job-board/a2"]
+    assert (
+        "ats_sweep_deferred registered=1 parked=2 dead=0 blocked=1 boards=3"
+        in caplog.text
+    )
+
+
+async def test_ats_sweep_reaches_every_offered_board_across_runs(monkeypatch):
+    """Rotation turns a bounded per-run budget into eventual coverage.
+
+    160 boards offered, 40 read per run: without rotation the same 40 were read
+    every day and the other 120 never were. Each run now moves the read boards
+    back, so four runs cover the whole index — and a posting only has to be
+    live for one of them to be stored (``_store_jobs`` dedupes per source).
+    """
+    import time as time_module
+
+    import scrapers.discovery as discovery
+
+    store: dict[str, float] = {}
+    monkeypatch.setattr(
+        discovery, "board_last_seen", lambda source_id, url: store.get(url)
+    )
+    monkeypatch.setattr(
+        discovery,
+        "board_mark_seen",
+        lambda source_id, url, **kwargs: store.__setitem__(url, time_module.time()),
+    )
+
+    async def _offline_board_fetch(self, url: str, *, auth=None) -> ScrapedPage:
+        return ScrapedPage(html_content="{}", status_code=200, final_url=url)
+
+    monkeypatch.setattr(discovery.AshbyProvider, "fetch", _offline_board_fetch)
+
+    offered = 160
+    per_run = 40
+    page = _json_page(
+        {
+            "web": {
+                "results": [
+                    {"url": f"https://jobs.ashbyhq.com/org{index}/1"}
+                    for index in range(offered)
+                ]
+            }
+        }
+    )
+    read: set[str] = set()
+    first_run: set[str] = set()
+    for run in range(4):
+        scraper = DiscoveryScraper(
+            "brave",
+            {
+                "query": "golang",
+                "sweep_ats": True,
+                "max_boards": per_run,
+                "min_boards_per_query": 0,
+            },
+            source_id="src-1",
+        )
+        urls = await scraper.discover_urls(page)
+        urls += scraper.drain_urls()
+        assert len(urls) == per_run
+        for url in urls:
+            await scraper.fetch(url)
+        if run == 0:
+            first_run = set(urls)
+        read.update(urls)
+
+    assert len(read) == offered
+    # Four runs, disjoint quarters: run 2 is not a repeat of run 1.
+    assert len(first_run) == per_run and len(store) == offered
+
+
+def test_ats_sweep_caps_one_board_contribution_with_max_jobs_per_board(caplog):
+    """``max_jobs_per_board`` limits how much of a run one board can eat."""
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "golang",
+            "sweep_ats": True,
+            "keywords": ["golang"],
+            "max_jobs_per_board": 2,
+        },
+    )
+    board = resolve_ats_board("https://jobs.ashbyhq.com/acme/1")
+    assert board is not None
+    board_url = scraper._register_board(board)
+    payload = {
+        "jobs": [
+            {
+                "id": str(index),
+                "title": f"Golang Engineer {index}",
+                "jobUrl": f"https://jobs.ashbyhq.com/acme/{index}",
+                "descriptionHtml": "<p>Golang services</p>",
+            }
+            for index in range(5)
+        ]
+    }
+    page = ScrapedPage(
+        html_content=json.dumps(payload), status_code=200, final_url=board_url
+    )
+
+    with caplog.at_level(logging.INFO, logger="scrapers.discovery"):
+        jobs = scraper.parse(page)
+
+    assert [job.external_id for job in jobs] == ["0", "1"]
+    assert f"ats_sweep_board_capped url={board_url} kept=5 cap=2" in caplog.text
 
 
 # --- fetch_html transport ----------------------------------------------------

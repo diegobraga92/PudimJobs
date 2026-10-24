@@ -42,7 +42,8 @@ Hard limits of the engine — these decide almost every verdict below:
 | Type | `career_page` \| `aggregator` \| `rss` \| `discovery` \| `manual` |
 | Adapter (aggregator) | `generic_html_list`, `embedded_json_list` |
 | Provider (discovery) | from `GET /sources/providers`; required for this type |
-| Cadence + notes (manual) | from `GET /sources/manual-metadata` (`cadence_days` 1–365, plus free-form `notes`); the form merges them into the existing `config` |
+| Cadence (manual) | from `GET /sources/manual-metadata` (`cadence_days` 1–365); the form merges it into the existing `config` |
+| Notes | free-form, human-only text (any type) stored in the source's own `notes` column — never scraped, never part of `config` |
 | Config JSON | merged into `config` (required/optional keys come from `/sources/providers` and `/sources/adapters`; create/update return 422 on a broken config) |
 | Rate limit (s) | default `30`, per-domain cooldown before every request |
 | Scrape frequency | optional per-source interval (`scrape_interval_minutes`, 60–20160); `null` inherits the global sweep freshness and the global value is always a floor. Hidden for `manual` sources, which use `cadence_days` |
@@ -91,7 +92,12 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `locations` | ingestion-time location gate for **every** source type: keep a job when any term matches its detected location (case/accent-insensitive, whole term). Jobs with **no** detected location are always kept; `[]`/empty disables the gate | — |
 | `max_boards` / `max_jobs` | sweep-only caps: boards per run; kept jobs per run (`0` = no cap) | `40` / `0` |
 | `board_rate_limit_seconds` | sweep-only: cooldown between two board fetches (the source `rate_limit_seconds` still governs the search API) | `3` |
-| `min_boards_per_query` | sweep-only: board slots reserved for the queries not visited yet, so the first query cannot spend `max_boards` on its own | `2` |
+| `min_boards_per_query` | sweep-only: floor reserved for the queries not visited yet. The rest of `max_boards` is split **equally** between the remaining queries, so query #1 cannot spend the budget on its own | `2` |
+| `seed_urls` | sweep-only: board or job URLs read on **every** run, before the index is even asked (`https://job-boards.greenhouse.io/alpaca/jobs/123` is enough — the board is resolved from it). The vocabulary-free way to cover a board the index never ranks for the queries | — |
+| `query_hints` | search providers: extra wording appended to **every** query (`["remote brazil"]` turns `golang site:greenhouse.io` into two queries). Only widens what the index offers — the `keywords`/`locations` filters still decide what is kept | — |
+| `board_max_jobs` | sweep-only: postings read from one board before paging stops (`ats_board_truncated` is logged when the cap cuts a full page). Falls back to `max_results`, then 1000 | `1000` |
+| `board_reread_days` | sweep-only: a board read less than this many days ago goes **behind** every board that is unread or last read earlier, so the budget rotates over the boards the index offers instead of re-reading the same slice (`0` disables rotation: the index order wins again) | `3` |
+| `max_jobs_per_board` | sweep-only: postings one board may contribute to a run (`0` = no cap). A blunt instrument — it truncates the *same* board on every visit, so prefer `board_reread_days`/`max_boards` when a board eats the run | `0` |
 | `sweep_max_seconds` | sweep-only: wall-clock budget for the run (`0` = no cap) | `0` |
 | `match_in` | sweep-only: `title` restricts `keywords`/`exclude_keywords` to title + tags (the location gate always reads the detected location only) | `anywhere` |
 | `max_age_days` | discovery providers: drop postings older than this many days (`0` = keep everything). Only acts on **dated** postings — undated rows are kept and counted as `undated` in the run log | `0` |
@@ -318,9 +324,12 @@ Instead the app schedules a re-check and reminds the user in-app.
 | Config key | Meaning | Default |
 |---|---|---|
 | `cadence_days` | days between hand checks; must be 1–365 or the API answers **422** (the read path still clamps junk) | `7` |
-| `notes` | free-form reminder of what to look for by hand (optional) | — |
 | `next_check_at` | ISO due date; rewritten on every check, settable as an override | `last_scraped` (else `created_at`) + cadence |
 | `reminded_at` | internal stamp of the last reminder; cleared by a check | — |
+
+Free-form notes are **not** part of this config: they live in the `sources.notes`
+column (`POST`/`PUT` take a top-level `notes`, blank clears it) and any source
+type can carry one.
 
 `GET /api/sources/manual-metadata` publishes this contract
 (`cadence_days: {default, min, max}` + `optional_config` + `example_config`) so
@@ -336,8 +345,9 @@ just checked.
 per due source and stops until that source is checked, so the watchlist nags
 once per period rather than once per sweep. The Sources UI (web and mobile)
 shows the due badge, the next due date with a "due in / overdue by N days"
-hint, the notes field and the *Mark checked* button (the auth panel is hidden:
-manual sources are never fetched, so credentials mean nothing).
+hint, the notes field (available for every source type) and the *Mark checked*
+button (the auth panel is hidden: manual sources are never fetched, so
+credentials mean nothing).
 
 ## Collectible today (config only)
 
@@ -570,8 +580,9 @@ host that rejects the parameter falls back to the plain listing (logged as
 `greenhouse_content_fallback`), which still yields every title and date.
 Greenhouse dates come from `first_published` (falling back to `updated_at`):
 `updated_at` moves on every edit, so a fresh posting could look old. Only the
-first 2 KB of a description is stored, but the filters match the whole text —
-a tech stack usually sits far past the first paragraph.
+first 2 KB of a description is stored, but the filters match the whole text
+(Greenhouse and Lever both pass the full body as `match_text`): a tech stack
+usually sits far past the first paragraph.
 
 **Freshness.** `max_age_days` is a per-source window applied to every discovery
 batch, sweep or not: board payloads and results-mode search payloads (Google
@@ -586,29 +597,104 @@ source reports no dates at all and the window is doing nothing.
 
 **Budgeting a sweep over several queries.** A sweep with a `queries` list walks
 *every* query, not only the pages of the first one: `max_pages` counts pages per
-query, so a run may fetch `max_pages × len(queries)` search pages. Boards are
-reserved per query (`min_boards_per_query`) so query #1 cannot spend `max_boards`
-by itself and leave the later ATS queries with nothing to read. Board fetches use
+query, so a run may fetch `max_pages × len(queries)` search pages. `max_boards` is
+split **equally** between the queries that have not run yet (a query that finds
+fewer boards than its share leaves the difference to the ones after it), with
+`min_boards_per_query` as the floor. Before that, queries were served in order:
+on a measured 12-query sweep the first two (both Ashby) spent 30 of the 50 slots
+and both `site:greenhouse.io` queries registered two boards each — both of them
+already read, so those queries added no coverage at all. Board fetches use
 their own short cooldown (`board_rate_limit_seconds`, default 3 s) while the
 search API keeps the source's `rate_limit_seconds`; `sweep_max_seconds` stops the
 run when the wall clock is spent. A board JSON carries every opening with its
 full description, so board reads get a larger response cap (16 MB) than the
 2 MB page default — Ashby's `openai` board alone is ~13 MB. Each run logs one
-`ats_sweep_summary boards=… offered=… jobs=… stale=… undated=… queries=…` line;
-`offered` counts every board the queries surfaced, so a gap of more than one page
-between `offered` and `boards` means the run was budget-bound rather than the
-index being thin (`max_boards` / `min_boards_per_query`); `stale`/`undated` are
-the freshness gate's counters (see **Freshness** above). Per board the sweep logs
-`ats_sweep_board query=… ats=… url=…` when it registers it and
+`ats_sweep_summary boards=… offered=… jobs=… stale=… undated=… queries=… seeds=…
+first=…` line plus one `ats_sweep_query query=… offered=… read=… blocked=… dead=…`
+line per query; `offered` counts every board the queries surfaced, so `blocked` boards
+are exactly what a larger `max_boards` (or fewer queries) would buy, while
+`read > offered` means the query re-registered a board an earlier one had already
+paid for. `stale`/`undated` are the freshness gate's counters (see **Freshness**
+above) and `first` counts the boards read for the first time inside the rotation
+window (equal to `boards` means the sweep is still exploring; `0` means it only
+re-read what it already knew). Per board the sweep logs `ats_sweep_board query=…
+ats=… url=… visit=first|repeat` when it registers it (`query=seed` for
+`seed_urls`, `query=deferred` for the boards drained at the end of the run) and
 `ats_sweep_board_jobs url=… openings=… kept=…` after filtering, which is what
-tells a dead/empty board (`openings=0`) from an over-strict filter
-(`openings>0 kept=0`). A board that answers 404/410 is remembered in Redis for
-a week (`ats_board_miss:<url>`, logged as `ats_board_dead url=… status=…`) and
-skipped by later sweeps without spending a slot (`ats_sweep_board_skipped
-url=… reason=dead`): the index keeps returning moved or misnamed boards, and
-re-reading them was ~8% of the read budget in the audit. Other failures (5xx,
-size cap) are retried on the next run. Grep one run's board manifest with
-`grep ats_sweep_board <log>`.
+tells a dead/empty board
+(`openings=0`) from an over-strict filter (`openings>0 kept=0`). A board that
+answers 404/410 is remembered in Redis for a week (`ats_board_miss:<url>`, logged
+as `ats_board_dead url=… status=…`) and skipped by later sweeps without spending
+a slot (`ats_sweep_board_skipped url=… reason=dead`): the index keeps returning
+moved or misnamed boards, and re-reading them was ~8% of the read budget in the
+audit. Other failures (5xx, size cap) are retried on the next run. Grep one run's
+board manifest with `grep ats_sweep_board <log>`.
+
+**Rotation: coverage across runs, not per run.** A sweep offers more boards than
+`max_boards` affords — 171 offered against 50 read in the audited run — and the
+boards that lose that race lost it *every* run: the query list and the index
+ranking barely move day to day. Among the ~120 boards left out, a posting went
+unseen for as long as it stayed open, however well it matched. Storage already
+dedupes per source on URL and `external_id` (`_store_jobs`/`_existing_keys`), so
+re-reading a board costs one request and stores nothing twice; the only real
+cost is the per-run board budget. Boards are therefore ranked by **last read**
+before their snippet score: never read first, then the ones due again (older
+than `board_reread_days`, default 3), then the ones read inside the window, each
+bucket oldest-read-first. It is a permutation, never a filter.
+
+With `P = ⌈offered / max_boards⌉` runs per cycle and one run per day, a board is
+read about once every `P` runs, so a posting that stays open for `L` runs is
+missed with `P(miss) ≈ max(0, (P − L)/P)`. For 171 offered boards and a 50-board
+budget, `P = 4`: anything that lives a day or two is caught by the cycle instead
+of by luck. That is also why `max_age_days` has to stay above `3 × P` days (21
+days here): a posting shorter-lived than the cycle can be gone before its board
+comes round again. Two guards keep the scheme honest:
+
+- **Only a successful read counts.** The timestamp is written when the board
+  payload comes back, never at registration, so a board that answers 5xx keeps
+  its place at the front of the queue instead of being rotated as if reviewed.
+- **Redis is optional.** Recency lives in `ats_board_seen:<source>:<url>`
+  (30-day TTL, `backend/app/services/board_memory.py`). If Redis is down or
+  flushed, the lookup degrades to "never read", which restores the plain index
+  order and logs `board_seen_lookup_failed` once: a degraded run loosens the
+  rotation, it never fails the scrape. `board_reread_days: 0` (or a scraper
+  built without a source id) disables rotation entirely and does no lookups.
+
+**Leftover budget is spent, not lost.** The equal per-query share parks boards
+whenever a later query comes back thinner than its share. Those boards are
+remembered during the run and read after the last search page (`drain_urls`,
+logged as `ats_sweep_deferred registered=… parked=… dead=… blocked=… boards=…`),
+so a query with unused slots no longer costs its boards a whole cycle. This is
+what recovers the measured 240-offered/152-read baseline: 88 boards were offered
+and affordable but never registered.
+
+**A board is read whole, and the cap is logged.** Lever and SmartRecruiters page
+(`skip` and `offset` respectively, 100 postings per request); Greenhouse, Ashby,
+Workable, Recruitee, Personio and Workday answer with the entire board. Reading
+only the first page used to be silent: a 715-posting Lever board was stored as
+its 100 first postings and nothing in the log said so (Bluelight's board, and
+SmartRecruiters' `Ubisoft2` at `totalFound: 344`). A paginated board is now read
+page by page and folded back into one payload (`ats_board_read url=… pages=…
+postings=…`), until the board is exhausted or `board_max_jobs` (default 1000) is
+reached — the cap is reported as `ats_board_truncated url=… postings=…
+cap=…` so a truncated board never looks complete. `limit`/`board_page_size`
+still sizes a single request, and `max_results` still caps what is *kept*.
+
+**Which boards a sweep can even see.** A budget can only spend boards the index
+offers, and the index only offers boards its ranking likes. Measured on Brave
+(2026-10-24): the sweep's `golang site:greenhouse.io` returns 8 Greenhouse
+boards on page 1 and never Alpaca's on pages 1–4, while the same search with a
+region — `golang remote brazil site:greenhouse.io` — returns three of Alpaca's
+postings, two of which pass the source's own keyword and location filters
+(`match_in: anywhere`; with `match_in: title` both are dropped, because their
+bodies, not their titles, mention Go). Two levers close that gap, neither of
+which invents vocabulary for the queries: `query_hints` appends wording the
+source owner chose to every query, and `seed_urls` names a board directly so it
+is read every run whatever the ranking does. Both are retrieval hints only — a
+posting is still kept or dropped by `keywords`/`exclude_keywords`/`locations`.
+A hit in the index that no longer exists on the board (a stale result, or a
+company that moved ATS) is expected noise, not a miss: the board answers 404 or
+is absent, and that is logged and remembered, not retried forever.
 
 **How deep a sweep reads, and where it stops.** Brave's `offset` is a *page*
 number, so `max_pages: 2` reads pages 1–2 of every query. Measured on the 12-query

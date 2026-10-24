@@ -186,6 +186,47 @@ async def _discover(scraper, page) -> list[str]:
     return result or []
 
 
+async def _fetch_details(
+    scraper,
+    urls: list[str],
+    *,
+    source: Source,
+    source_id: str,
+    auth,
+    max_results: int,
+    fetched: int = 0,
+) -> tuple[list, int]:
+    """Fetch and parse detail URLs, honouring robots.txt, cooldowns and the cap.
+
+    Extracted from the page loop so a discovery sweep can also spend the links
+    it parked (`DiscoveryScraper.drain_urls`) without duplicating the ethics and
+    rate-limit handling.  ``fetched`` is carried in and back out because the cap
+    is per run, not per page.
+    """
+    raw_jobs: list = []
+    for detail_url in urls:
+        if fetched >= max_results:
+            break
+        detail_robots = _robots_decision(source, _robots_target(scraper, detail_url))
+        if detail_robots is not None and not detail_robots.allowed:
+            logger.info(
+                "scrape_skip_detail",
+                source_id=source_id,
+                reason=detail_robots.reason,
+                url=redact_sensitive(detail_url, auth.api_key if auth else None),
+            )
+            continue
+        detail_cooldown = _rate_limit_seconds(scraper, detail_url, source)
+        wait = rate_limit_wait(detail_url, detail_cooldown)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        rate_limit_mark(detail_url, detail_cooldown)
+        detail_page = await scraper.fetch(detail_url, auth=auth)
+        raw_jobs.extend(_enrich_with_json_ld(scraper.parse(detail_page), detail_page))
+        fetched += 1
+    return raw_jobs, fetched
+
+
 def _filter_by_location(normalized: list[dict], source: Source) -> list[dict]:
     """Keep jobs whose detected location passes ``config['locations']``.
 
@@ -441,30 +482,16 @@ async def _run_scrape(source_id: str) -> dict:
 
             discovered = await _discover(scraper, page)
             if discovered:
-                for detail_url in discovered:
-                    if detail_fetched >= max_results:
-                        break
-                    detail_robots = _robots_decision(
-                        source, _robots_target(scraper, detail_url)
-                    )
-                    if detail_robots is not None and not detail_robots.allowed:
-                        logger.info(
-                            "scrape_skip_detail",
-                            source_id=source_id,
-                            reason=detail_robots.reason,
-                            url=redact_sensitive(
-                                detail_url, auth.api_key if auth else None
-                            ),
-                        )
-                        continue
-                    detail_cooldown = _rate_limit_seconds(scraper, detail_url, source)
-                    wait = rate_limit_wait(detail_url, detail_cooldown)
-                    if wait > 0:
-                        await asyncio.sleep(wait)
-                    rate_limit_mark(detail_url, detail_cooldown)
-                    detail_page = await scraper.fetch(detail_url, auth=auth)
-                    raw_jobs.extend(_enrich_with_json_ld(scraper.parse(detail_page), detail_page))
-                    detail_fetched += 1
+                jobs, detail_fetched = await _fetch_details(
+                    scraper,
+                    discovered,
+                    source=source,
+                    source_id=source_id,
+                    auth=auth,
+                    max_results=max_results,
+                    fetched=detail_fetched,
+                )
+                raw_jobs.extend(jobs)
             else:
                 raw_jobs.extend(_enrich_with_json_ld(scraper.parse(page), page))
 
@@ -488,6 +515,24 @@ async def _run_scrape(source_id: str) -> dict:
             if wait > 0:
                 await asyncio.sleep(wait)
             rate_limit_mark(current_url, page_cooldown)
+
+        # A discovery sweep parks the boards its per-query share could not
+        # afford. If the budget ended up unspent (thin later queries), read
+        # them now instead of dropping them until the next run.
+        drain = getattr(scraper, "drain_urls", None)
+        if callable(drain):
+            drained = drain()
+            if drained:
+                jobs, detail_fetched = await _fetch_details(
+                    scraper,
+                    drained,
+                    source=source,
+                    source_id=source_id,
+                    auth=auth,
+                    max_results=max_results,
+                    fetched=detail_fetched,
+                )
+                raw_jobs.extend(jobs)
 
         normalized = scraper.normalize(raw_jobs)
         # `config['locations']` keeps jobs whose detected location matches any
