@@ -545,7 +545,7 @@ deduplicated per org and capped by `max_boards` (default 40).
   "sweep_ats": true,
   "keywords": ["rust", "tokio"],
   "exclude_keywords": ["intern", "sales"],
-  "locations": ["brazil", "remote"],
+  "locations": ["brazil", "latam", "americas", "worldwide"],
   "max_boards": 15,
   "max_jobs": 50
 }
@@ -556,11 +556,18 @@ A board returns every open job, so the sweep filters locally: `keywords` and
 description (`c++` is handled correctly), and `locations` is a
 case/accent-insensitive, whole-term match against each posting's **detected
 location** (`RawJob.location`, stored in `jobs.location`) — a country named in
-the body does not keep an opening based elsewhere. Postings whose board reports
-no location are kept (`unknown` in the run log); dropping them used to hide
-whole boards behind an "empty" sweep. This gate is not sweep-only: the worker
-applies `config["locations"]` to every source type after normalization, and the
-Sources form exposes it as a comma-separated field. A batch emptied by the gate
+the body does not keep an opening based elsewhere. `locations` is an
+**eligibility** gate, not a remote-only flag: list the regions you can actually
+work from (`brazil`, `latam`, `south america`, `americas`, `worldwide`, …). A
+bare `remote` is a poor term on these boards — Ashby, Lever, Greenhouse and
+SmartRecruiters use it for US-only roles as often as for worldwide ones — and
+the abbreviations match literally: `amer` keeps `Remote, AMER` but not `AMERS`
+or `Americas` (add `amers` if a board spells it that way; `americas` already
+covers the latter). Postings whose board reports no location are kept
+(`unknown` in the run log); dropping them used to hide whole boards behind an
+"empty" sweep. This gate is not sweep-only: the worker applies
+`config["locations"]` to every source type after normalization, and the Sources
+form exposes it as a comma-separated field. A batch emptied by the gate
 is a successful run, not an empty-parse failure (the `location_filter kept=…
 skipped=… unknown=…` log line records what happened). `match_in: "title"`
 keeps the keyword/exclude match on title + tags only, which is what a board dump

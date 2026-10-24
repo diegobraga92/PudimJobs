@@ -3937,6 +3937,104 @@ async def test_ats_sweep_rotation_reads_the_least_recently_seen_boards_first(
     ]
 
 
+async def test_ats_sweep_rotation_outranks_snippet_relevance(monkeypatch):
+    """An unread board is read before a fresh one with a stronger snippet.
+
+    Relevance used to be the primary sort key, so a board whose snippet matched
+    the query kept winning the budget every run while boards the index ranked
+    lower were never read — the 3-day window bought nothing. Rotation decides
+    first; the snippet only orders boards inside the same bucket.
+    """
+    import time as time_module
+
+    import scrapers.discovery as discovery
+
+    unread = "https://api.ashbyhq.com/posting-api/job-board/unread"
+    fresh = "https://api.ashbyhq.com/posting-api/job-board/fresh"
+    now = time_module.time()
+    monkeypatch.setattr(
+        discovery,
+        "board_last_seen",
+        lambda source_id, url: now if url == fresh else None,
+    )
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "rust",
+            "sweep_ats": True,
+            "keywords": ["rust"],
+            "locations": ["brazil"],
+            "max_boards": 2,
+        },
+        source_id="src-1",
+    )
+    page = _json_page(
+        {
+            "web": {
+                "results": [
+                    {
+                        "url": "https://jobs.ashbyhq.com/fresh/1",
+                        "title": "Rust engineer",
+                        "description": "rust tokio, remote from brazil",
+                    },
+                    {
+                        "url": "https://jobs.ashbyhq.com/unread/1",
+                        "title": "Careers",
+                        "description": "",
+                    },
+                ]
+            }
+        }
+    )
+
+    urls = await scraper.discover_urls(page)
+
+    assert urls == [unread, fresh]
+
+
+async def test_ats_sweep_snippet_relevance_orders_boards_in_one_bucket(monkeypatch):
+    """Inside a bucket the score still ranks: it is a tie-break, not a filter."""
+    import scrapers.discovery as discovery
+
+    monkeypatch.setattr(discovery, "board_last_seen", lambda source_id, url: None)
+    scraper = DiscoveryScraper(
+        "brave",
+        {
+            "query": "rust",
+            "sweep_ats": True,
+            "keywords": ["rust"],
+            "locations": ["brazil"],
+            "max_boards": 2,
+        },
+        source_id="src-1",
+    )
+    page = _json_page(
+        {
+            "web": {
+                "results": [
+                    {
+                        "url": "https://jobs.ashbyhq.com/plain/1",
+                        "title": "Careers",
+                        "description": "",
+                    },
+                    {
+                        "url": "https://jobs.ashbyhq.com/relevant/1",
+                        "title": "Rust engineer",
+                        "description": "rust tokio, remote from brazil",
+                    },
+                ]
+            }
+        }
+    )
+
+    urls = await scraper.discover_urls(page)
+
+    assert urls == [
+        "https://api.ashbyhq.com/posting-api/job-board/relevant",
+        "https://api.ashbyhq.com/posting-api/job-board/plain",
+    ]
+
+
 async def test_ats_sweep_rotation_never_hides_a_board(monkeypatch):
     """Rotation is a permutation, not a filter: every board is still offered."""
     import time as time_module

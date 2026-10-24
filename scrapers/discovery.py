@@ -2555,7 +2555,7 @@ class DiscoveryScraper(AbstractScraper):
         """Rotation first, snippet relevance second (stable, so index last)."""
         return sorted(
             candidates,
-            key=lambda candidate: (-candidate.score, *self._rotation_key(candidate.url)),
+            key=lambda candidate: (*self._rotation_key(candidate.url), -candidate.score),
         )
 
     def _defer(self, candidate: _BoardCandidate) -> None:

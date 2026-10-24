@@ -232,12 +232,12 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   },
   'sources.locations': { en: 'Locations', 'pt-BR': 'Locais' },
   'sources.locationsPlaceholder': {
-    en: 'Brazil, Remote, São Paulo',
-    'pt-BR': 'Brasil, Remoto, São Paulo',
+    en: 'Brazil, LATAM, Americas, Worldwide',
+    'pt-BR': 'Brasil, LATAM, Américas, Mundial',
   },
   'sources.locationsHint': {
-    en: 'Only keep jobs whose detected location matches one of these terms (comma separated, case/accent-insensitive). Jobs with no detected location are always kept.',
-    'pt-BR': 'Mantém apenas vagas cujo local detectado corresponda a um destes termos (separados por vírgula, sem diferenciar maiúsculas ou acentos). Vagas sem local detectado são sempre mantidas.',
+    en: 'Only keep jobs whose detected location matches one of these terms (comma separated, case/accent-insensitive). Name the regions you can work from — a bare "Remote" is often US-only on these boards. Jobs with no detected location are always kept.',
+    'pt-BR': 'Mantém apenas vagas cujo local detectado corresponda a um destes termos (separados por vírgula, sem diferenciar maiúsculas ou acentos). Informe as regiões onde você pode trabalhar — "Remoto" sozinho costuma significar apenas EUA nesses quadros. Vagas sem local detectado são sempre mantidas.',
   },
   'sources.schedule': { en: 'Scrape frequency', 'pt-BR': 'Frequência de coleta' },
   'sources.schedule.default': { en: 'Global default', 'pt-BR': 'Padrão global' },
