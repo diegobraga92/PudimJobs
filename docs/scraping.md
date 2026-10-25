@@ -453,8 +453,10 @@ MWDN is a **Comeet** embed whose `ul.comeet-positions-list` stays empty until th
 widget's JavaScript runs (only the 41 `a.comeet-position` links render) →
 collected from the Comeet API with `json_list` (see *Comeet boards* below);
 `jobs.hirewithnear.com/#/` is a hash-route SPA, so it stays `manual` (see below).
-`career.sigma.software` and `remotifyeurope.com` are **not** in this list: both
-return a shell with 0 job rows (see the JS-only shells below). Jobsora is
+`remotifyeurope.com` is **not** in this list: it returns a shell with 0 job
+rows (see the JS-only shells below). `career.sigma.software` and
+`app.tecla.io` used to be on it too, and are now collected from their own JSON
+APIs (see *Sigma Software* and *Tecla* below). Jobsora is
 collected from its **path** routes (`/empregos-rust`, `/empregos-golang`;
 query-string routes are disallowed by robots.txt) in list mode, and Velozient's
 Elementor careers tabs expose 45 static `li` cards with a configured company
@@ -836,6 +838,84 @@ reads it. Like every `json_list` board, dedupe falls back to the posting URL, so
 re-reading the same page costs nothing. The site's `robots.txt` is a 404, which
 the fetcher treats as "allowed".
 
+**Tecla (public jobs API).** `app.tecla.io/jobs` is a React shell (see the
+JS-only shells below), but its bundle calls an anonymous listing endpoint:
+`https://api.tecla.io/api/jobs/getPublicJobs/?page={n}` answers
+`{success: true, data: {jobs: [...], pagination: {count, countPages, current,
+prev, next}}}` — 34 postings across 4 pages at the time of writing. The page size
+is **fixed at 9** (`limit`, `page_size` and `per_page` are ignored), and the call
+needs no key, cookie or special header. Every other route is walled: `jobDetail`,
+`teclaJobsFind`, `jobCountries`, `getJobTags` and `recommendedJobs` answer 401,
+and the only other anonymous route (`jobs/filters`) publishes no countries. The
+site's own `countries=<code>` filter (what app.tecla.io sends) therefore answers
+**500** — it wants numeric ids whose table lives behind the 401 endpoint — so
+region filtering has to stay local:
+
+```json
+{
+  "provider": "json_list",
+  "url": "https://api.tecla.io/api/jobs/getPublicJobs/?page={page}",
+  "max_pages": 8,
+  "last_page_path": "data.pagination.countPages",
+  "current_page_path": "data.pagination.current",
+  "items_path": "data.jobs",
+  "id_path": "id",
+  "title_path": "name",
+  "url_path": "id",
+  "job_url_tpl": "https://app.tecla.io/job?id={id}",
+  "company_path": "company.name",
+  "location_tpl": "Remote",
+  "date_path": "createdAt",
+  "description_path": "description",
+  "tags_paths": ["requiredSkills[].skill.name", "category", "seniorityName",
+                 "commitment.name"],
+  "match_paths": ["subtitle", "description"],
+  "skip_if_true": ["usaOnly"],
+  "max_age_days": 90,
+  "max_results": 40,
+  "keywords": ["rust", "c++", "cpp", "golang", "go engineer", "go developer"],
+  "locations": ["remote", "latam", "latin america", "south america", "americas",
+                "brazil", "brasil", "sao paulo", "argentina", "colombia", "mexico"],
+  "allow_empty": true
+}
+```
+
+`last_page_path`/`current_page_path` end the walk at the API's own last page, so
+`max_pages` is only a guard for a growing board. The payload carries no link, so
+`url_path: "id"` + `job_url_tpl` build the public posting URL
+(`app.tecla.io/job?id=<id>`); the stack is published as `requiredSkills[]` chips,
+which `tags_paths` projects into tags — that is what the keyword gate reads —
+and `match_paths` adds the subtitle and the description teaser.
+
+Two quirks decide the rest of the config:
+
+- **`usaOnly` is the board's only eligibility flag.** 4 of the 34 postings are
+  US-residency roles, and `skip_if_true: ["usaOnly"]` drops them (matching work
+  included). Nothing else in the payload says where a role is open: `city`/
+  `state` are empty on 33 of 34, and the single row that carries them is a
+  US-only one. Because the marketplace is LatAm-remote, `location_tpl: "Remote"`
+  labels every row (the site's own cards do the same), which keeps the generic
+  `locations` gate meaningful: narrowing that list still drops rows (the tests
+  pin it), and nothing is stored as "unknown location".
+- **Descriptions are truncated at exactly 500 characters** by the API, and the
+  full posting sits behind the 401 `jobDetail`, so the teaser is all that can be
+  stored (`POST /api/jobs/{id}/parse` has little to read). Titles, chips,
+  seniority, commitment and `createdAt` arrive intact.
+
+Measured on 2026-10-25 (34 postings, `pages=4 items=34 usaOnly_skipped=4
+raw=30 kept=0`): the board holds **no Rust/Go/C++ role today** — verified three
+ways: `find=rust|go|golang|c++` answers `count: 0`, the `skills=` ids for
+Rust/Go/Golang/C++ answer 0, and a whole-word scan of every title, chip, subtitle
+and description finds nothing (the gate's lookarounds keep `rust` out of a word
+such as "trust"). Runs therefore store 0 jobs and pick roles up as they appear;
+`allow_empty: true` keeps that a **success**, not a format-change failure. With
+the same config and a wider engineering set (python, java, javascript,
+typescript, react, node, node.js, .net, c#, sql) 9 of the 34 would be kept — the
+knob to turn if the board is too quiet for you. 24 of the 34 are older than 45
+days, which is why the window is `max_age_days: 90` instead of the 45 RemoteOK
+uses. 4 requests make `rate_limit_seconds: 2` plenty, and the board moves slowly
+enough for a daily `scrape_interval_minutes`.
+
 **Comeet boards (MWDN).** `jobs.mwdn.com/careers/` embeds a Comeet widget. The
 `ul.comeet-positions-list` is **empty** in the static HTML and the 41 cards that do
 render server-side are the `a.comeet-position` anchors themselves, so the
@@ -1150,10 +1230,12 @@ collected through its public JSON API — see *Id-only JSON boards* above.
   `type = manual` sources instead (ADR 018): the user re-checks them by hand and
   the app reminds them when due. Verified into this bucket: arc.dev, beon.tech,
   Crossover, Encora (`careers.encora.com`), Greenhouse's
-  candidate dashboard, Impulso, Randstad, Trampos, Tecla, X-Team
+  candidate dashboard, Impulso, Randstad, Trampos, X-Team
   (`x-team.com/remote-jobs` 404s; `jobs.x-team.com` is a shell — see the JS-only
   shells below), Vagas.com.br's *meu-perfil* — none of
-  them render job rows into the initial HTML.
+  them render job rows into the initial HTML. Tecla's *candidate dashboard* still
+  needs that login, but its public board is collected through `getPublicJobs`
+  (*Tecla* above), so the source is no longer `manual`.
 - **ToS / anti-bot by direct scraping** — LinkedIn, Indeed, Glassdoor, Dice,
   Catho, Jobot, Levels.fyi, Landing.jobs, Wellfound, Hays, Michael Page, Robert
   Half, SimplyHired, Welcome to the Jungle, Himalayas, Stack Overflow Jobs. Use
@@ -1168,13 +1250,14 @@ collected through its public JSON API — see *Id-only JSON boards* above.
   single-job URLs, 404/5xx boards (`careers.solvd.com` no longer resolves,
   `x-team.com/remote-jobs` is gone).
 - **JS-only shells** (a 200 with all the markup but **0** job rows/links; nothing
-  to select). Verified: `career.sigma.software/what-we-offer/vacancies/` (the
-  `?location=` filter changes only the UI state), `remotifyeurope.com/remote-jobs`
+  to select). Verified: `remotifyeurope.com/remote-jobs`
   (its JSON-LD blocks describe the *site*, not jobs), `br.jobsora.com/empregos`,
   `jobs.x-team.com` (`x-team.com/remote-jobs` is a 404 and the current host is an
-  SPA shell), `app.tecla.io/jobs`, `work.turing.com/jobs`, `himalayas.app`
+  SPA shell), `work.turing.com/jobs`, `himalayas.app`
   (HTTP 403). Keep them `manual` (ADR 018) or wire up a provider — a stored URL
   with extra query arguments does not help when the listing is fetched by JS.
+  `career.sigma.software` and `app.tecla.io/jobs` were on this list too; both now
+  go through the JSON APIs behind them (*Sigma Software* and *Tecla* above).
 - **Hash-route SPAs** — `jobs.hirewithnear.com/#/` renders its list from the URL
   fragment, so a fetch only ever returns the shell; keep it `manual` (or probe the
   API it calls) until an opt-in renderer exists.

@@ -2339,6 +2339,275 @@ def test_sigma_config_is_registered_and_dispatched():
     assert scraper.allow_empty is True
 
 
+# --- Public JSON boards behind an SPA (Tecla) --------------------------------
+
+#: `app.tecla.io/jobs` is a CRA shell, but its bundle calls an anonymous listing
+#: API: 9 rows per page (it ignores `limit`/`page_size`) and 34 postings across
+#: 4 pages. The payload reports no location beyond the `usaOnly` residency flag,
+#: so the config labels every row `Remote` and treats `usaOnly` as the location
+#: filter; the stack lives in `requiredSkills`/`category`, which is what the
+#: keyword gate reads.
+TECLA_CONFIG = {
+    "provider": "json_list",
+    "url": "https://api.tecla.io/api/jobs/getPublicJobs/?page={page}",
+    "max_pages": 8,
+    "last_page_path": "data.pagination.countPages",
+    "current_page_path": "data.pagination.current",
+    "items_path": "data.jobs",
+    "id_path": "id",
+    "title_path": "name",
+    "url_path": "id",
+    "job_url_tpl": "https://app.tecla.io/job?id={id}",
+    "company_path": "company.name",
+    "location_tpl": "Remote",
+    "date_path": "createdAt",
+    "description_path": "description",
+    "tags_paths": [
+        "requiredSkills[].skill.name",
+        "category",
+        "seniorityName",
+        "commitment.name",
+    ],
+    "match_paths": ["subtitle", "description"],
+    "skip_if_true": ["usaOnly"],
+    "max_age_days": 90,
+    "max_results": 40,
+    "keywords": ["rust", "c++", "cpp", "golang", "go engineer", "go developer"],
+    "locations": ["remote", "latam", "latin america", "south america", "americas",
+                  "brazil", "brasil", "sao paulo", "argentina", "colombia", "mexico"],
+    "allow_empty": True,
+}
+
+
+def _tecla_job(
+    *,
+    job_id: int,
+    name: str,
+    company: str,
+    skills: tuple[str, ...] = (),
+    category: str = "Engineering",
+    seniority: str = "",
+    commitment: str = "Full-Time",
+    description: str = "",
+    subtitle: str = "",
+    city: str = "",
+    state: str = "",
+    usa_only: bool | None = False,
+    age_days: int = 3,
+) -> dict:
+    """One posting, shaped like `getPublicJobs` (dates relative to today)."""
+    created = date.today() - timedelta(days=age_days)
+    return {
+        "id": job_id,
+        "name": name,
+        "company": {"name": company, "country": "United States of America"},
+        "category": category,
+        "seniority": "jr",
+        "seniorityName": f"{seniority} {name}".strip(),
+        "commitment": {"id": 1, "name": commitment},
+        "requiredSkills": [{"skill": {"id": 1, "name": skill}} for skill in skills],
+        "createdAt": f"{created.isoformat()}T15:51:27.008372",
+        "description": description,
+        "subtitle": subtitle,
+        "city": city,
+        "state": state,
+        "usaOnly": usa_only,
+    }
+
+
+TECLA_PAYLOAD = {
+    "success": True,
+    "data": {
+        "jobs": [
+            _tecla_job(
+                job_id=3411,
+                name="HTML5 Ad Developer",
+                company="New Engen",
+                seniority="Jr.",
+                skills=("HTML5", "JavaScript", "CSS3"),
+                description=(
+                    "Along with our partner, we are seeking a Junior HTML5 Ad "
+                    "Developer to focus specifically on the development and "
+                    "production of HTML5 digital advertising."
+                ),
+            ),
+            _tecla_job(
+                job_id=3412,
+                name="Data Scientist (US only)",
+                company="Acme",
+                category="Data",
+                skills=("Data Science", "Machine Learning", "Python"),
+                city="Glendale",
+                state="California",
+                usa_only=True,
+            ),
+            _tecla_job(
+                job_id=3404,
+                name="Staff Engineer (AI Infrastructure)",
+                company="New Engen",
+                seniority="Senior/Staff",
+                skills=("Software Development", "Software Engineering", "Automated Testing"),
+                subtitle="Senior/Staff Software Engineer, Rust and Python",
+            ),
+            _tecla_job(
+                job_id=3295,
+                name="Lead Full-Stack Developer",
+                company="BairesDev",
+                skills=("SQL", "Python", "React", "TypeScript"),
+            ),
+            _tecla_job(
+                job_id=3500,
+                name="Senior Rust Engineer",
+                company="Acme LatAm",
+                seniority="Senior",
+                skills=("Rust", "PostgreSQL", "AWS"),
+            ),
+            _tecla_job(
+                job_id=3501,
+                name="Rust Engineer (US only)",
+                company="Acme",
+                skills=("Rust", "AWS"),
+                usa_only=True,
+            ),
+            _tecla_job(
+                job_id=3502,
+                name="Backend Developer (Payments)",
+                company="Acme LatAm",
+                skills=("Python", "Django"),
+                description="Our ledger service is written in <b>Rust</b>",
+                usa_only=None,
+            ),
+            _tecla_job(
+                job_id=3113,
+                name="SAP ABAP Developer",
+                company="Acme",
+                skills=("SAP ABAP", "SAP FI"),
+                age_days=400,
+            ),
+        ],
+        "pagination": {"count": 8, "countPages": 4, "current": 1, "prev": 1, "next": 2},
+    },
+}
+
+
+def test_tecla_config_maps_the_public_payload_into_jobs():
+    jobs = JsonListProvider(TECLA_CONFIG).parse(_json_page(TECLA_PAYLOAD))
+
+    # `usaOnly` rows are dropped by the provider before any field mapping.
+    assert [job.external_id for job in jobs] == [
+        "3411",
+        "3404",
+        "3295",
+        "3500",
+        "3502",
+        "3113",
+    ]
+    first = jobs[0]
+    # The API carries only an id, so `job_url_tpl` builds the public posting link.
+    assert first.url == "https://app.tecla.io/job?id=3411"
+    assert first.company == "New Engen"
+    assert first.posted_date == date.today() - timedelta(days=3)
+    # No per-row location exists: the board is a LatAm-remote marketplace, so the
+    # config labels it and the location gate stays meaningful (see the next test).
+    assert first.location == "Remote"
+    assert first.tags == [
+        "HTML5",
+        "JavaScript",
+        "CSS3",
+        "Engineering",
+        "Jr. HTML5 Ad Developer",
+        "Full-Time",
+        "Remote",
+    ]
+    assert first.description.startswith("Along with our partner")
+    # Descriptions are HTML in some rows: they are stored as plain text.
+    assert jobs[4].description == "Our ledger service is written in Rust"
+
+
+def test_tecla_config_skips_us_residency_rows():
+    """`usaOnly` is the board's only eligibility flag: a US-only role is not ours."""
+    jobs = JsonListProvider(TECLA_CONFIG).parse(_json_page(TECLA_PAYLOAD))
+    ids = [job.external_id for job in jobs]
+
+    assert "3412" not in ids  # Data Scientist (US only)
+    assert "3501" not in ids  # Rust Engineer (US only) — matching work still skipped
+    # A row that omits the flag entirely is not skipped, only a truthy one is.
+    assert "3502" in ids
+    assert next(job for job in jobs if job.external_id == "3502").location == "Remote"
+
+
+def test_tecla_config_applies_the_language_gate_to_the_board():
+    scraper = DiscoveryScraper("json_list", TECLA_CONFIG)
+    jobs = scraper.parse(_json_page(TECLA_PAYLOAD))
+
+    # Rust reaches the gate through the skill chips (3500), the subtitle (3404)
+    # and the description (3502); the Python/SQL rows and the year-old SAP
+    # posting (dropped by `max_age_days`) do not match.
+    assert [job.title for job in jobs] == [
+        "Staff Engineer (AI Infrastructure)",
+        "Senior Rust Engineer",
+        "Backend Developer (Payments)",
+    ]
+    assert all(job.location == "Remote" for job in jobs)
+    assert scraper._location_dropped == 0
+    assert scraper._location_unknown == 0
+    # A quiet board is a success, not a format-change failure.
+    assert scraper.allow_empty is True
+
+    # Every row is labelled `Remote`, so a narrower location list must be able
+    # to drop them: that is what enforces the LatAm premise on this board.
+    strict = DiscoveryScraper("json_list", {**TECLA_CONFIG, "locations": ["latam"]})
+    assert strict.parse(_json_page(TECLA_PAYLOAD)) == []
+    assert strict._location_dropped == 3
+
+
+def test_tecla_config_walks_the_api_pagination_to_the_last_page():
+    provider = JsonListProvider(TECLA_CONFIG)
+
+    assert provider.results_url() == "https://api.tecla.io/api/jobs/getPublicJobs/?page=1"
+    # `countPages`/`current` end the walk at 4 of 4 instead of `max_pages` (8).
+    assert provider.next_page_url(_json_page(TECLA_PAYLOAD)) == (
+        "https://api.tecla.io/api/jobs/getPublicJobs/?page=2"
+    )
+    last = _json_page(
+        {"data": {"jobs": [], "pagination": {"current": 4, "countPages": 4}}}
+    )
+    assert provider.next_page_url(last) is None
+    # A payload that loses the bound ends the walk instead of fetching 8 empty
+    # pages; `max_pages` is only the cap for a board that grows.
+    assert provider.next_page_url(_json_page({"data": {"jobs": []}})) is None
+    capped = JsonListProvider({**TECLA_CONFIG, "max_pages": 2})
+    assert capped.next_page_url(_json_page(TECLA_PAYLOAD)) is not None
+    assert capped.next_page_url(_json_page(TECLA_PAYLOAD)) is None
+
+
+def test_tecla_config_is_registered_and_dispatched():
+    provider = get_discovery_provider("json_list", TECLA_CONFIG)
+    assert provider.requires_key is False
+    JsonListProvider.validate_config(TECLA_CONFIG)
+    metadata = JsonListProvider.config_metadata()["optional"]
+    for key in (
+        "last_page_path",
+        "current_page_path",
+        "skip_if_true",
+        "tags_paths",
+        "location_tpl",
+        "match_paths",
+    ):
+        assert key in metadata
+
+    scraper = get_scraper(SimpleNamespace(type=SourceType.discovery, config=TECLA_CONFIG))
+    # `{page}` renders to the first page: a json_list board is walked by `{page}`.
+    assert (
+        scraper.first_fetch_url("https://app.tecla.io/jobs")
+        == "https://api.tecla.io/api/jobs/getPublicJobs/?page=1"
+    )
+    # The API host publishes no robots.txt (404 → allowed); the human board URL
+    # stays the source's `url` for the UI and is never fetched.
+    assert scraper.robots_url(TECLA_CONFIG["url"]) == TECLA_CONFIG["url"]
+    assert scraper.allow_empty is True
+
+
 ADZUNA_PAYLOAD = {
     "results": [
         {
