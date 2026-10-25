@@ -2608,6 +2608,317 @@ def test_tecla_config_is_registered_and_dispatched():
     assert scraper.allow_empty is True
 
 
+# --- Anonymous POST listing API behind an app shell (Turing) -----------------
+
+#: `work.turing.com/jobs` is a Next.js shell, but its bundle posts to an
+#: anonymous listing API: `POST /api/jobs/all` with
+#: `{searchQuery, expertise, location, pageNumber, pageSize}` answers
+#: `{success, jobs: [...], totalCount}` — 216 postings plus their *full* HTML
+#: descriptions in a single request at `pageSize: 500`, no key and no cookie.
+#: Titles on this board are generic ("Pod Lead", "Domain Expert - Python") and
+#: every science pod advertises "Python, C/C++" in its body, so the gate reads
+#: the `roleGroup` tag (`match_in: title`) instead of language names;
+#: `locationType` + `value_labels` feed the location gate.
+TURING_CONFIG = {
+    "provider": "json_list",
+    "url": "https://work.turing.com/api/jobs/all",
+    "method": "POST",
+    "body": {"searchQuery": "", "expertise": [], "location": [], "pageSize": 500},
+    "max_pages": 1,
+    "items_path": "jobs",
+    "id_path": "id",
+    "title_path": "title",
+    "url_path": "jobCode",
+    "job_url_tpl": "https://work.turing.com/job/home?jobCode={jobCode}",
+    "company": "Turing",
+    "location_tpl": "{locationType}",
+    "value_labels": {
+        "locationType": {"remote": "Remote", "on-site": "On-site", "hybrid": "Hybrid"},
+    },
+    "date_path": "createdDate",
+    "description_path": "description",
+    "tags_paths": ["skills[].skillName", "roleGroup"],
+    "match_in": "title",
+    "max_age_days": 45,
+    "max_results": 400,
+    "keywords": ["software development", "cloud & infrastructure", "ml/data engineering"],
+    "locations": ["remote"],
+    "allow_empty": True,
+}
+
+
+def _turing_job(
+    *,
+    job_id: int,
+    title: str,
+    job_code: str = "",
+    role_group: str = "Software development",
+    skills: tuple[str, ...] = (),
+    location_type: str | None = "remote",
+    description: str = "",
+    age_days: int = 3,
+) -> dict:
+    """One posting, shaped like `POST /api/jobs/all` (dates relative to today)."""
+    created = date.today() - timedelta(days=age_days)
+    return {
+        "id": job_id,
+        "jobCode": job_code or f"code{job_id}",
+        "title": title,
+        "oneLinerDescription": f"{title} at Turing",
+        "roleGroup": role_group,
+        "expertise": [{"expertise_id": 53, "expertise": role_group}],
+        "skills": [{"skillName": skill} for skill in skills],
+        "locationType": location_type,
+        "createdDate": f"{created.isoformat()} 13:34:48",
+        "description": description,
+    }
+
+
+TURING_PAYLOAD = {
+    "success": True,
+    "jobs": [
+        _turing_job(
+            job_id=115943,
+            job_code="Lw5WaCeT7Wra",
+            title="Quality Analyst-Multimodality",
+            role_group="Analyst",
+            skills=("Business Analysis", "Data Annotation"),
+            description="<p>Review <b>LLM</b> outputs for multimodal tasks.</p>",
+            age_days=2,
+        ),
+        # A science pod: its body advertises C/C++ and Python, which the gate
+        # must not read (see the gate test).
+        _turing_job(
+            job_id=115948,
+            title="Pod Lead - Chemistry",
+            role_group="Science",
+            skills=("Chemistry",),
+            description="<p>Strong programming skills in Python, C/C++ and Julia.</p>",
+            age_days=4,
+        ),
+        _turing_job(
+            job_id=115950,
+            title="Domain Expert - Python",
+            role_group="ML/Data Engineering",
+            skills=("Python",),
+            age_days=5,
+        ),
+        _turing_job(
+            job_id=115952,
+            title="Software Engineer - Agentic AI / Data Cloud (Python/Go)",
+            skills=("Python", "Go", "Docker"),
+            age_days=6,
+        ),
+        _turing_job(
+            job_id=115955,
+            title="Senior Rust Engineer",
+            role_group="Cloud & Infrastructure",
+            skills=("Rust", "AWS"),
+            age_days=8,
+        ),
+        _turing_job(
+            job_id=115957,
+            job_code="OnSite000001",
+            title="Site Reliability Engineer",
+            skills=("Kubernetes",),
+            location_type="on-site",
+            age_days=9,
+        ),
+    ],
+    "totalCount": 6,
+    "featuredJobsCount": 1,
+    "newestJobsCount": 2,
+}
+
+
+def test_turing_config_maps_the_all_jobs_payload_into_jobs():
+    jobs = JsonListProvider(TURING_CONFIG).parse(_json_page(TURING_PAYLOAD))
+
+    assert [job.external_id for job in jobs] == [
+        "115943",
+        "115948",
+        "115950",
+        "115952",
+        "115955",
+        "115957",
+    ]
+    first = jobs[0]
+    # The payload carries only a `jobCode`, so `job_url_tpl` builds the public
+    # posting link (`/jobs/<code>` and `/job/<code>` both 404 on this site).
+    assert first.url == "https://work.turing.com/job/home?jobCode=Lw5WaCeT7Wra"
+    assert first.title == "Quality Analyst-Multimodality"
+    # A talent marketplace: every row belongs to Turing, the payload has no
+    # company field.
+    assert first.company == "Turing"
+    assert first.posted_date == date.today() - timedelta(days=2)
+    # `locationType` is an enum, so `value_labels` is what turns it into the
+    # label the location gate understands.
+    assert first.location == "Remote"
+    assert first.tags == [
+        "Business Analysis",
+        "Data Annotation",
+        "Analyst",
+        "Remote",
+    ]
+    assert first.description == "Review LLM outputs for multimodal tasks."
+
+    # The enum table is config, not a hardcoded label.
+    provider = JsonListProvider(TURING_CONFIG)
+    assert (
+        provider._location(
+            _turing_job(job_id=2, title="Mobile Engineer", location_type="hybrid")
+        )
+        == "Hybrid"
+    )
+
+    # Descriptions arrive as HTML and are stored as plain text, capped at 2 KB.
+    long_job = JsonListProvider(TURING_CONFIG).parse(
+        _json_page(
+            {
+                "jobs": [
+                    _turing_job(
+                        job_id=7,
+                        title="Go Engineer",
+                        description="<p>" + "Go " * 2000 + "</p>",
+                    )
+                ]
+            }
+        )
+    )[0]
+    assert long_job.description is not None
+    assert len(long_job.description) == 2000
+    assert "<p>" not in long_job.description
+
+
+def test_turing_config_gates_on_title_and_role_group_not_descriptions():
+    scraper = DiscoveryScraper("json_list", TURING_CONFIG)
+    jobs = scraper.parse(_json_page(TURING_PAYLOAD))
+
+    # 115948's body advertises C/C++ and Python; with `match_in: title` only the
+    # title and tags count, so a chemistry pod is not a Go role. 115943 falls
+    # out on role group ("Analyst"), 115957 on location ("On-site").
+    assert [job.title for job in jobs] == [
+        "Domain Expert - Python",
+        "Software Engineer - Agentic AI / Data Cloud (Python/Go)",
+        "Senior Rust Engineer",
+    ]
+    assert all(job.location == "Remote" for job in jobs)
+    assert scraper._location_dropped == 1
+    assert scraper._location_unknown == 0
+
+    # The same board read as a language gate: the Rust row matches on its tag,
+    # the chemistry pod only through the description it must not be judged on.
+    tech = {
+        **TURING_CONFIG,
+        "keywords": ["rust", "c++", "cpp", "golang", "go engineer", "go developer"],
+    }
+    assert [
+        job.external_id
+        for job in DiscoveryScraper("json_list", tech).parse(_json_page(TURING_PAYLOAD))
+    ] == ["115955"]
+    loose = DiscoveryScraper("json_list", {**tech, "match_in": "anywhere"})
+    assert [job.external_id for job in loose.parse(_json_page(TURING_PAYLOAD))] == [
+        "115948",
+        "115955",
+    ]
+
+    # A gate with no matching term on the board empties the run without turning
+    # it into a format-change failure (`allow_empty`).
+    empty = DiscoveryScraper("json_list", {**TURING_CONFIG, "keywords": ["cobol"]})
+    assert empty.parse(_json_page(TURING_PAYLOAD)) == []
+    assert empty.allow_empty is True
+
+
+def test_turing_config_drops_non_remote_rows_and_keeps_unknown():
+    payload = {
+        "jobs": [
+            _turing_job(job_id=1, title="Backend Engineer", location_type="remote"),
+            _turing_job(job_id=2, title="Frontend Engineer", location_type="on-site"),
+            _turing_job(job_id=3, title="Mobile Engineer", location_type="hybrid"),
+            _turing_job(job_id=4, title="Platform Engineer", location_type=None),
+        ]
+    }
+    # No keyword gate: this test is about `location_tpl` + `value_labels`.
+    scraper = DiscoveryScraper("json_list", {**TURING_CONFIG, "keywords": []})
+    jobs = scraper.parse(_json_page(payload))
+
+    assert [(job.external_id, job.location) for job in jobs] == [
+        ("1", "Remote"),
+        ("4", None),
+    ]
+    assert scraper._location_dropped == 2
+    # A row the payload does not locate is kept and counted, not silently cut.
+    assert scraper._location_unknown == 1
+
+
+def test_turing_config_drops_stale_postings():
+    # The board keeps 2024/2025 postings (44 of 216 are outside any window).
+    stale = _turing_job(
+        job_id=99,
+        title="LLM Go Developer",
+        skills=("Go",),
+        age_days=400,
+    )
+    windowed = DiscoveryScraper("json_list", TURING_CONFIG)
+    assert windowed.parse(_json_page({"jobs": [stale]})) == []
+    assert windowed._stale_dropped == 1
+
+    unwindowed = DiscoveryScraper("json_list", {**TURING_CONFIG, "max_age_days": 0})
+    assert [job.external_id for job in unwindowed.parse(_json_page({"jobs": [stale]}))] == [
+        "99"
+    ]
+
+
+def test_turing_config_posts_the_body_and_reads_the_board_in_one_request():
+    provider = JsonListProvider(TURING_CONFIG)
+    url = provider.results_url()
+    assert url == "https://work.turing.com/api/jobs/all"
+
+    method, body = provider.request_spec(url)
+    assert method == "POST"
+    # No `{page}` marker anywhere: body placeholders would render as text, so the
+    # page size stays an int and the whole catalogue arrives in one call.
+    assert body == {"searchQuery": "", "expertise": [], "location": [], "pageSize": 500}
+    assert provider.pagination_in_body is False
+    # One request per run — and a raised `max_pages` cannot re-fetch, because
+    # without a page marker in the URL or the body there is no second page.
+    assert provider.next_page_url(_json_page(TURING_PAYLOAD)) is None
+    assert (
+        JsonListProvider({**TURING_CONFIG, "max_pages": 5}).next_page_url(
+            _json_page(TURING_PAYLOAD)
+        )
+        is None
+    )
+    JsonListProvider.validate_config(TURING_CONFIG)
+
+
+def test_turing_config_is_registered_and_dispatched():
+    provider = get_discovery_provider("json_list", TURING_CONFIG)
+    assert provider.requires_key is False
+    metadata = JsonListProvider.config_metadata()["optional"]
+    for key in (
+        "method",
+        "body",
+        "job_url_tpl",
+        "location_tpl",
+        "value_labels",
+        "tags_paths",
+        "match_in",
+        "max_age_days",
+        "max_pages",
+        "allow_empty",
+    ):
+        assert key in metadata
+
+    scraper = get_scraper(SimpleNamespace(type=SourceType.discovery, config=TURING_CONFIG))
+    # The provider fetches the API endpoint, never the human board page.
+    assert scraper.first_fetch_url("https://work.turing.com/jobs") == TURING_CONFIG["url"]
+    # The API host publishes no robots.txt (404 → allowed); the board URL stays
+    # the source's `url` for the UI.
+    assert scraper.robots_url(TURING_CONFIG["url"]) == TURING_CONFIG["url"]
+    assert scraper.allow_empty is True
+
+
 ADZUNA_PAYLOAD = {
     "results": [
         {

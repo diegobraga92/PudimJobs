@@ -916,6 +916,93 @@ days, which is why the window is `max_age_days: 90` instead of the 45 RemoteOK
 uses. 4 requests make `rate_limit_seconds: 2` plenty, and the board moves slowly
 enough for a daily `scrape_interval_minutes`.
 
+**Turing (public all-jobs API).** `work.turing.com/jobs` is a Next.js shell (it
+was on the JS-only list below until this API was found), but its bundle posts to
+an anonymous listing endpoint: `POST https://work.turing.com/api/jobs/all` with
+`{searchQuery, expertise, location, pageNumber, pageSize}` answers
+`{success, jobs: [...], totalCount, featuredJobsCount, newestJobsCount}` — the
+whole catalogue (216 postings at the time of writing), **full HTML descriptions
+included**, with no key, cookie or session; the request is answered even without
+a `User-Agent`. `pageSize` is honoured up to 500 and `pageNumber` is optional, so
+a run is one request:
+
+```json
+{
+  "provider": "json_list",
+  "url": "https://work.turing.com/api/jobs/all",
+  "method": "POST",
+  "body": {"searchQuery": "", "expertise": [], "location": [], "pageSize": 500},
+  "max_pages": 1,
+  "items_path": "jobs",
+  "id_path": "id",
+  "title_path": "title",
+  "url_path": "jobCode",
+  "job_url_tpl": "https://work.turing.com/job/home?jobCode={jobCode}",
+  "company": "Turing",
+  "location_tpl": "{locationType}",
+  "value_labels": {
+    "locationType": {"remote": "Remote", "on-site": "On-site", "hybrid": "Hybrid"}
+  },
+  "date_path": "createdDate",
+  "description_path": "description",
+  "tags_paths": ["skills[].skillName", "roleGroup"],
+  "match_in": "title",
+  "max_age_days": 45,
+  "max_results": 400,
+  "keywords": ["software development", "cloud & infrastructure",
+               "ml/data engineering"],
+  "locations": ["remote"],
+  "allow_empty": true
+}
+```
+
+There is no `{page}` marker anywhere in that config, so the provider's walk ends
+after page 1 however high `max_pages` is raised: the request *is* the board.
+`pageSize: 500` is the ceiling to watch — past it the extra rows simply never
+arrive, so raise `pageSize` (and `max_results`) if the catalogue outgrows it.
+
+- **The gate reads the role group, not the language.** Titles are generic
+  ("Pod Lead", "Domain Expert – Python", "Computer Science (STEM)") and every
+  science/engineering pod's boilerplate advertises "Python, C/C++, Julia or
+  Fortran", so a language gate that reads the description keeps chemists.
+  `tags_paths` publishes `skills[].skillName` + `roleGroup` and
+  `match_in: title` limits the gate to title + tags. Measured on the live
+  216-post catalogue (45-day window, remote only): the role-group set above keeps
+  **21** (10 *Software development*, 7 *ML/Data Engineering*, 4 *Cloud &
+  Infrastructure*), the Brave language set keeps **0**, a wide engineering term
+  set keeps 12, and the same Brave set read with `match_in: anywhere` keeps **20**
+  — false positives from the boilerplate.
+- **`locationType` is the only location field.** Server-side filtering is a dead
+  end: `location: ["Brazil"]` (or any country name) answers `totalCount: 0`,
+  because the API wants internal ids that `/api/jobs/filters` does not publish
+  (it lists 17 role groups, no countries), and `searchQuery: "c++"` answers
+  **500** — while `"rust"` answers 7 precisely because the search reads
+  descriptions. The rows carry `locationType` (`remote`/`on-site`/`hybrid`:
+  207/1/1 of 216, 7 null), so `location_tpl` + `value_labels` turn the enum into
+  a readable label and `locations: ["remote"]` drops the two office/hybrid rows;
+  a row with no `locationType` is kept and counted as unknown, as everywhere
+  else.
+- **Dates and descriptions are real.** `createdDate` is `YYYY-MM-DD HH:MM:SS`
+  and 102 of the 216 postings are older than 45 days (the live run counts them
+  as `stale_dropped=102`): the same gate keeps 21 at 45 days, 22 at 90 and 44
+  with the window off, so 45 keeps the board current without going quiet.
+  Descriptions are full HTML — 972 KB of the 1 MB payload — and are stored as
+  plain text capped at 2 000 characters, like every `json_list` board.
+- **Posting URLs**: `/jobs/<code>` and `/job/<code>` both 404;
+  `/job/home?jobCode=<code>` is the public page, which is what `job_url_tpl`
+  builds. `GET /api/job/public?jobCode=<code>` is a second anonymous route with
+  the full record; the listing already carries everything the app needs.
+- **Reposts**: Turing re-publishes the same role under new ids/codes, so
+  `id_path: id` dedupes between runs but not the duplicates the site itself
+  carries.
+
+Measured on 2026-10-25: `pages=1 items=216 raw=216 kept=21 loc_dropped=1
+loc_unknown=0`, dates 2026-09-26…2026-10-09. `work.turing.com/robots.txt` is a
+404 (allowed); the marketing host `www.turing.com` sits behind Incapsula and its
+robots.txt disallows `/api/*`, so the config stays on the app host and never
+touches it. One request per run makes `rate_limit_seconds: 2` and a daily
+`scrape_interval_minutes` plenty.
+
 **Comeet boards (MWDN).** `jobs.mwdn.com/careers/` embeds a Comeet widget. The
 `ul.comeet-positions-list` is **empty** in the static HTML and the 41 cards that do
 render server-side are the `a.comeet-position` anchors themselves, so the
@@ -1225,7 +1312,7 @@ Moved out of these buckets: FullStack Talent (`talent.fullstack.com`) is now
 collected through its public JSON API — see *Id-only JSON boards* above.
 
 - **Login-walled dashboards / talent networks** (Outlier, Alignerr, Toptal,
-  Turing, Upwork, Revelo, Lemon.io, FlexJobs, VanHack, Proxify and similar) —
+  Upwork, Revelo, Lemon.io, FlexJobs, VanHack, Proxify and similar) —
   need authenticated candidate context (cookies + often 2FA/SSO). Track them as
   `type = manual` sources instead (ADR 018): the user re-checks them by hand and
   the app reminds them when due. Verified into this bucket: arc.dev, beon.tech,
@@ -1235,7 +1322,10 @@ collected through its public JSON API — see *Id-only JSON boards* above.
   shells below), Vagas.com.br's *meu-perfil* — none of
   them render job rows into the initial HTML. Tecla's *candidate dashboard* still
   needs that login, but its public board is collected through `getPublicJobs`
-  (*Tecla* above), so the source is no longer `manual`.
+  (*Tecla* above), so the source is no longer `manual`. Turing's talent-network
+  dashboard still needs it, but its public job board is collected through
+  `POST /api/jobs/all` (*Turing* above), so that source is no longer `manual`
+  either.
 - **ToS / anti-bot by direct scraping** — LinkedIn, Indeed, Glassdoor, Dice,
   Catho, Jobot, Levels.fyi, Landing.jobs, Wellfound, Hays, Michael Page, Robert
   Half, SimplyHired, Welcome to the Jungle, Himalayas, Stack Overflow Jobs. Use
@@ -1253,11 +1343,12 @@ collected through its public JSON API — see *Id-only JSON boards* above.
   to select). Verified: `remotifyeurope.com/remote-jobs`
   (its JSON-LD blocks describe the *site*, not jobs), `br.jobsora.com/empregos`,
   `jobs.x-team.com` (`x-team.com/remote-jobs` is a 404 and the current host is an
-  SPA shell), `work.turing.com/jobs`, `himalayas.app`
+  SPA shell), `himalayas.app`
   (HTTP 403). Keep them `manual` (ADR 018) or wire up a provider — a stored URL
   with extra query arguments does not help when the listing is fetched by JS.
-  `career.sigma.software` and `app.tecla.io/jobs` were on this list too; both now
-  go through the JSON APIs behind them (*Sigma Software* and *Tecla* above).
+  `career.sigma.software`, `app.tecla.io/jobs` and `work.turing.com/jobs` were on
+  this list too; all three now go through the JSON APIs behind them (*Sigma
+  Software*, *Tecla* and *Turing* above).
 - **Hash-route SPAs** — `jobs.hirewithnear.com/#/` renders its list from the URL
   fragment, so a fetch only ever returns the shell; keep it `manual` (or probe the
   API it calls) until an opt-in renderer exists.
