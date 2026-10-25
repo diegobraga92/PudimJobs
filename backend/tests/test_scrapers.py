@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 import scrapers.utils as utils
+from bs4 import BeautifulSoup
 from scrapers.aggregator import (
     EmbeddedJsonListScraper,
     GenericHtmlListScraper,
@@ -43,9 +44,12 @@ from scrapers.rss import RSSScraper
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
 from scrapers.utils import (
     coerce_date,
+    collect_tags,
     fetch_html,
     location_allowed,
+    matches_keywords,
     parse_html_list,
+    parse_job_detail,
     parse_json_ld_jobs,
     redact_sensitive,
     relative_age,
@@ -254,6 +258,46 @@ def test_location_allowed_keeps_unknown_and_matches_accents():
     # A comma-separated string is accepted (how the Sources form stores it
     # before the API normalizes it).
     assert location_allowed("Remote, Brazil", "Portugal, Brazil") is True
+
+
+def test_collect_tags_splits_comma_chips_and_dedupes():
+    """A chip may carry a comma list; tags are split, trimmed and deduped."""
+    container = BeautifulSoup(
+        """
+        <div class="card">
+          <span class="tag">Rust</span>
+          <span class="tag">Network protocols, Tokio</span>
+          <span class="tag">  Rust  </span>
+          <span class="tag">   </span>
+        </div>
+        """,
+        "lxml",
+    )
+
+    assert collect_tags(container, ".tag") == ["Rust", "Network protocols", "Tokio"]
+    # A comma-separated selector list is accepted, like the other selectors.
+    assert collect_tags(container, ".missing, .tag") == [
+        "Rust",
+        "Network protocols",
+        "Tokio",
+    ]
+    # An absent selector collects nothing (detail pages often have no chips).
+    assert collect_tags(container, None) == []
+
+
+def test_matches_keywords_is_whole_term_and_ignores_case_and_accents():
+    """The keyword gate reuses the location gate's folded, bounded matching."""
+    assert matches_keywords("Senior Rust Engineer", ["rust"]) is True
+    assert matches_keywords("C++ Developer", ["c++"]) is True
+    assert matches_keywords("Go services", ["go"]) is True
+    assert matches_keywords("Engenheiro Sênior", ["senior"]) is True
+    # Whole term only: "go" must not match Django or Google.
+    assert matches_keywords("Django on Google Cloud", ["go"]) is False
+    # The gate keeps nothing when the text itself is missing.
+    assert matches_keywords(None, ["rust"]) is False
+    # An empty terms config matches everything (the worker then skips the gate).
+    assert matches_keywords("anything", []) is True
+    assert matches_keywords("anything", " , ") is True
 
 
 def test_career_page_normalize_skips_invalid():
@@ -676,6 +720,61 @@ def test_aggregator_detail_mode_parses_detail_page():
     assert "Own the platform." in raw[0].description
     assert "Remote, Brazil" in raw[0].description
     assert raw[0].location == "Remote, Brazil"
+
+
+def test_parse_job_detail_collects_tag_chips():
+    """`tags_selectors` fills tags when the detail page has no JSON-LD skills."""
+    page = _aggregator_page(
+        """
+        <html><body>
+          <h1>Rust Engineer</h1>
+          <span class="company">Acme</span>
+          <div class="stack">
+            <span>Rust</span><span>Network protocols, Tokio</span><span>Rust</span>
+          </div>
+          <p class="description">Build services.</p>
+        </body></html>
+        """,
+        "https://board.example/jobs/1",
+    )
+
+    jobs = parse_job_detail(
+        page,
+        {
+            "title_selectors": "h1",
+            "company_selectors": ".company",
+            "description_selectors": ".description",
+            "tags_selectors": ".stack span",
+        },
+    )
+
+    assert len(jobs) == 1
+    assert jobs[0].tags == ["Rust", "Network protocols", "Tokio"]
+
+
+def test_aggregator_detail_mode_reads_detail_tags_selector():
+    """`detail_tags_selector` is wired into the detail parser, not only JSON-LD."""
+    html = """
+    <html><body>
+      <h1>Rust Engineer</h1>
+      <span class="company">Acme</span>
+      <div class="stack"><span>Rust</span><span>Tokio</span></div>
+      <p class="description">Build services.</p>
+    </body></html>
+    """
+    scraper = GenericHtmlListScraper(
+        {
+            "detail": True,
+            "detail_title_selector": "h1",
+            "detail_company_selector": ".company",
+            "detail_description_selector": ".description",
+            "detail_tags_selector": ".stack span",
+        }
+    )
+
+    raw = scraper.parse(_aggregator_page(html, "https://board.example/jobs/1"))
+
+    assert [job.tags for job in raw] == [["Rust", "Tokio"]]
 
 
 def test_aggregator_detail_mode_uses_card_location_when_detail_omits_it():

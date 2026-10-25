@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
 
 from app.config import settings
 from scrapers.types import FetchAuth, RawJob, ScrapedPage
@@ -543,6 +543,24 @@ def as_tag_list(value: object) -> list[str]:
     return [str(value).strip()]
 
 
+def collect_tags(container: Tag | BeautifulSoup, selectors: object) -> list[str]:
+    """Chips matched by ``selectors`` inside ``container``, split and deduped.
+
+    A single chip often carries a comma list ("Engineering, Databases,
+    Python"); each part becomes its own tag so the UI and the ``keywords``
+    gate see one term per tag. Order is kept, so the first occurrence wins.
+    """
+    tags: list[str] = []
+    for selector in _split_selectors(selectors) or []:
+        for chip in container.select(selector):
+            tags.extend(
+                part.strip()
+                for part in chip.get_text(" ", strip=True).split(",")
+                if part.strip()
+            )
+    return list(dict.fromkeys(tags))
+
+
 def as_optional_str(value: object) -> str | None:
     """A trimmed string from a payload value, or ``None`` when empty."""
     if value is None:
@@ -605,6 +623,24 @@ def location_allowed(location: str | None, terms: object) -> bool:
     folded = fold_text(location).strip()
     if not folded:
         return True
+    return any(_folded_term_pattern(term).search(folded) for term in normalized_terms)
+
+
+def matches_keywords(text: str | None, terms: object) -> bool:
+    """Whether ``text`` contains any of the configured ``keywords`` terms.
+
+    The worker applies ``config['keywords']`` to source types that do not
+    filter while parsing (discovery sweeps already gate their own boards).
+    Matching reuses the location gate's folded, term-bounded regex: it is
+    case- and accent-insensitive, ``c++`` is a whole term even though it ends
+    in a non-word character, and ``go`` cannot match ``Django`` or ``Google``.
+    An empty ``terms`` config matches everything.
+    """
+    normalized_terms = [fold_text(term).strip() for term in as_tag_list(terms)]
+    normalized_terms = [term for term in normalized_terms if term]
+    if not normalized_terms:
+        return True
+    folded = fold_text(text)
     return any(_folded_term_pattern(term).search(folded) for term in normalized_terms)
 
 
@@ -901,6 +937,7 @@ def parse_job_detail(page: ScrapedPage, selectors: dict | None = None) -> list[R
         _split_selectors(selectors.get("description_selectors")) or _DESCRIPTION_SELECTORS
     )
     date_sel = _split_selectors(selectors.get("date_selectors")) or _DATE_SELECTORS
+    tags_selectors = selectors.get("tags_selectors")
 
     soup = BeautifulSoup(page.html_content, "lxml")
     title = _first_text(soup, title_sel)
@@ -923,6 +960,7 @@ def parse_job_detail(page: ScrapedPage, selectors: dict | None = None) -> list[R
             posted_date=_parse_date(_first_text(soup, date_sel)),
             description=description,
             location=location,
+            tags=collect_tags(soup, tags_selectors),
         )
     ]
 
@@ -949,7 +987,6 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
     date_selector = config.get("date_selector")
     description_selector = config.get("description_selector")
     title_exclude_selectors = _split_selectors(config.get("title_exclude_selector")) or []
-    tags_selectors = _split_selectors(config.get("tags_selector")) or []
     exclude_pattern = compile_exclude_pattern(config)
     jobs: list[RawJob] = []
     for item in items:
@@ -991,17 +1028,6 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
             )
 
         date_node = item.select_one(date_selector) if date_selector else None
-        tags: list[str] = []
-        for tags_selector in tags_selectors:
-            for chip in item.select(tags_selector):
-                # A single chip often carries a comma list ("Engineering,
-                # Databases, Python"); each part is its own tag, so the UI and
-                # the `keywords` gate see one term per chip.
-                tags.extend(
-                    part.strip()
-                    for part in chip.get_text(" ", strip=True).split(",")
-                    if part.strip()
-                )
         jobs.append(
             RawJob(
                 title=title,
@@ -1013,8 +1039,8 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
                 description=description,
                 location=location,
                 # Chips repeat across a card ("Remote" also in the location
-                # line); the order is kept, so the first occurrence wins.
-                tags=list(dict.fromkeys(tags)),
+                # line); `collect_tags` keeps the first occurrence.
+                tags=collect_tags(item, config.get("tags_selector")),
             )
         )
     return jobs

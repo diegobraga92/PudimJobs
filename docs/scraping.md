@@ -88,6 +88,16 @@ detected location is always kept. The jobs API filters on the same field with
 `GET /api/jobs?location=brazil,remote` (comma-separated OR, case-insensitive);
 unknown-location rows are included unless `location_unknown=false` is sent.
 
+`config["keywords"]` / `exclude_keywords` are whole-term filters over title, tags
+and description (unless `match_in: "title"`). Discovery sweeps apply them while
+parsing each board; every other source type is gated by the worker after
+normalization, **before** `locations`. `tags_selector` (cards) and
+`detail_tags_selector` (detail pages) feed the same gate, so a board that prints
+its stack as chips does not need the stack repeated in the title. Excludes win,
+and a batch emptied by either gate is a successful run: only a parse that
+produced **zero** jobs is the format-change failure that needs
+`allow_empty: true`.
+
 Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 
 | Key | Meaning | Default |
@@ -97,12 +107,13 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `next_page_tpl` | pages 2..`max_pages` are **built** from this template, rendered with any config key plus `{page}` (`…/search?term={term}&page={page}`; relative templates resolve against the page they were read from). A JSON blob (`embedded_json_list`) has no `<a>` to follow, so here it is the only way to page; `generic_html_list` falls back to it when no `next_page_selector` is set (dev.pro's pager renders the *current* page as a `<span>` and the lowest number first, so "the next link" cannot be expressed as a selector) | — |
 | `url_tpl` | `generic_html_list` / `json_list`: page 1 is built from this template instead of the stored URL (`{page}` = 1 here, plus every other config key), so a term or locale can live in the config. In `embedded_json_list` the same key means the *job* URL (`{url}` from `url_path`) | — |
 | `max_results` | detail pages fetched / jobs returned (ignored for a sweep — `max_boards` owns that cap) | `20` (keyed search APIs lower it to `5`) |
-| `allow_empty` | do not fail when the parse yields 0 jobs | `false` (`true` for `sweep_ats` and any `keywords`/`exclude_keywords`/`locations` gate) |
+| `allow_empty` | do not fail when the parse yields 0 jobs | `false` (`true` for `sweep_ats`; a batch emptied by the `keywords`/`exclude_keywords`/`locations` gates is already a success even when this is `false`) |
 | `exclude_pattern` | case-insensitive regex tested against a card/job's text (aggregator adapters). Use it for stale labels such as `\bexpirad[ao]s?\b`; matching rows are dropped before storage | — |
+| `tags_selector` / `detail_tags_selector` | `generic_html_list`: CSS selector(s) for stack chips on a card / detail page. A chip carrying a comma list is split (`Engineering, Python` → two tags); the terms are shown on the job card and matched by `keywords` | — |
 | `parse_listing` | parse the *results page itself* instead of fetching each job (search providers: one paid call per run) | `false` |
 | `query` / `queries` | search providers: one query, or a non-empty list consumed in order (each with its own pagination) | `query` |
 | `sweep_ats` | search providers (`google_cse`, `bing`, `brave`): treat results as ATS board URLs and read the public board APIs instead of fetching each hit | `false` |
-| `keywords` / `exclude_keywords` | discovery whole-term filters over title, tags and description (`c++` works); excludes win | — |
+| `keywords` / `exclude_keywords` | whole-term filters over title, tags and description (`c++` works); excludes win. Discovery applies them per board while parsing; every other source type is gated by the worker after normalization, before `locations` | — |
 | `locations` | ingestion-time location gate for **every** source type: keep a job when any term matches its detected location (case/accent-insensitive, whole term). Jobs with **no** detected location are always kept; `[]`/empty disables the gate | — |
 | `max_boards` | sweep-only cap: boards per run | `40` |
 | `max_jobs` | discovery cap: kept jobs per run (`0` = no cap), including results-mode search providers and `json_list` boards | `0` |
@@ -114,7 +125,7 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `board_reread_days` | sweep-only: a board read less than this many days ago goes **behind** every board that is unread or last read earlier, so the budget rotates over the boards the index offers instead of re-reading the same slice (`0` disables rotation: the index order wins again) | `3` |
 | `max_jobs_per_board` | discovery: postings one board page may contribute to a run (`0` = no cap). A blunt instrument — it truncates the *same* board on every visit, so in a sweep prefer `board_reread_days`/`max_boards` when a board eats the run | `0` |
 | `sweep_max_seconds` | sweep-only: wall-clock budget for the run (`0` = no cap) | `0` |
-| `match_in` | discovery: `title` restricts `keywords`/`exclude_keywords` to title + tags (the location gate always reads the detected location only) | `anywhere` |
+| `match_in` | `title` restricts `keywords`/`exclude_keywords` to title + tags, in discovery **and** in the worker gate for every other source type (the location gate always reads the detected location only) | `anywhere` |
 | `max_age_days` | discovery providers: drop postings older than this many days (`0` = keep everything). Only acts on **dated** postings — undated rows are kept and counted as `undated` in the run log | `0` |
 | `payload_script` | `next_data` (`embedded_json_list` too): the `<script id>` that carries the page state. A page without it fails the run instead of reporting an empty board, because a consent wall or bot challenge answers 200 with no state | `__NEXT_DATA__` |
 | `items_filter` | `next_data`: `{path: value}` pairs that pick the postings out of a **keyed** container (`{"__typename": "JobListingSearchResult"}`); values compare as text, so `true` and `"true"` select the same rows | — |
@@ -449,7 +460,8 @@ every posting and intermittently time out), SkipTheDrive (its **job-category**
 pages, e.g. `/job-category/remote-part-time-jobs/`, each carry 20 `/job/<slug>/`
 cards — the homepage does not), JobConvo employer boards, Akvelon
 (PeopleForce), Remote Habit, Job na Gringa, Init-i8, JustRemote,
-remote4me, Toughbyte. InfoJobs only works on its **job search** route
+remote4me, Toughbyte, Techwarely, Howdy LATAM and Playlist (the last three use
+detail pages; see the rows below). InfoJobs only works on its **job search** route
 (`/empregos.aspx?palabra=<term>` — `/empregos` is a company directory). Working
 Nomads *looks* server-rendered but is AngularJS fed by a JSON API → collect it
 with `json_list` against `https://www.workingnomads.com/api/exposed_jobs/`;
@@ -503,6 +515,13 @@ writing):
 | RemoteYeah | `/remote-<term>-jobs-in-brazil` | the `url_tpl` + `next_page_tpl` recipe in *URL arguments and search terms* above: `detail: true` + `item_selector: "article.job-card"` (a bare `li` matches the recent-applications ticker, not job cards); each detail page's JSON-LD supplies the description, date and skills | 31 / 38 |
 | Radartec | `radartec.com.br/pesquisar/vaga?ordem=0&page=1` | `{"detail": true, "item_selector": ".vote-item", "title_selector": "a.vote-title", "url_selector": "a.vote-title", "location_selector": "span.cidade", "next_page_tpl": "https://radartec.com.br/pesquisar/vaga?ordem=0&page={page}", "max_pages": 3, "max_results": 30, "locations": ["home office", "sao paulo", "sao jose dos campos"]}` — the **homepage is a 7-card rotating teaser** (it ignores `?page=` and `?ordem=`), so the source reads the site's own search route instead (10 `.vote-item` per page, `span.cidade` = `City - UF`); keep `q=` **out** of the URL — empty it makes the site scan every posting and the page takes >60 s, while `?ordem=0&page=N` answers in ~1.2 s; `max_results` must be at least `10 × max_pages`, because it caps detail fetches | 30 detail fetches (3 pages × 10) |
 | Nerdin | `www.nerdin.com.br/vagas.php` | `{"detail": true, "item_selector": ".vaga-card", "title_selector": "h3.vaga-titulo", "url_selector": "a.btn-ver-vaga", "company_selector": ".vaga-empresa-nome", "location_selector": ".vaga-local-linha span", "date_selector": "time", "title_exclude_selector": ".vaga-nova-badge", "locations": ["home office", "sao paulo", "sao jose dos campos"]}` — every card carries a `.vaga-local-linha span`, but list mode has no description; the detail page's JSON-LD is the only full address | 20/run (one detail fetch each, 30 s) |
+| Techwarely | `techwarely.com/careers` | `{"detail": true, "item_selector": "a[href^='/careers/']", "url_selector": "a", "company": "Techwarely", "detail_title_selector": "h1", "detail_location_selector": "dl > div:nth-of-type(2) dd", "detail_description_selector": "main div.grid > div:first-of-type", "detail_tags_selector": "main span.rounded-full", "next_page_selector": "a[href*='page=']", "max_pages": 3, "max_results": 30, "keywords": ["rust", "c++", "cpp", "golang", "go"], "match_in": "title", "locations": ["brazil", "brasil"]}` — the card hides its stack behind `+N` and prints the country list only in the `title` attribute, so `detail: true` is required; the detail chips feed `tags` and the title-only gate. Its location is a 15-country LatAm list that includes Brazil, so the location gate keeps the row | 1 (of 10 details; only Brazil + the Rust/C++/Go gate) |
+| Howdy LATAM | `www.howdylatam.com/careers` | `{"detail": true, "item_selector": "a[href^='/careers/']", "url_selector": "a", "company": "Howdy.com", "max_results": 30, "locations": ["brazil", "brasil", "sao paulo", "br"]}` — `?country=Brazil` does not filter the server-rendered page (24 cards, 6 are CO/MX/UY-only); each detail page's JSON-LD supplies title, company, location and description. `addressCountry` is the **ISO code** (`BR`), so `brazil` alone matches nothing: `br` (whole-term) and `sao paulo` are required | 18 (of 24 cards) |
+| Playlist | `www.playlist.com/careers/opportunities` | `{"detail": true, "item_selector": "a[href^='/careers/opportunities/']", "url_selector": "a", "company": "Playlist", "max_results": 20, "locations": ["brazil", "brasil"]}` — Cloudflare rejects `curl` but `httpx` works from the worker; each detail page's JSON-LD carries `Brazil` and no posting date (undated rows are kept) | 12 |
+
+Truelogic (Ashby) was evaluated for the same Rust/C++/Go gate and skipped: its
+only matching opening is already stored through Remote Rocketship's embedded job
+list, so a second source would duplicate it.
 
 `max_results` does **not** cap list-mode rows (it bounds detail fetches and
 `embedded_json_list` items); what bounds a multi-page walk is `max_pages`, and one

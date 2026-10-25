@@ -13,6 +13,7 @@ from scrapers.utils import (
     as_optional_str,
     as_tag_list,
     coerce_date,
+    collect_tags,
     compile_exclude_pattern,
     date_from_node,
     fetch_html,
@@ -212,6 +213,10 @@ class GenericHtmlListScraper(AggregatorScraper):
             "location_selectors": self.config.get("detail_location_selector"),
             "description_selectors": self.config.get("detail_description_selector"),
             "date_selectors": self.config.get("detail_date_selector"),
+            # Boards that print the stack as chips on the posting have no
+            # other field for it; the keyword gate and the job cards read tags.
+            "tags_selectors": self.config.get("detail_tags_selector")
+            or self.config.get("tags_selector"),
         }
         jobs = parse_job_detail(
             page, {key: value for key, value in selectors.items() if value}
@@ -245,6 +250,11 @@ class GenericHtmlListScraper(AggregatorScraper):
                 ),
                 description=description,
                 location=location,
+                tags=collect_tags(
+                    soup,
+                    self.config.get("detail_tags_selector")
+                    or self.config.get("tags_selector"),
+                ),
             )
         ]
 
@@ -423,6 +433,7 @@ _ADAPTER_CONFIG_METADATA: dict[str, dict] = {
             "location_selector",
             "date_selector",
             "description_selector",
+            "tags_selector",
             "exclude_pattern",
             "next_page_selector",
             "next_page_tpl",
@@ -433,6 +444,7 @@ _ADAPTER_CONFIG_METADATA: dict[str, dict] = {
             "detail_description_selector",
             "detail_location_selector",
             "detail_date_selector",
+            "detail_tags_selector",
             "company",
             "max_pages",
             "max_results",

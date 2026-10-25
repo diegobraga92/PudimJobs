@@ -26,6 +26,7 @@ from workers.resilience import (
 from workers.tasks import scrape as scrape_module
 from workers.tasks.scrape import (
     _enrich_with_json_ld,
+    _filter_by_keywords,
     _filter_by_location,
     _run_scrape,
     _store_jobs,
@@ -369,6 +370,100 @@ def test_filter_by_location_keeps_matching_and_unknown_jobs():
     assert [job["title"] for job in kept] == ["B", "C", "D"]
     # No configured terms means no gate at all.
     assert _filter_by_location(normalized, SimpleNamespace(config={})) == normalized
+
+
+def test_filter_by_keywords_reads_title_tags_and_description():
+    """The gate keeps keyword matches and lets ``exclude_keywords`` win."""
+    normalized = [
+        {"title": "Rust Engineer", "tags": ["Rust"], "description": ""},
+        {
+            "title": "Backend Engineer",
+            "tags": ["Python"],
+            "description": "We also use Go.",
+        },
+        {
+            "title": "Django Engineer",
+            "tags": [],
+            "description": "Google-scale traffic.",
+        },
+        {"title": "Rust Intern", "tags": [], "description": ""},
+    ]
+    source = SimpleNamespace(
+        type="aggregator",
+        config={"keywords": ["rust", "go"], "exclude_keywords": ["intern"]},
+    )
+
+    kept = _filter_by_keywords(normalized, source)
+
+    assert [job["title"] for job in kept] == ["Rust Engineer", "Backend Engineer"]
+
+
+def test_filter_by_keywords_match_in_title_ignores_the_description():
+    """`match_in: title` reads only the title and tags, never the description."""
+    normalized = [
+        {
+            "title": "Tagged Backend Engineer",
+            "tags": ["Go"],
+            "description": "",
+        },
+        {
+            "title": "Description Backend Engineer",
+            "tags": [],
+            "description": "We also use Go.",
+        },
+        {"title": "Go Developer", "tags": [], "description": ""},
+    ]
+    source = SimpleNamespace(
+        type="aggregator",
+        config={"keywords": ["go"], "match_in": "title"},
+    )
+
+    kept = _filter_by_keywords(normalized, source)
+
+    assert [job["title"] for job in kept] == [
+        "Tagged Backend Engineer",
+        "Go Developer",
+    ]
+
+
+def test_filter_by_keywords_skips_discovery_and_unconfigured_sources():
+    """Discovery gates its boards while parsing; no config means no gate."""
+    normalized = [{"title": "Python Developer", "tags": [], "description": ""}]
+
+    discovery = SimpleNamespace(type="discovery", config={"keywords": ["rust"]})
+    assert _filter_by_keywords(normalized, discovery) is normalized
+
+    unconfigured = SimpleNamespace(type="aggregator", config={})
+    assert _filter_by_keywords(normalized, unconfigured) is normalized
+
+
+async def test_scrape_keyword_filter_emptied_batch_is_not_a_failure(
+    test_engine, db_session, monkeypatch, redis_client
+):
+    """A batch emptied by the keyword gate is a success, not an empty parse."""
+    user = await create_user(db_session)
+    source = await _make_source(
+        db_session, user, config={"keywords": ["rust"], "match_in": "title"}
+    )
+    await _install_fake_scraper(
+        monkeypatch,
+        [
+            RawJob(
+                title="Backend Engineer",
+                company="Acme",
+                url="https://acme.example/jobs/1",
+                description="Build Python APIs.",
+            )
+        ],
+    )
+
+    result = await _run_scrape(str(source.id))
+
+    assert result["new"] == 0
+    runs = (await db_session.execute(select(ScrapeRun))).scalars().all()
+    assert runs[0].status == "success"
+    assert runs[0].new_jobs == 0
+    assert (await db_session.execute(select(Job))).scalars().all() == []
 
 
 async def test_scrape_persists_detected_location(

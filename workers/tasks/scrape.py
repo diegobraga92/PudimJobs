@@ -17,9 +17,11 @@ from scrapers.utils import (
     RobotsDecision,
     as_flag,
     as_optional_str,
+    as_tag_list,
     coerce_date,
     location_allowed,
     location_terms,
+    matches_keywords,
     parse_json_ld_jobs,
     redact_sensitive,
     robots_decision,
@@ -258,6 +260,52 @@ def _filter_by_location(normalized: list[dict], source: Source) -> list[dict]:
         len(kept),
         skipped,
         unknown,
+    )
+    return kept
+
+
+def _filter_by_keywords(normalized: list[dict], source: Source) -> list[dict]:
+    """Keep jobs whose text matches ``config['keywords']``.
+
+    ``exclude_keywords`` wins over ``keywords``; an empty ``keywords`` list
+    keeps every job that survives the exclusions. ``match_in: title`` restricts
+    matching to the title and tags, exactly like discovery: a board dump
+    otherwise matches "Rust" mentioned once in an unrelated description.
+
+    Discovery sweeps already apply this gate per board while parsing, so they
+    are skipped here: re-checking their normalized rows would match the stored
+    description, which is often shorter than the provider's ``match_text``, and
+    could drop a job the sweep deliberately kept.
+    """
+    config = source.config or {}
+    keywords = as_tag_list(config.get("keywords"))
+    excludes = as_tag_list(config.get("exclude_keywords"))
+    if not keywords and not excludes:
+        return normalized
+    if str(source.type) == SourceType.discovery.value:
+        return normalized
+    title_match = str(config.get("match_in") or "anywhere").strip().lower() in {
+        "title",
+        "titles",
+        "title_and_tags",
+    }
+    kept: list[dict] = []
+    for job in normalized:
+        title = str(job.get("title") or "")
+        tags = " ".join(str(tag) for tag in (job.get("tags") or []))
+        headline = " ".join(part for part in (title, tags) if part)
+        description = "" if title_match else str(job.get("description") or "")
+        haystack = " ".join(part for part in (headline, description) if part)
+        if excludes and matches_keywords(haystack, excludes):
+            continue
+        if keywords and not matches_keywords(haystack, keywords):
+            continue
+        kept.append(job)
+    logger.info(
+        "keyword_filter terms=%s kept=%s skipped=%s",
+        ", ".join(keywords),
+        len(kept),
+        len(normalized) - len(kept),
     )
     return kept
 
@@ -551,10 +599,15 @@ async def _run_scrape(source_id: str) -> dict:
                 raw_jobs.extend(jobs)
 
         normalized = scraper.normalize(raw_jobs)
+        # `config['keywords']`/`exclude_keywords` apply to every source type
+        # except discovery, which already gates each board while parsing (see
+        # `_filter_by_keywords`). It runs before the location gate so a run that
+        # matches nothing is still reported as a successful (if empty) scrape.
+        matched = _filter_by_keywords(normalized, source)
         # `config['locations']` keeps jobs whose detected location matches any
         # term and always keeps jobs with no detected location. It runs on every
         # source type; discovery sweeps also apply it per board while parsing.
-        filtered = _filter_by_location(normalized, source)
+        filtered = _filter_by_location(matched, source)
 
         # Fail fast when a source yields no jobs at all: a site format change
         # or broken selectors usually manifests as an empty parse, and treating
@@ -568,9 +621,10 @@ async def _run_scrape(source_id: str) -> dict:
             if configured_allow_empty is not None
             else bool(getattr(scraper, "allow_empty", False))
         )
-        # A batch emptied *by the location gate* is a successful run: the source
-        # parsed jobs, they simply belong elsewhere. Only a parse that produced
-        # nothing is a format-change signal.
+        # A batch emptied *by the location/keyword gates* is a successful run:
+        # the source parsed jobs, they simply belong elsewhere (or do not match
+        # the stack). Only a parse that produced nothing is a format-change
+        # signal.
         if not filtered and not allow_empty and not normalized:
             raise EmptyScrapeError(
                 "parse produced 0 jobs; possible site format change "
