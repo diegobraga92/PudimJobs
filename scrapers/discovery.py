@@ -8,6 +8,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from typing import ClassVar
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from xml.etree import ElementTree
 
@@ -34,7 +35,9 @@ from scrapers.utils import (
     parse_json_ld_jobs,
     redact_sensitive,
     relative_age,
+    render_path_template,
     resolve_path,
+    resolve_path_values,
 )
 
 #: Where ``json_list`` puts the API key: in the URL template, in the query
@@ -136,6 +139,36 @@ def _int_config(config: dict, key: str, default: int = 0) -> int:
         return int(config.get(key, default))
     except (TypeError, ValueError):
         return default
+
+
+def _config_paths(value: object) -> list[str]:
+    """Normalize a config value that may be one path or a list of paths."""
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _text_values(value: object) -> list[str]:
+    """Flatten JSON values into the plain text a keyword gate can search."""
+    if value is None or isinstance(value, dict):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [text for item in value for text in _text_values(item)]
+    text = _strip_html(str(value)).strip()
+    return [text] if text else []
+
+
+def _clean_location(value: object) -> str | None:
+    """Tidy a rendered location template (missing parts leave separators)."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    # `Remote - , SP` / `Remote - , , `: collapse separators that have no
+    # value between them, then drop separators left dangling at either end.
+    text = re.sub(r"(?:\s*[,;:/|-]\s*(?=[,;:/|-]))+", "", text)
+    text = text.strip(" ,;:/|-")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or None
 
 
 class DiscoveryProvider(ABC):
@@ -862,13 +895,18 @@ class JsonListProvider(DiscoveryProvider):
     config key plus the reserved ``{api_key}``, ``{page}`` and ``{page_size}``;
     ``method: POST`` + ``body`` covers APIs that only answer to POST (Jooble);
     ``auth`` says where the key travels (``query``/``header``/``path``);
-    ``next_page_tpl``/``max_pages`` paginate, and ``next_page_path`` stops on the
-    API's own ``hasNextPage`` flag. Body placeholders substitute as text, so
+    ``next_page_tpl``/``max_pages`` paginate, ``next_page_path`` stops on the
+    API's own ``hasNextPage`` flag, and ``current_page_path``/``last_page_path``
+    follow a numeric last page instead. Body placeholders substitute as text, so
     quote them the way the vendor expects (``"page": "{page}"``). ``url_path``
     extracts an id/slug and ``job_url_tpl`` turns it into the public posting URL
-    when the API carries no link. The API key comes from the source's stored
-    credentials, never from the config, so ``GET /api/sources`` keeps returning
-    ``config`` verbatim.
+    when the API carries no link; ``url_fallback_tpl`` does the same for rows
+    with no URL at all. ``location_tpl`` composes a location from several fields,
+    ``value_labels`` maps API enums to readable labels, and wildcard paths
+    (``jobTags[].tag.name``) project nested arrays into tags or ``match_paths``.
+    ``skip_if_true``/``skip_if_false`` drop stale or inactive rows. The API key
+    comes from the source's stored credentials, never from the config, so
+    ``GET /api/sources`` keeps returning ``config`` verbatim.
     """
 
     provider_name = "json_list"
@@ -879,7 +917,7 @@ class JsonListProvider(DiscoveryProvider):
     #: True when the provider's URL carries a ``{page}`` marker.
     paginated = False
     #: Vendor defaults merged *under* the user's config (see ``__init__``).
-    defaults: dict = {}
+    defaults: ClassVar[dict] = {}
 
     def __init__(self, config: dict | None = None, api_key: str | None = None):
         super().__init__(config, api_key)
@@ -899,7 +937,7 @@ class JsonListProvider(DiscoveryProvider):
         return max(1, int(self.config.get("page_size") or 20))
 
     def max_pages(self) -> int:
-        return max(1, int(self.config.get("max_pages") or 1))
+        return max(1, _int_config(self.config, "max_pages", 1))
 
     def _render_values(self, page: int | None = None) -> dict:
         values: dict = dict(self.config)
@@ -1062,17 +1100,65 @@ class JsonListProvider(DiscoveryProvider):
         """The next results URL, or None (single-page sources stop here)."""
         if self._page >= self.max_pages():
             return None
+        last_page = self._last_page_number(page)
+        if last_page is not None:
+            # A configured `last_page_path` is authoritative: a payload with no
+            # usable last page ends the walk instead of fetching `max_pages`
+            # empty pages.
+            if last_page <= 0:
+                return None
+            current = self._current_page_number(page)
+            if current >= last_page:
+                return None
+            self._page = current + 1
+            return self._next_results_url()
         if self._has_next_page(page) is False:
             return None
         tpl = self.config.get("next_page_tpl")
         if not tpl and not self.pagination_in_body and not self._paginates_in_url():
             return None
         self._page += 1
-        if tpl:
-            return self._with_query_key(self._render(tpl, self._render_values()))
+        return self._next_results_url(tpl)
+
+    def _next_results_url(self, template: object | None = None) -> str:
+        """Render the next page from ``next_page_tpl``, or reuse the endpoint."""
+        if template:
+            return self._with_query_key(self._render(template, self._render_values()))
         # Vendors that page through the body keep the endpoint URL; the page
         # number reaches the request through `request_spec`.
         return self.results_url()
+
+    def _last_page_number(self, page: ScrapedPage) -> int | None:
+        """The API's last page (``last_page_path``), or None when not configured.
+
+        An unusable/missing value returns ``0`` so the caller stops: the source
+        explicitly said where the bound lives, and over-fetching up to
+        ``max_pages`` would be the wrong fallback.
+        """
+        path = self.config.get("last_page_path")
+        if not path:
+            return None
+        try:
+            payload = json.loads(page.html_content or "")
+        except json.JSONDecodeError:
+            return 0
+        if not isinstance(payload, dict):
+            return 0
+        try:
+            return int(resolve_path(payload, path))
+        except (TypeError, ValueError):
+            return 0
+
+    def _current_page_number(self, page: ScrapedPage) -> int:
+        """The page the payload reports (``current_page_path``), else the cursor."""
+        path = self.config.get("current_page_path")
+        if not path:
+            return self._page
+        try:
+            payload = json.loads(page.html_content or "")
+            return int(resolve_path(payload, path))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return self._page
 
     def _has_next_page(self, page: ScrapedPage) -> bool | None:
         """Read the API's own pagination flag (``next_page_path``), if configured.
@@ -1106,14 +1192,35 @@ class JsonListProvider(DiscoveryProvider):
             )
 
         company_fallback = str(self.config.get("company") or "").strip()
-        jobs = [
-            self._job_from_item(item, company_fallback, page.final_url)
-            for item in items
-            if isinstance(item, dict)
-        ]
-        jobs = [job for job in jobs if job.title and job.url]
+        jobs: list[RawJob] = []
+        for item in items:
+            if not isinstance(item, dict) or self._skip_item(item):
+                continue
+            job = self._job_from_item(item, company_fallback, page.final_url)
+            if job.title and job.url:
+                jobs.append(job)
         max_results = int(self.config.get("max_results") or 0)
         return jobs[:max_results] if max_results > 0 else jobs
+
+    def _skip_item(self, item: dict) -> bool:
+        """Drop rows the API still serves but the source should not ingest."""
+        for path in _config_paths(self.config.get("skip_if_true")):
+            if as_flag(resolve_path(item, path)):
+                return True
+        # Unlike `skip_if_true`, a missing flag is not a reason to skip: only a
+        # present-and-false value means "inactive" (Remotar rows sometimes omit
+        # `active` entirely but are still live).
+        for path in _config_paths(self.config.get("skip_if_false")):
+            value = resolve_path(item, path)
+            if value is not None and not as_flag(value):
+                return True
+        return False
+
+    def _field(self, item: dict, key: str) -> object:
+        path = self.config.get(key)
+        if not path:
+            return None
+        return resolve_path(item, path)
 
     def _render_job_url(self, url: str | None, item: dict) -> str | None:
         """Turn an id/slug into the posting URL (``job_url_tpl``), if configured.
@@ -1126,43 +1233,93 @@ class JsonListProvider(DiscoveryProvider):
         tpl = self.config.get("job_url_tpl")
         if not tpl or url is None:
             return url
-        try:
-            return str(tpl).format(**{**item, "url": url})
-        except (KeyError, IndexError, ValueError) as exc:
+        rendered = render_path_template(tpl, item, extra={"url": url}, missing=None)
+        if rendered is None:
             raise ValueError(
-                f"json_list could not render 'job_url_tpl' {tpl!r}: {exc}"
-            ) from exc
+                f"json_list could not render 'job_url_tpl' {tpl!r}: "
+                "a placeholder did not resolve"
+            )
+        return rendered
+
+    def _render_fallback_url(self, item: dict) -> str | None:
+        """A public URL for rows whose ``url_path`` is empty/invalid."""
+        tpl = self.config.get("url_fallback_tpl")
+        if not tpl:
+            return None
+        labels = self.config.get("value_labels")
+        return render_path_template(
+            tpl,
+            item,
+            labels=labels if isinstance(labels, dict) else None,
+            missing=None,
+        )
+
+    def _tags(self, item: dict) -> list[str]:
+        """Map one or more (possibly wildcard) paths into a de-duplicated tag list."""
+        paths = _config_paths(self.config.get("tags_paths"))
+        if not paths:
+            paths = _config_paths(self.config.get("tags_path"))
+        tags: list[str] = []
+        for path in paths:
+            for value in resolve_path_values(item, path):
+                tags.extend(as_tag_list(value))
+        return list(dict.fromkeys(tags))
+
+    def _location(self, item: dict) -> str | None:
+        """Compose a location from several fields (``location_tpl``), if set."""
+        tpl = self.config.get("location_tpl")
+        if tpl:
+            labels = self.config.get("value_labels")
+            rendered = render_path_template(
+                tpl,
+                item,
+                labels=labels if isinstance(labels, dict) else None,
+                missing="",
+            )
+            location = _clean_location(rendered)
+            if location:
+                return location
+        return as_optional_str(self._field(item, "location_path"))
+
+    def _match_text(self, item: dict) -> str | None:
+        """Text the local keyword gate matches (``match_paths``), if configured."""
+        paths = _config_paths(self.config.get("match_paths"))
+        if not paths:
+            return None
+        parts: list[str] = []
+        for path in paths:
+            for value in resolve_path_values(item, path):
+                parts.extend(_text_values(value))
+        return " ".join(parts) or None
 
     def _job_from_item(
         self, item: dict, company_fallback: str, base_url: str
     ) -> RawJob:
-        def field(key: str) -> object:
-            path = self.config.get(key)
-            if not path:
-                return None
-            return resolve_path(item, path)
-
-        url = self._render_job_url(as_optional_str(field("url_path")), item)
-        location = as_optional_str(field("location_path"))
-        tags = as_tag_list(field("tags_path"))
+        url = as_optional_str(self._field(item, "url_path"))
+        url = self._render_job_url(url, item) if url else self._render_fallback_url(item)
+        location = self._location(item)
+        tags = self._tags(item)
         if location:
             tags.append(location)
 
-        raw_description = field("description_path")
+        raw_description = self._field(item, "description_path")
         description = None
         if raw_description:
             description = _strip_html(str(raw_description))[:2000] or None
 
         return RawJob(
-            title=str(field("title_path") or "").strip(),
-            company=str(field("company_path") or "").strip() or company_fallback,
+            title=str(self._field(item, "title_path") or "").strip(),
+            company=str(self._field(item, "company_path") or "").strip()
+            or company_fallback,
             url=urljoin(base_url, url) if url else None,
-            posted_date=coerce_date(field("date_path")),
+            posted_date=coerce_date(self._field(item, "date_path")),
             description=description,
-            tags=tags,
+            tags=list(dict.fromkeys(tags)),
             location=location,
-            external_id=as_optional_str(field("id_path")),
+            external_id=as_optional_str(self._field(item, "id_path")),
+            match_text=self._match_text(item),
         )
+
 
 class AdzunaProvider(JsonListProvider):
     """Adzuna Search API — free key, jobs straight off the results payload.
@@ -1182,7 +1339,7 @@ class AdzunaProvider(JsonListProvider):
         "?app_id={app_id}&app_key={api_key}&results_per_page={page_size}"
         "&what={query}&where={location}"
     )
-    defaults = {
+    defaults: ClassVar[dict] = {
         "country": "br",
         "query": "",
         "location": "",
@@ -1210,7 +1367,7 @@ class JoobleProvider(JsonListProvider):
     requires_key = True
     default_max_results = 5
     url_tpl = "https://jooble.org/api/{api_key}"
-    defaults = {
+    defaults: ClassVar[dict] = {
         "method": "POST",
         "query": "",
         "location": "",
@@ -1240,7 +1397,7 @@ class JSearchProvider(JsonListProvider):
     default_max_results = 5
     paginated = True
     search_url = "https://jsearch.p.rapidapi.com/search"
-    defaults = {
+    defaults: ClassVar[dict] = {
         "country": "br",
         "query": "",
         "page_size": 20,
@@ -2055,12 +2212,19 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
             "title_path",
             "url_path",
             "job_url_tpl",
+            "url_fallback_tpl",
             "company_path",
             "company",
             "location_path",
+            "location_tpl",
+            "value_labels",
             "date_path",
             "tags_path",
+            "tags_paths",
             "description_path",
+            "match_paths",
+            "skip_if_true",
+            "skip_if_false",
             "method",
             "body",
             "auth",
@@ -2068,8 +2232,18 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
             "page_size",
             "next_page_tpl",
             "next_page_path",
+            "current_page_path",
+            "last_page_path",
             "max_pages",
             "max_results",
+            "keywords",
+            "exclude_keywords",
+            "locations",
+            "match_in",
+            "max_jobs",
+            "max_jobs_per_board",
+            "max_age_days",
+            "allow_empty",
         ),
         "example": {
             "url": "https://api.example/jobs",
@@ -2363,6 +2537,11 @@ class DiscoveryScraper(AbstractScraper):
         # rejected. Both surface in the once-per-run summary.
         self._location_dropped = 0
         self._location_unknown = 0
+        # Read once: `_filter_jobs` runs for every board/page and `_config_int`
+        # would otherwise re-parse the same config dozens of times per run.
+        self._max_jobs_per_board_cap = max(
+            0, self._config_int("max_jobs_per_board", 0)
+        )
         # Boards named directly by the source (`config['seed_urls']`) are read
         # once, before the first search page: a board the index does not rank
         # for a query is otherwise invisible however large `max_boards` is.
@@ -2388,14 +2567,20 @@ class DiscoveryScraper(AbstractScraper):
 
     @property
     def allow_empty(self) -> bool:
-        """A sweep can legitimately find no matching jobs on a given day.
+        """A sweep or a local filter can legitimately find no matching jobs.
 
-        A ``locations`` gate can empty any source (a board whose openings are
-        all elsewhere), so it also opts out of the empty-parse failure.
+        A ``locations``/``keywords`` gate can empty any source (a board whose
+        openings are all elsewhere, or a keyword nobody uses), so it also opts
+        out of the empty-parse failure.
         """
         if "allow_empty" in self.provider.config:
             return as_flag(self.provider.config["allow_empty"])
-        return self._sweep or bool(self._locations)
+        return (
+            self._sweep
+            or bool(self._keyword_patterns)
+            or bool(self._exclude_patterns)
+            or bool(self._locations)
+        )
 
     def first_fetch_url(self, source_url: str) -> str:
         return self.provider.results_url()
@@ -2606,7 +2791,7 @@ class DiscoveryScraper(AbstractScraper):
 
     def _max_jobs_per_board(self) -> int:
         """Postings one board may contribute to a run (``0`` = no cap)."""
-        return max(0, self._config_int("max_jobs_per_board", 0))
+        return self._max_jobs_per_board_cap
 
     def _seed_urls(self) -> list[str]:
         return [
@@ -2758,6 +2943,9 @@ class DiscoveryScraper(AbstractScraper):
     ) -> list[RawJob]:
         """Apply the local keyword/location filters and the ``max_jobs`` caps.
 
+        Runs for every discovery payload: a sweep's board pages, a direct ATS
+        board, a results-mode search page and a ``json_list`` board.
+
         ``match_in: title`` restricts keyword and exclusion matching to the
         title and tags. A board returns every opening the company has, so
         matching the description too keeps "Growth Lead" because the company
@@ -2824,9 +3012,12 @@ class DiscoveryScraper(AbstractScraper):
     def parse(self, page: ScrapedPage) -> list[RawJob]:
         provider = self._board_for(page.final_url)
         if provider is None:
-            # Results-mode search payloads (Google Jobs) are stored without any
-            # local keyword filter, so they only pass the freshness gate.
-            return self._drop_stale(self.provider.parse(page))
+            # Results-mode search payloads (Google Jobs) and a json_list board
+            # both pass the same local gates: freshness, keywords, locations and
+            # the run caps.
+            return self._filter_jobs(
+                self._drop_stale(self.provider.parse(page)), board=page.final_url
+            )
         if not page.html_content:
             return []
         try:
@@ -2837,7 +3028,9 @@ class DiscoveryScraper(AbstractScraper):
             )
             return []
         if not self._sweep:
-            return self._drop_stale(jobs)
+            return self._filter_jobs(
+                self._drop_stale(jobs), board=page.final_url
+            )
         # Age first: a stale opening must not consume a `max_jobs` slot that a
         # fresh one would have used.
         kept = self._filter_jobs(self._drop_stale(jobs), board=page.final_url)

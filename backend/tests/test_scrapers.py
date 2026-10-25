@@ -47,7 +47,9 @@ from scrapers.utils import (
     parse_json_ld_jobs,
     redact_sensitive,
     relative_age,
+    render_path_template,
     resolve_path,
+    resolve_path_values,
 )
 
 from app.models.enums import SourceType
@@ -1107,6 +1109,56 @@ def test_resolve_path_handles_dicts_indices_and_misses():
     assert resolve_path(payload, {"not": "a path"}) is None
 
 
+def test_resolve_path_values_projects_wildcards_and_scalars():
+    payload = {
+        "jobTags": [
+            {"tag": {"name": "CLT"}},
+            {"tag": {"name": "100% Remoto"}},
+        ],
+        "company": {"name": "Acme"},
+        "items": [{"id": 1}, {"id": 2}],
+    }
+    assert resolve_path_values(payload, "jobTags[].tag.name") == [
+        "CLT",
+        "100% Remoto",
+    ]
+    assert resolve_path_values(payload, "items[].id") == [1, 2]
+    # No wildcard: one value, or an empty list on a miss.
+    assert resolve_path_values(payload, "company.name") == ["Acme"]
+    assert resolve_path_values(payload, "company.missing") == []
+    assert resolve_path_values(payload, "jobTags[].missing") == []
+    assert resolve_path_values(payload, "") == [payload]
+
+
+def test_render_path_template_composes_labels_and_optional_parts():
+    item = {
+        "type": "remote",
+        "city": "São Paulo",
+        "state": "SP",
+        "country": {"name": None},
+        "id": 7,
+    }
+    labels = {"type": {"remote": "Remote", "hybrid": "Hybrid"}}
+    assert render_path_template(
+        "{type} - {city}, {state}, {country.name}", item, labels=labels
+    ) == "Remote - São Paulo, SP, "
+    # A required placeholder (`missing=None`) makes the whole template unresolved.
+    assert (
+        render_path_template(
+            "https://board.example/{id}/{missing}", item, missing=None
+        )
+        is None
+    )
+    assert render_path_template("https://board.example/{id}", item, missing=None) == (
+        "https://board.example/7"
+    )
+    # `extra` wins over an item field of the same name.
+    assert render_path_template(
+        "https://board.example/{url}", item, extra={"url": "https://a.example/1"}
+    ) == "https://board.example/https://a.example/1"
+    assert render_path_template(None, item) is None
+
+
 def test_coerce_date_handles_iso_epoch_and_invalid_values():
     assert coerce_date("2026-08-01T10:00:00Z") == date(2026, 8, 1)
     assert coerce_date("2026-08-01") == date(2026, 8, 1)
@@ -1679,6 +1731,339 @@ def test_fullstack_config_parses_the_public_board():
     # The list payload carries no body; descriptions need the detail endpoint.
     assert first.description is None
     assert provider.next_page_url(page) == FULLSTACK_URL.format(page=2)
+
+# --- Remotar (public jobs API) ------------------------------------------------
+
+
+REMOTAR_CONFIG = {
+    "provider": "json_list",
+    "url": "https://api.remotar.com.br/jobs?page={page}&limit={page_size}",
+    "page_size": 100,
+    "max_pages": 200,
+    "items_path": "data",
+    "id_path": "id",
+    "title_path": "title",
+    "url_path": "externalLink",
+    "url_fallback_tpl": "https://remotar.com.br/job/{id}",
+    "company_path": "company.name",
+    "location_tpl": "{type} - {city}, {state}, {country.name}",
+    "value_labels": {
+        "type": {"remote": "Remote", "hybrid": "Hybrid", "onsite": "On-site"},
+    },
+    "date_path": "createdAt",
+    "description_path": "description",
+    "tags_paths": ["jobTags[].tag.name", "jobCategories[].category.name"],
+    "match_paths": ["subtitle", "description", "jobRequirements[].description"],
+    "skip_if_true": ["expired"],
+    "skip_if_false": ["active"],
+    "last_page_path": "meta.last_page",
+    "current_page_path": "meta.current_page",
+    "keywords": ["rust", "c++", "cpp", "golang", "go engineer", "go developer"],
+    "exclude_keywords": ["sales"],
+    "locations": [
+        "remote",
+        "brazil",
+        "brasil",
+        "sao paulo",
+        "são paulo",
+        "sao jose dos campos",
+        "são josé dos campos",
+    ],
+}
+REMOTAR_PAYLOAD = {
+    "meta": {"total": 10, "per_page": 100, "current_page": 1, "last_page": 2},
+    "data": [
+        {
+            "id": 168020,
+            "title": "Senior Go Engineer",
+            "subtitle": "GoLang, microsserviços e arquitetura hexagonal",
+            "description": "<p>Build <b>APIs</b> in Go.</p>",
+            "type": "remote",
+            "city": "São Paulo",
+            "state": "SP",
+            "country": None,
+            "externalLink": "https://quality.example/jobs/168020",
+            "active": True,
+            "expired": False,
+            "createdAt": "2026-10-23T17:37:36.204-03:00",
+            "company": {"name": "Quality Digital"},
+            "jobTags": [{"tag": {"name": "CLT"}}, {"tag": {"name": "100% Remoto"}}],
+            "jobCategories": [{"category": {"name": "Programação"}}],
+            "jobRequirements": [{"description": "Experiência com Rust e C++."}],
+        },
+        {
+            "id": 168021,
+            "title": "Platform Engineer",
+            "subtitle": "Python and Django",
+            "description": "<p>Own the platform.</p>",
+            "type": "remote",
+            "city": "",
+            "state": "",
+            "country": None,
+            "externalLink": None,
+            "active": True,
+            "expired": False,
+            "createdAt": "2026-10-22T10:00:00-03:00",
+            "company": {"name": "Acme"},
+            "jobTags": [],
+            "jobCategories": [],
+            "jobRequirements": [{"description": "Rust in production."}],
+        },
+        {
+            "id": 168022,
+            "title": "Python Developer",
+            "subtitle": "Django",
+            "description": "<p>Python only.</p>",
+            "type": "remote",
+            "externalLink": "https://example.test/168022",
+            "active": True,
+            "expired": False,
+            "company": {"name": "Beta"},
+            "jobRequirements": [],
+        },
+        {
+            "id": 168023,
+            "title": "Rust Engineer",
+            "subtitle": "Sistemas distribuídos",
+            "description": "<p>Rust and Tokio.</p>",
+            "type": "hybrid",
+            "city": "São Paulo",
+            "state": "SP",
+            "country": {"name": "Brasil"},
+            "externalLink": "https://example.test/168023",
+            "active": True,
+            "expired": False,
+            "createdAt": "2026-10-21T09:00:00-03:00",
+            "company": {"name": "Gamma"},
+            "jobRequirements": [],
+        },
+        {
+            "id": 168024,
+            "title": "C++ Developer",
+            "description": "<p>C++ and Qt.</p>",
+            "type": "onsite",
+            "city": "Rio de Janeiro",
+            "state": "RJ",
+            "externalLink": "https://example.test/168024",
+            "active": True,
+            "expired": False,
+            "company": {"name": "Delta"},
+        },
+        {
+            "id": 168025,
+            "title": "Expired Rust Developer",
+            "description": "<p>Rust.</p>",
+            "type": "remote",
+            "active": True,
+            "expired": True,
+            "externalLink": "https://example.test/168025",
+        },
+        {
+            "id": 168026,
+            "title": "Inactive Rust Developer",
+            "description": "<p>Rust.</p>",
+            "type": "remote",
+            "active": False,
+            "expired": False,
+            "externalLink": "https://example.test/168026",
+        },
+        {
+            "id": 168027,
+            "title": "Go Developer",
+            "description": "<p>Go services.</p>",
+            "type": "onsite",
+            "city": "São José dos Campos",
+            "state": "SP",
+            "externalLink": "https://example.test/168027",
+            "active": True,
+            "expired": False,
+            "company": {"name": "Epsilon"},
+        },
+        {
+            "id": 168028,
+            "description": "<p>Rust without a title.</p>",
+            "type": "remote",
+            "externalLink": "https://example.test/168028",
+            "active": True,
+            "expired": False,
+        },
+        {
+            "id": 168029,
+            "title": "Rust Sales Engineer",
+            "description": "<p>Rust demos.</p>",
+            "type": "remote",
+            "externalLink": "https://example.test/168029",
+            "active": True,
+            "expired": False,
+            "company": {"name": "Zeta"},
+        },
+    ],
+}
+
+
+def test_remotar_config_maps_the_public_api_payload():
+    provider = JsonListProvider(REMOTAR_CONFIG)
+
+    assert provider.results_url() == (
+        "https://api.remotar.com.br/jobs?page=1&limit=100"
+    )
+    assert provider.page_size() == 100
+    assert provider.max_pages() == 200
+
+    jobs = provider.parse(_json_page(REMOTAR_PAYLOAD))
+
+    # The provider maps; filtering is the DiscoveryScraper's job (see the next
+    # test). Expired/inactive rows and rows without a title are skipped here.
+    assert [job.title for job in jobs] == [
+        "Senior Go Engineer",
+        "Platform Engineer",
+        "Python Developer",
+        "Rust Engineer",
+        "C++ Developer",
+        "Go Developer",
+        "Rust Sales Engineer",
+    ]
+    first = jobs[0]
+    assert first.company == "Quality Digital"
+    assert first.external_id == "168020"
+    assert first.url == "https://quality.example/jobs/168020"
+    assert first.posted_date == date(2026, 10, 23)
+    assert first.location == "Remote - São Paulo, SP"
+    assert first.tags == [
+        "CLT",
+        "100% Remoto",
+        "Programação",
+        "Remote - São Paulo, SP",
+    ]
+    assert first.description is not None
+    assert "Build" in first.description and "<b>" not in first.description
+    # The keyword gate sees the subtitle, the body and the requirements.
+    assert first.match_text is not None
+    assert "GoLang" in first.match_text
+    assert "Rust e C++" in first.match_text
+
+    # `externalLink` is absent on some rows: the public posting URL is rebuilt.
+    assert jobs[1].url == "https://remotar.com.br/job/168021"
+    assert jobs[1].location == "Remote"
+    # A hybrid posting keeps its city/state/country label.
+    assert jobs[3].location == "Hybrid - São Paulo, SP, Brasil"
+    assert jobs[5].location == "On-site - São José dos Campos, SP"
+
+
+def test_remotar_config_uses_the_generic_discovery_filters():
+    """A plain json_list source gets keywords/locations without custom Python."""
+
+    scraper = DiscoveryScraper("json_list", REMOTAR_CONFIG)
+    jobs = scraper.parse(_json_page(REMOTAR_PAYLOAD))
+
+    assert [job.title for job in jobs] == [
+        "Senior Go Engineer",
+        "Platform Engineer",
+        "Rust Engineer",
+        "Go Developer",
+    ]
+    assert scraper.allow_empty is True
+    assert scraper._location_dropped == 1  # C++ role in Rio de Janeiro
+    assert scraper._location_unknown == 0
+
+
+def test_remotar_config_follows_the_numeric_last_page():
+    provider = JsonListProvider(REMOTAR_CONFIG)
+    first = _json_page(
+        {
+            "data": [],
+            "meta": {"current_page": 1, "last_page": 2, "per_page": 100, "total": 150},
+        }
+    )
+    assert provider.next_page_url(first) == (
+        "https://api.remotar.com.br/jobs?page=2&limit=100"
+    )
+    last = _json_page(
+        {
+            "data": [],
+            "meta": {"current_page": 2, "last_page": 2, "per_page": 100, "total": 150},
+        }
+    )
+    assert provider.next_page_url(last) is None
+    # `last_page_path` is authoritative: a payload that loses it stops the walk
+    # instead of fetching empty pages up to `max_pages`.
+    assert provider.next_page_url(_json_page({"data": [], "meta": {}})) is None
+    # `current_page_path` wins over the provider's own cursor.
+    ahead = _json_page(
+        {"data": [], "meta": {"current_page": 3, "last_page": 4, "per_page": 100}}
+    )
+    assert provider.next_page_url(ahead) == (
+        "https://api.remotar.com.br/jobs?page=4&limit=100"
+    )
+    # The source's own page budget still caps the walk.
+    capped = JsonListProvider({**REMOTAR_CONFIG, "max_pages": 1})
+    assert capped.next_page_url(first) is None
+
+
+def test_remotar_config_keyword_gate_respects_whole_terms_and_exclusions():
+    scraper = DiscoveryScraper(
+        "json_list",
+        {
+            **REMOTAR_CONFIG,
+            "keywords": ["c++", "rust"],
+            "exclude_keywords": ["sales"],
+            "locations": ["remote"],
+        },
+    )
+    payload = {
+        "data": [
+            # `c++` has no word boundary at the end; the term matcher handles it.
+            {"id": 1, "title": "C++ Developer", "type": "remote"},
+            # "Django" must not match the whole term "rust".
+            {"id": 2, "title": "Django Developer", "type": "remote"},
+            # Exclusion wins over a matching keyword.
+            {"id": 3, "title": "Rust Sales Engineer", "type": "remote"},
+        ]
+    }
+    jobs = scraper.parse(_json_page(payload))
+    assert [job.title for job in jobs] == ["C++ Developer"]
+
+
+def test_remotar_config_rejects_a_payload_without_a_job_array():
+    provider = JsonListProvider(REMOTAR_CONFIG)
+    with pytest.raises(ValueError, match="array"):
+        provider.parse(_json_page({"data": "not-a-list"}))
+
+
+def test_remotar_config_is_registered_and_dispatched():
+    provider = get_discovery_provider("json_list", REMOTAR_CONFIG)
+    assert isinstance(provider, JsonListProvider)
+    assert provider.family == "json"
+    assert provider.requires_key is False
+    JsonListProvider.validate_config(REMOTAR_CONFIG)
+    metadata = JsonListProvider.config_metadata()["optional"]
+    for key in (
+        "keywords",
+        "locations",
+        "match_paths",
+        "location_tpl",
+        "last_page_path",
+        "tags_paths",
+        "skip_if_true",
+        "url_fallback_tpl",
+    ):
+        assert key in metadata
+
+    scraper = get_scraper(
+        SimpleNamespace(type=SourceType.discovery, config=REMOTAR_CONFIG)
+    )
+    assert scraper.first_fetch_url("https://ignored.example") == (
+        "https://api.remotar.com.br/jobs?page=1&limit=100"
+    )
+    assert scraper.allow_empty is True
+
+
+def test_remotar_config_owns_the_page_budget_and_page_size():
+    assert JsonListProvider(REMOTAR_CONFIG).max_pages() == 200
+    assert JsonListProvider({**REMOTAR_CONFIG, "max_pages": 5}).max_pages() == 5
+    assert JsonListProvider({"url": "https://api.example/jobs"}).max_pages() == 1
+    assert JsonListProvider(REMOTAR_CONFIG).page_size() == 100
+
 
 # --- Keyed JSON APIs (json_list auth/POST/paging, Adzuna, Jooble, JSearch) -----
 

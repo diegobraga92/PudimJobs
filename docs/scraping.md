@@ -12,7 +12,7 @@ ADR 010 (discovery sources) and ADR 018 (manual watchlist sources).
 | `aggregator` | `generic_html_list`, `embedded_json_list` | one static HTML *listing* page + optional pagination (`next_page_selector` or `next_page_tpl`) | yes, with `"detail": true` |
 | `rss` | `feedparser` | RSS 2.0 / Atom feed (`url` **is** the feed URL) | no |
 | `discovery` (ATS) | `ashby`, `greenhouse`, `lever`, `workable`, `smartrecruiters`, `recruitee`, `personio`, `workday` | public JSON board endpoint | no |
-| `discovery` (JSON) | `json_list`, `adzuna`, `jooble`, `jsearch` | any JSON API (`paths` + `url_tpl`/`url`); the keyed vendors ship their own defaults | no |
+| `discovery` (JSON) | `json_list`, `adzuna`, `jooble`, `jsearch` | any JSON API (`paths` + `url_tpl`/`url`); the keyed vendors ship their own defaults, and `json_list` covers public boards such as Remotar | no |
 | `discovery` (search) | `google_cse`, `bing`, `brave`, `serpapi`, `brightdata` | search results → detail pages (or the results page itself with `parse_listing`) | **yes** |
 | `manual` | none — hand-checked | nothing; the user re-checks the board and the app reminds them | no |
 
@@ -96,23 +96,24 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `next_page_tpl` | pages 2..`max_pages` are **built** from this template, rendered with any config key plus `{page}` (`…/search?term={term}&page={page}`; relative templates resolve against the page they were read from). A JSON blob (`embedded_json_list`) has no `<a>` to follow, so here it is the only way to page; `generic_html_list` falls back to it when no `next_page_selector` is set (dev.pro's pager renders the *current* page as a `<span>` and the lowest number first, so "the next link" cannot be expressed as a selector) | — |
 | `url_tpl` | `generic_html_list` / `json_list`: page 1 is built from this template instead of the stored URL (`{page}` = 1 here, plus every other config key), so a term or locale can live in the config. In `embedded_json_list` the same key means the *job* URL (`{url}` from `url_path`) | — |
 | `max_results` | detail pages fetched / jobs returned (ignored for a sweep — `max_boards` owns that cap) | `20` (keyed search APIs lower it to `5`) |
-| `allow_empty` | do not fail when the parse yields 0 jobs | `false` (`true` for `sweep_ats`) |
+| `allow_empty` | do not fail when the parse yields 0 jobs | `false` (`true` for `sweep_ats` and any `keywords`/`exclude_keywords`/`locations` gate) |
 | `exclude_pattern` | case-insensitive regex tested against a card/job's text (aggregator adapters). Use it for stale labels such as `\bexpirad[ao]s?\b`; matching rows are dropped before storage | — |
 | `parse_listing` | parse the *results page itself* instead of fetching each job (search providers: one paid call per run) | `false` |
 | `query` / `queries` | search providers: one query, or a non-empty list consumed in order (each with its own pagination) | `query` |
 | `sweep_ats` | search providers (`google_cse`, `bing`, `brave`): treat results as ATS board URLs and read the public board APIs instead of fetching each hit | `false` |
-| `keywords` / `exclude_keywords` | sweep-only whole-term filters over title, tags and description (`c++` works); excludes win | — |
+| `keywords` / `exclude_keywords` | discovery whole-term filters over title, tags and description (`c++` works); excludes win | — |
 | `locations` | ingestion-time location gate for **every** source type: keep a job when any term matches its detected location (case/accent-insensitive, whole term). Jobs with **no** detected location are always kept; `[]`/empty disables the gate | — |
-| `max_boards` / `max_jobs` | sweep-only caps: boards per run; kept jobs per run (`0` = no cap) | `40` / `0` |
+| `max_boards` | sweep-only cap: boards per run | `40` |
+| `max_jobs` | discovery cap: kept jobs per run (`0` = no cap), including results-mode search providers and `json_list` boards | `0` |
 | `board_rate_limit_seconds` | sweep-only: cooldown between two board fetches (the source `rate_limit_seconds` still governs the search API) | `3` |
 | `min_boards_per_query` | sweep-only: floor reserved for the queries not visited yet. The rest of `max_boards` is split **equally** between the remaining queries, so query #1 cannot spend the budget on its own | `2` |
 | `seed_urls` | sweep-only: board or job URLs read on **every** run, before the index is even asked (`https://job-boards.greenhouse.io/alpaca/jobs/123` is enough — the board is resolved from it). The vocabulary-free way to cover a board the index never ranks for the queries | — |
 | `query_hints` | search providers: extra wording appended to **every** query (`["remote brazil"]` turns `golang site:greenhouse.io` into two queries). Only widens what the index offers — the `keywords`/`locations` filters still decide what is kept | — |
 | `board_max_jobs` | sweep-only: postings read from one board before paging stops (`ats_board_truncated` is logged when the cap cuts a full page). Falls back to `max_results`, then 1000 | `1000` |
 | `board_reread_days` | sweep-only: a board read less than this many days ago goes **behind** every board that is unread or last read earlier, so the budget rotates over the boards the index offers instead of re-reading the same slice (`0` disables rotation: the index order wins again) | `3` |
-| `max_jobs_per_board` | sweep-only: postings one board may contribute to a run (`0` = no cap). A blunt instrument — it truncates the *same* board on every visit, so prefer `board_reread_days`/`max_boards` when a board eats the run | `0` |
+| `max_jobs_per_board` | discovery: postings one board page may contribute to a run (`0` = no cap). A blunt instrument — it truncates the *same* board on every visit, so in a sweep prefer `board_reread_days`/`max_boards` when a board eats the run | `0` |
 | `sweep_max_seconds` | sweep-only: wall-clock budget for the run (`0` = no cap) | `0` |
-| `match_in` | sweep-only: `title` restricts `keywords`/`exclude_keywords` to title + tags (the location gate always reads the detected location only) | `anywhere` |
+| `match_in` | discovery: `title` restricts `keywords`/`exclude_keywords` to title + tags (the location gate always reads the detected location only) | `anywhere` |
 | `max_age_days` | discovery providers: drop postings older than this many days (`0` = keep everything). Only acts on **dated** postings — undated rows are kept and counted as `undated` in the run log | `0` |
 
 **URL arguments and search terms.** A stored `url` is fetched **verbatim** by
@@ -186,8 +187,14 @@ are redacted before they are stored or returned).
 | `url` / `url_tpl` | endpoint template; any config key plus the reserved `{api_key}`, `{page}` and `{page_size}` renders into it (`{api_key}` in the template means "the key goes right here") |
 | `auth` | where the key travels: `"query"` or `{"in": "query", "name": "app_key"}`, `{"in": "header", "name": "X-Api-Key"}`, or nothing at all so the `{api_key}` marker above decides. Names default to `X-API-Key` |
 | `method` + `body` | `POST` + a JSON `body` template for vendors that only answer to POST; body placeholders render as **text**, so quote them (`"page": "{page}"`, not `"page": {page}`) |
-| `next_page_tpl` / `next_page_path` / `max_pages` | pagination. Providers that page through the body (Jooble) keep the same URL and send `{page}` in the body — the worker knows such a URL is not "no more pages" (`pagination_in_body`). `next_page_path` reads the API's own flag (a dotted path such as `meta.hasNextPage`) and stops the walk when it is false or missing, so a board that grows does not need `max_pages` retuned |
+| `next_page_tpl` / `next_page_path` / `current_page_path` / `last_page_path` / `max_pages` | pagination. Providers that page through the body (Jooble) keep the same URL and send `{page}` in the body — the worker knows such a URL is not "no more pages" (`pagination_in_body`). `next_page_path` reads the API's own flag (a dotted path such as `meta.hasNextPage`) and stops the walk when it is false or missing. A numeric bound works instead: `last_page_path` (`meta.last_page`) plus `current_page_path` (`meta.current_page`) follows the payload's own page count; once configured, a payload that loses that field stops the walk rather than over-fetching to `max_pages`. `max_pages` is always the source's config, never a provider default |
 | `url_path` + `job_url_tpl` | `url_path` extracts the item's link; when the payload only carries an id/slug (`url_path: "id"`), `job_url_tpl` renders any item field plus `{url}` into the public posting URL (`"https://talent.fullstack.com/jobs/{id}"`) instead of letting the id resolve against the API host. A placeholder with no matching field fails the run |
+| `url_fallback_tpl` | public posting URL for rows whose `url_path` is empty (`"https://remotar.com.br/job/{id}"`); missing placeholders make the row unpostable instead of storing a broken link |
+| `location_path` / `location_tpl` | `location_path` maps a single field; `location_tpl` composes several (`"{type} - {city}, {state}, {country.name}"`). Missing parts and their separators are cleaned up, so a row with no country becomes `Remote - São Paulo, SP` |
+| `value_labels` | map an API enum to a readable display value wherever a template renders it (`{"type": {"remote": "Remote", "onsite": "On-site"}}`); the raw value is still what `skip_if_*` sees |
+| `tags_path` / `tags_paths` | one path, or a list of paths, mapped into tags. A path may project nested arrays with `[]` (`"jobTags[].tag.name"`, `"jobRequirements[].description"`); the location is appended to the tags as before |
+| `match_paths` | extra text for the local `keywords`/`exclude_keywords` gate, with the same wildcard syntax (`["subtitle", "description", "jobRequirements[].description"]`); use it when the stored 2 KB description is not enough |
+| `skip_if_true` / `skip_if_false` | drop a row when a path is truthy (`["expired"]`) or present-and-false (`["active"]`). A missing `skip_if_false` path is **not** a skip: many boards omit the flag on live rows |
 | `items_path`, `title_path`, … | field mapping, exactly as for any other `json_list` source |
 
 | Provider | Endpoint / key | Notes |
@@ -196,7 +203,8 @@ are redacted before they are stored or returned).
 | `jooble` | `jooble.org/api/{api_key}` — POST, key in the path | the body is `{"keywords": "{query}", "location": "{location}", "page": "{page}"}`; jobs come from `jobs[]` |
 | `jsearch` | `jsearch.p.rapidapi.com/search` — GET | RapidAPI wants the key **and** the host it was issued for, so the provider sends `X-RapidAPI-Key` + `X-RapidAPI-Host`; jobs come from `data[]` |
 
-Only `query` (plus `app_id` for Adzuna) is required — everything else is
+The three keyed vendors above require only `query` (plus `app_id` for Adzuna) —
+everything else is
 pre-filled and can be overridden per source. A run for one of these without a
 stored key is recorded as `skipped` with the reason (`this source needs an API
 key …`) **before** the first request, instead of failing with the vendor's 401:
@@ -383,8 +391,8 @@ not a feed parameter).
 (`weworkremotely.com/remote-jobs.rss`), NoDesk (`nodesk.co/remote-jobs/index.xml`),
 RemoteYeah, Dexian Brasil, Rangertech (feed href declared in the search page).
 Remote Habit only feeds interviews/tools → use its HTML
-listing. RemoteOK / Remotive / Working Nomads expose JSON (use `json_list`), not
-job RSS.
+listing. RemoteOK / Remotive / Working Nomads / Remotar expose JSON (use
+`json_list`), not job RSS.
 
 Jobspresso is the exception that proves it: `jobspresso.co/jobs/feed/` (the bare
 `/feed/` is the *blog* and carries **0** jobs) holds only the 20 newest
@@ -655,7 +663,62 @@ of over-fetching up to `max_pages`. The **list payload carries no description**:
 rows hold title, company, location, date and `skillsNames` as tags, and
 `POST /api/jobs/{id}/parse` has no body to read. Narrow the volume with the
 Brazil/São Paulo filter, `max_age_days`, or a `locations` eligibility gate
-(keyword filters only apply to sweeps).
+(the same keyword filters now apply to every discovery provider).
+
+**Remotar (public jobs API).** `remotar.com.br` is a Next.js shell with an empty
+`pageProps`, but the board's listing API is public and unauthenticated:
+`https://api.remotar.com.br/jobs?page={n}&limit=100` answers
+`{meta: {total, per_page, current_page, last_page}, data: [...]}` — 3,656 active
+postings across 37 pages at the time of writing. The API's own `search` argument
+matches titles only and silently ignores unmatched terms, so the source sweeps
+every page and filters locally. It needs no key and is expressed entirely as a
+`json_list` config:
+
+```json
+{
+  "provider": "json_list",
+  "url": "https://api.remotar.com.br/jobs?page={page}&limit={page_size}",
+  "page_size": 100,
+  "max_pages": 200,
+  "items_path": "data",
+  "id_path": "id",
+  "title_path": "title",
+  "url_path": "externalLink",
+  "url_fallback_tpl": "https://remotar.com.br/job/{id}",
+  "company_path": "company.name",
+  "location_tpl": "{type} - {city}, {state}, {country.name}",
+  "value_labels": {
+    "type": {"remote": "Remote", "hybrid": "Hybrid", "onsite": "On-site"}
+  },
+  "date_path": "createdAt",
+  "description_path": "description",
+  "tags_paths": ["jobTags[].tag.name", "jobCategories[].category.name"],
+  "match_paths": ["subtitle", "description", "jobRequirements[].description"],
+  "skip_if_true": ["expired"],
+  "skip_if_false": ["active"],
+  "last_page_path": "meta.last_page",
+  "current_page_path": "meta.current_page",
+  "keywords": ["rust", "c++", "cpp", "golang", "go engineer", "go developer"],
+  "exclude_keywords": ["sales"],
+  "locations": ["remote", "remoto", "home office", "brazil", "brasil",
+                "sao paulo", "são paulo", "sao jose dos campos",
+                "são josé dos campos"]
+}
+```
+
+`keywords`/`exclude_keywords` match whole terms over the title, subtitle, full
+description, `jobRequirements[]` and the mapped tags, so a stack mentioned only
+in a requirement still matches; `locations` runs against the composed
+`Remote`/`Hybrid`/`On-site - City, State, Country` label. Tags come from
+`jobTags[]` (seniority, contract, 100% remoto) and `jobCategories[]`; 33 rows
+have `externalLink: null` and fall back to `https://remotar.com.br/job/{id}`.
+Postings with `expired: true` or `active: false` are skipped before mapping. At
+100 jobs per request the full board is ~37 requests; the API caps `limit` at
+100, so the config sets `page_size: 100` and `max_pages: 200` (headroom for a
+growing catalogue). A 2 s `rate_limit_seconds` finishes a run in ~75 s (the old
+30 s default would make the same sweep an 18-minute run). Because the source is
+a plain `json_list` board, the same generic filters apply to it as to a sweep:
+no Remotar-specific Python is needed.
 
 **Comeet boards (MWDN).** `jobs.mwdn.com/careers/` embeds a Comeet widget. The
 `ul.comeet-positions-list` is **empty** in the static HTML and the 41 cards that do
@@ -971,7 +1034,7 @@ collected through its public JSON API — see *Id-only JSON boards* above.
   `type = manual` sources instead (ADR 018): the user re-checks them by hand and
   the app reminds them when due. Verified into this bucket: arc.dev, beon.tech,
   Crossover, Encora (`careers.encora.com`), Greenhouse's
-  candidate dashboard, Impulso, Randstad, Remotar, Trampos, Tecla, X-Team
+  candidate dashboard, Impulso, Randstad, Trampos, Tecla, X-Team
   (`x-team.com/remote-jobs` 404s; `jobs.x-team.com` is a shell — see the JS-only
   shells below), Vagas.com.br's *meu-perfil* — none of
   them render job rows into the initial HTML.
@@ -992,7 +1055,6 @@ collected through its public JSON API — see *Id-only JSON boards* above.
   to select). Verified: `career.sigma.software/what-we-offer/vacancies/` (the
   `?location=` filter changes only the UI state), `remotifyeurope.com/remote-jobs`
   (its JSON-LD blocks describe the *site*, not jobs), `br.jobsora.com/empregos`,
-  `remotar.com.br` (`__NEXT_DATA__` present but `pageProps` is empty),
   `jobs.x-team.com` (`x-team.com/remote-jobs` is a 404 and the current host is an
   SPA shell), `app.tecla.io/jobs`, `work.turing.com/jobs`, `himalayas.app`
   (HTTP 403). Keep them `manual` (ADR 018) or wire up a provider — a stored URL

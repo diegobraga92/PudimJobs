@@ -398,6 +398,114 @@ def resolve_path(data: object, path: object, *, default: object = None) -> objec
     return current
 
 
+def _split_path_tokens(path: str) -> list[str]:
+    """Split ``a.b[0].c`` / ``a.b[].c`` into path tokens (``[]`` -> ``*``)."""
+    normalized = re.sub(r"\[\s*\]", ".*", path)
+    normalized = normalized.replace("[", ".").replace("]", "")
+    return [part for part in normalized.split(".") if part]
+
+
+def resolve_path_values(data: object, path: object) -> list[object]:
+    """Resolve a path that may contain ``[]`` wildcards into every match.
+
+    :func:`resolve_path` returns one value (or a list when the path ends at an
+    array).  This variant projects wildcard segments across arrays instead, so
+    ``jobTags[].tag.name`` returns every tag name and ``items[].id`` returns
+    every id.  A path with no wildcard returns a single-element list, and a
+    path that resolves to nothing returns an empty list.
+    """
+    if path is None or path == "":
+        return [data]
+    if not isinstance(path, str):
+        return []
+    tokens = _split_path_tokens(path)
+    if not tokens:
+        return [data]
+    current: list[object] = [data]
+    for token in tokens:
+        next_values: list[object] = []
+        if token == "*":
+            for value in current:
+                if isinstance(value, list):
+                    next_values.extend(value)
+                elif isinstance(value, dict):
+                    next_values.extend(value.values())
+            current = next_values
+            if not current:
+                return []
+            continue
+        for value in current:
+            if isinstance(value, dict):
+                if token in value:
+                    next_values.append(value[token])
+            elif isinstance(value, list):
+                try:
+                    index = int(token)
+                except ValueError:
+                    continue
+                if -len(value) <= index < len(value):
+                    next_values.append(value[index])
+        current = next_values
+        if not current:
+            return []
+    return current
+
+
+class _MissingTemplateValue(Exception):
+    """Internal signal: a required ``{path}`` placeholder did not resolve."""
+
+
+_TEMPLATE_FIELD_RE = re.compile(r"\{([^{}]+)\}")
+
+
+def render_path_template(
+    template: object,
+    data: object,
+    *,
+    extra: dict | None = None,
+    labels: dict | None = None,
+    missing: str | None = "",
+) -> str | None:
+    """Render ``{dotted.path}`` placeholders from a JSON item.
+
+    The item is addressed with the same syntax as :func:`resolve_path`, so a
+    config can compose values without extra code::
+
+        render_path_template("{type} - {city}, {state}, {country.name}", item)
+
+    ``missing`` controls unresolved placeholders: a string substitutes it, and
+    ``None`` makes the whole template unresolved (the function returns
+    ``None``), which is how a required URL template fails fast.  ``labels`` maps
+    a path to a ``{raw_value: display_value}`` table, letting an API enum render
+    as a readable label without changing the stored/filtered value.
+    """
+    if template is None or template == "":
+        return None
+    text = str(template)
+    context = extra or {}
+
+    def replace(match: re.Match[str]) -> str:
+        path = match.group(1).strip()
+        value = context[path] if path in context else resolve_path(data, path)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            if missing is None:
+                raise _MissingTemplateValue(path)
+            return missing
+        label_map = (labels or {}).get(path)
+        if isinstance(label_map, dict):
+            mapped = label_map.get(str(value))
+            if mapped is None:
+                mapped = label_map.get(str(value).strip().lower())
+            if mapped is not None:
+                value = mapped
+        return str(value)
+
+    try:
+        return _TEMPLATE_FIELD_RE.sub(replace, text)
+    except _MissingTemplateValue:
+        return None
+
+
 def coerce_date(value: object) -> date | None:
     """Best-effort ``date`` from a JSON payload value."""
     if isinstance(value, datetime):
