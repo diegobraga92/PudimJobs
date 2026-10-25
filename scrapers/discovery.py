@@ -145,6 +145,20 @@ def _int_config(config: dict, key: str, default: int = 0) -> int:
         return default
 
 
+def _filter_text(value: object) -> str:
+    """How ``items_filter`` compares a payload value with the configured one.
+
+    Everything becomes trimmed text, so a JSON ``true``/``1`` and the strings
+    ``"true"``/``"1"`` select the same rows.
+    """
+    return "" if value is None else str(value).strip()
+
+
+def _url_path_key(url: str) -> str:
+    """A host-independent key for a posting URL (query string, slash ignored)."""
+    return urlparse(url).path.rstrip("/")
+
+
 def _config_paths(value: object) -> list[str]:
     """Normalize a config value that may be one path or a list of paths."""
     if isinstance(value, str):
@@ -1006,7 +1020,8 @@ class JsonListProvider(DiscoveryProvider):
         url = self.config.get("url") or self.config.get("url_tpl")
         if not url:
             raise ValueError(
-                "json_list requires a 'url' or 'url_tpl' entry in the source config"
+                f"{self.provider_name} requires a 'url' or 'url_tpl' entry "
+                "in the source config"
             )
         return str(url)
 
@@ -1209,15 +1224,25 @@ class JsonListProvider(DiscoveryProvider):
             return False
         return as_flag(resolve_path(payload, path))
 
-    def parse(self, page: ScrapedPage) -> list[RawJob]:
+    def _payload(self, page: ScrapedPage) -> object:
+        """The JSON document a page carries (``next_data`` reads it from HTML)."""
         try:
-            payload = json.loads(page.html_content or "")
+            return json.loads(page.html_content or "")
         except json.JSONDecodeError as exc:
-            raise ValueError(f"json_list: response is not valid JSON ({exc.msg})") from exc
+            raise ValueError(
+                f"{self.provider_name}: response is not valid JSON ({exc.msg})"
+            ) from exc
 
+    def _items(self, payload: object) -> object:
+        """The jobs container inside a payload (``items_path``)."""
         items = resolve_path(payload, self.config.get("items_path"))
         if isinstance(items, dict):
             items = [items]
+        return items
+
+    def parse(self, page: ScrapedPage) -> list[RawJob]:
+        payload = self._payload(page)
+        items = self._items(payload)
         if isinstance(items, str) and self.config.get("item_selector"):
             # A WordPress-style "load more" action wraps its cards in a JSON
             # *string* (`{"data": {"html": "<a class=...>"}}`). Hand the fragment
@@ -1235,7 +1260,7 @@ class JsonListProvider(DiscoveryProvider):
             return jobs[:max_results] if max_results > 0 else jobs
         if not isinstance(items, list):
             raise ValueError(
-                "json_list: 'items_path' must point to a JSON array of jobs "
+                f"{self.provider_name}: 'items_path' must point to a JSON array of jobs "
                 f"(got {type(items).__name__})"
             )
 
@@ -1476,6 +1501,176 @@ class JSearchProvider(JsonListProvider):
         if self.api_key:
             headers["X-RapidAPI-Key"] = self.api_key
         return headers
+
+
+class NextDataProvider(JsonListProvider):
+    """Board whose JSON rides inside its own HTML (``<script id="__NEXT_DATA__">``).
+
+    Next.js serialises the whole page state into one ``<script>`` tag, so a board
+    with no API and an app-shell front end still carries every posting - full
+    descriptions included - in the bytes a browser receives (Wellfound answers a
+    560 KB page with 112 postings across four pages). ``payload_script`` names
+    that tag, ``items_path`` points at the container inside it, and
+    ``items_filter`` picks the job entries out of a *keyed* cache
+    (``{"JobListingSearchResult:1": {...}, "StartupResult:1": {...}}``) that no
+    array-shaped ``items_path`` could describe. Everything else - field mapping,
+    ``value_labels``, ``tags_paths``, ``job_url_tpl`` and the keyword, freshness
+    and location gates - is inherited from :class:`JsonListProvider`, which is
+    why this provider exists instead of an ``embedded_json_list`` aggregator
+    (that path has no keyword or age gate).
+
+    The field such a cache tends to omit is the employer, which lives in the card
+    markup instead of the state. ``card_company`` reads it off the page's links
+    (``{"job_link_prefix": "/jobs/", "company_link_prefix": "/company/",
+    "name_selector": "h2"}``) and fills ``company`` on rows that ended up with
+    none, so ``company_path``/``company`` still win when the payload has it. The
+    join matches on URL *path*, so it survives a ``www.``/canonical-host
+    difference between the card link and ``job_url_tpl``.
+
+    Pagination stops on the first page that carries no item, and ``max_pages``
+    stays a runaway guard rather than the real bound: the walk grows with the
+    board instead of silently truncating it at whatever size it had last month.
+    A board can also end by *clamping* the page number instead of answering an
+    empty page (Wellfound 303s ``?page=5`` to the listing root and re-serves page
+    1), so a fetch that comes back without the query it was asked with ends the
+    walk and its rows are ignored — they are the first page over again.
+    """
+
+    provider_name = "next_data"
+    family = "json"
+    requires_key = False
+    #: Job fields come from the page itself, so the cap only bounds parses.
+    default_max_results = 50
+    #: The tag Next.js writes its page state into.
+    default_payload_script = "__NEXT_DATA__"
+
+    def __init__(self, config: dict | None = None, api_key: str | None = None):
+        super().__init__(config, api_key)
+        # Items on the page just parsed: a page carrying none ends the walk
+        # (the framework rendered the shell but the board had nothing to list).
+        self._last_page_items = 0
+        # URL of the page most recently *asked for*; `final_url` is where it
+        # landed, and the two differ when the site clamps an out-of-range page.
+        self._requested_url = ""
+
+    async def fetch(self, url: str, *, auth: FetchAuth | None = None) -> ScrapedPage:
+        self._requested_url = url
+        return await super().fetch(url, auth=auth)
+
+    def _page_clamped(self, page: ScrapedPage) -> bool:
+        """True when the site answered an out-of-range page with the first one.
+
+        The request carried a query (the rendered ``?page=N``) and the response
+        has none: the listing root was re-served. Checked only for providers
+        that page through the URL, so a payload-driven walk is unaffected.
+        """
+        template = str(self.config.get("url") or self.config.get("url_tpl") or "")
+        if "{page}" not in template:
+            return False
+        if not urlparse(self._requested_url or "").query:
+            return False
+        return not urlparse(page.final_url or "").query
+
+    def _payload_script(self) -> str:
+        return str(self.config.get("payload_script") or self.default_payload_script).strip()
+
+    def _payload(self, page: ScrapedPage) -> object:
+        """The page state from ``<script id=payload_script>``, not the body."""
+        script_id = self._payload_script()
+        node = BeautifulSoup(page.html_content or "", "lxml").find(
+            "script", attrs={"id": script_id}
+        )
+        text = (node.string or "") if node is not None else ""
+        if not text.strip():
+            # A consent wall or an anti-bot challenge answers 200 with no state;
+            # raise instead of reporting an empty run, so the breakage shows up
+            # in the run record (Wellfound serves Turnstile on `/graphql`).
+            raise ValueError(
+                f"next_data: no <script id={script_id!r}> payload in the page "
+                "(a consent wall or bot challenge answered instead of the board)"
+            )
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"next_data: <script id={script_id!r}> is not valid JSON ({exc.msg})"
+            ) from exc
+
+    def _items(self, payload: object) -> object:
+        """Job entries in the container (``items_filter`` reads a keyed cache)."""
+        items = resolve_path(payload, self.config.get("items_path"))
+        filters = self.config.get("items_filter")
+        if isinstance(items, dict):
+            if isinstance(filters, dict) and filters:
+                items = [
+                    value
+                    for value in items.values()
+                    if isinstance(value, dict) and self._matches_item_filter(value, filters)
+                ]
+            else:
+                items = [items]
+        self._last_page_items = len(items) if isinstance(items, list) else 0
+        return items
+
+    @staticmethod
+    def _matches_item_filter(item: dict, filters: dict) -> bool:
+        """Every ``path: value`` pair has to match (values compare as text)."""
+        for path, expected in filters.items():
+            if _filter_text(resolve_path(item, str(path))) != _filter_text(expected):
+                return False
+        return True
+
+    def parse(self, page: ScrapedPage) -> list[RawJob]:
+        if self._page_clamped(page):
+            # Page 1 re-served: parse nothing (it was ingested at the start of
+            # the run) and leave `_last_page_items` at 0 so the walk ends.
+            logger.info("next_data_page_clamped url=%s", page.final_url)
+            self._last_page_items = 0
+            return []
+        jobs = super().parse(page)
+        join = self.config.get("card_company")
+        if not isinstance(join, dict) or not join or not jobs:
+            return jobs
+        companies = self._companies_from_cards(page, join)
+        if not companies:
+            return jobs
+        fallback = str(self.config.get("company") or "").strip()
+        filled: list[RawJob] = []
+        for job in jobs:
+            company = job.company.strip()
+            if not company or company == fallback:
+                company = companies.get(_url_path_key(job.url or "")) or company
+            filled.append(replace(job, company=company))
+        return filled
+
+    def _companies_from_cards(self, page: ScrapedPage, join: dict) -> dict[str, str]:
+        """Map a posting's URL path to the employer named on its card.
+
+        One pass over the links is enough: inside a card the company link comes
+        before the job link, so the most recent company name is the one that
+        belongs to the next job link (validated 112/112 on Wellfound). A card
+        without a name selects nothing and leaves the row to ``company_path``.
+        """
+        job_prefix = str(join.get("job_link_prefix") or "/jobs/")
+        company_prefix = str(join.get("company_link_prefix") or "/company/")
+        name_selector = str(join.get("name_selector") or "h2")
+        companies: dict[str, str] = {}
+        current = ""
+        for link in BeautifulSoup(page.html_content or "", "lxml").find_all("a", href=True):
+            href = str(link.get("href") or "")
+            if href.startswith(company_prefix):
+                node = link.select_one(name_selector)
+                current = node.get_text(" ", strip=True) if node is not None else ""
+                continue
+            if href.startswith(job_prefix) and current:
+                companies.setdefault(_url_path_key(href), current)
+        return companies
+
+    def next_page_url(self, page: ScrapedPage) -> str | None:
+        """The next page, or None once the board stops serving new ones."""
+        if self._last_page_items == 0:
+            return None
+        return super().next_page_url(page)
 
 
 class TwoStageProvider(DiscoveryProvider):
@@ -2470,6 +2665,34 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
 }
 
 
+# `next_data` reads the same config as `json_list` (it *is* one) plus the three
+# payload/company knobs, so the contract is derived instead of duplicated: a key
+# added to `json_list` is selectable here too and the two cannot drift.
+_DISCOVERY_CONFIG_METADATA["next_data"] = {
+    "required": (),
+    "required_any": (("url", "url_tpl"), ("items_path",)),
+    "optional": (
+        *_DISCOVERY_CONFIG_METADATA["json_list"]["optional"],
+        "payload_script",
+        "items_filter",
+        "card_company",
+    ),
+    "example": {
+        "url": "https://board.example/jobs?page={page}",
+        "items_path": "props.pageProps.state.jobs",
+        "items_filter": {"__typename": "JobPosting"},
+        "title_path": "title",
+        "url_path": "slug",
+        "job_url_tpl": "https://board.example/jobs/{slug}",
+        "card_company": {
+            "job_link_prefix": "/jobs/",
+            "company_link_prefix": "/company/",
+            "name_selector": "h2",
+        },
+    },
+}
+
+
 DISCOVERY_PROVIDERS: dict[str, type[DiscoveryProvider]] = {
     cls.provider_name: cls
     for cls in (
@@ -2482,6 +2705,7 @@ DISCOVERY_PROVIDERS: dict[str, type[DiscoveryProvider]] = {
         PersonioProvider,
         WorkdayProvider,
         JsonListProvider,
+        NextDataProvider,
         AdzunaProvider,
         JoobleProvider,
         JSearchProvider,

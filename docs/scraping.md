@@ -12,7 +12,7 @@ ADR 010 (discovery sources) and ADR 018 (manual watchlist sources).
 | `aggregator` | `generic_html_list`, `embedded_json_list` | one static HTML *listing* page + optional pagination (`next_page_selector` or `next_page_tpl`) | yes, with `"detail": true` |
 | `rss` | `feedparser` | RSS 2.0 / Atom feed (`url` **is** the feed URL) | no |
 | `discovery` (ATS) | `ashby`, `greenhouse`, `lever`, `workable`, `smartrecruiters`, `recruitee`, `personio`, `workday` | public JSON board endpoint | no |
-| `discovery` (JSON) | `json_list`, `adzuna`, `jooble`, `jsearch` | any JSON API (`paths` + `url_tpl`/`url`); the keyed vendors ship their own defaults, and `json_list` covers public boards such as Remotar | no |
+| `discovery` (JSON) | `json_list`, `next_data`, `adzuna`, `jooble`, `jsearch` | any JSON API (`paths` + `url_tpl`/`url`); the keyed vendors ship their own defaults, `json_list` covers public boards such as Remotar, and `next_data` reads the JSON a board embeds in its own HTML | no |
 | `discovery` (search) | `google_cse`, `bing`, `brave`, `serpapi`, `brightdata` | search results → detail pages (or the results page itself with `parse_listing`) | **yes** |
 | `manual` | none — hand-checked | nothing; the user re-checks the board and the app reminds them | no |
 
@@ -20,9 +20,10 @@ Hard limits of the engine — these decide almost every verdict below:
 
 1. **No JavaScript rendering** (`httpx` + BeautifulSoup). Client-side data
    (Angular, pure SPA) is invisible unless it is embedded as JSON
-   (`embedded_json_list` reads `__NEXT_DATA__` / `window.__NUXT__`) or the page
-   fetches it from a JSON API we can call ourselves (`json_list` — Working
-   Nomads, RemoteOK, FullStack Talent).
+   (`embedded_json_list` reads `__NEXT_DATA__` / `window.__NUXT__`, `next_data`
+   does the same for a discovery board and keeps the keyword/age/location gates)
+   or the page fetches it from a JSON API we can call ourselves (`json_list` —
+   Working Nomads, RemoteOK, FullStack Talent).
 2. **No cookie/session auth.** `source_auth` supports `none`, `token` (bearer)
    and `api_key` only; cookie auth was removed deliberately
    (`app/models/source_auth.py`) because automating logged-in sessions violates
@@ -115,6 +116,9 @@ Config keys understood by the pipeline (`workers/tasks/scrape.py`):
 | `sweep_max_seconds` | sweep-only: wall-clock budget for the run (`0` = no cap) | `0` |
 | `match_in` | discovery: `title` restricts `keywords`/`exclude_keywords` to title + tags (the location gate always reads the detected location only) | `anywhere` |
 | `max_age_days` | discovery providers: drop postings older than this many days (`0` = keep everything). Only acts on **dated** postings — undated rows are kept and counted as `undated` in the run log | `0` |
+| `payload_script` | `next_data` (`embedded_json_list` too): the `<script id>` that carries the page state. A page without it fails the run instead of reporting an empty board, because a consent wall or bot challenge answers 200 with no state | `__NEXT_DATA__` |
+| `items_filter` | `next_data`: `{path: value}` pairs that pick the postings out of a **keyed** container (`{"__typename": "JobListingSearchResult"}`); values compare as text, so `true` and `"true"` select the same rows | — |
+| `card_company` | `next_data`: read the employer from the card markup when the payload omits it (`{"job_link_prefix": "/jobs/", "company_link_prefix": "/company/", "name_selector": "h2"}`). Fills only rows that have no company, so `company_path`/`company` still win | — |
 
 **URL arguments and search terms.** A stored `url` is fetched **verbatim** by
 `career_page`, `aggregator` and `rss` (`first_fetch_url` defaults to identity),
@@ -593,6 +597,11 @@ localised route can carry a *marketing sample* instead of the listing (Remote
 Rocketship's `/br/` exposes a 5-job `jobsSample`; the real list is
 `/remote-jobs/`), so confirm `items_path` against the page you actually store.
 
+This adapter has **no** keyword, freshness or location gate and cannot read a
+card's markup, so a board whose page state is a keyed cache, or that needs those
+gates, is a `next_data` **discovery** source instead — see *Wellfound* below
+(`payload_script` + `items_path` + `items_filter` + `card_company`).
+
 When a listing page embeds a `JobPosting` JSON-LD block per card, the worker
 **enriches** the rows produced by the card parser (matching by URL or external
 id) instead of appending a second copy: missing company, description, date and
@@ -1003,6 +1012,91 @@ robots.txt disallows `/api/*`, so the config stays on the app host and never
 touches it. One request per run makes `rate_limit_seconds: 2` and a daily
 `scrape_interval_minutes` plenty.
 
+**Wellfound (embedded Apollo cache).** `wellfound.com/location/brazil?page=N` is
+server-rendered, so no JS is needed, but there is no JSON route to call:
+`/_next/data/<build>/…` answers **404** and `/graphql` sits behind a Turnstile
+security check. What the page does carry is the whole Apollo cache in
+`<script id="__NEXT_DATA__">` → `props.pageProps.apolloState.data`, a **keyed**
+object (`{"JobListingSearchResult:4867205": {…}, "StartupResult:acme": {…},
+"Badge:7": {…}, "ROOT_QUERY": {…}}`) rather than an array — which is why the
+`next_data` provider exists. `items_filter` selects the postings; everything
+else (field mapping, `value_labels`, `tags_paths`, `job_url_tpl`, `match_in`,
+`max_age_days`, `locations`, `allow_empty`) is the `json_list` contract:
+
+```json
+{
+  "provider": "next_data",
+  "url": "https://wellfound.com/location/brazil?page={page}",
+  "max_pages": 6,
+  "items_path": "props.pageProps.apolloState.data",
+  "items_filter": {"__typename": "JobListingSearchResult"},
+  "id_path": "id",
+  "title_path": "title",
+  "url_path": "slug",
+  "job_url_tpl": "https://wellfound.com/jobs/{id}-{slug}",
+  "date_path": "liveStartAt",
+  "description_path": "description",
+  "location_tpl": "{remote}",
+  "value_labels": {"remote": {"true": "Remote", "false": "On-site"}},
+  "tags_paths": ["locationNames", "acceptedRemoteLocationNames",
+                 "primaryRoleTitle", "jobType"],
+  "card_company": {
+    "job_link_prefix": "/jobs/",
+    "company_link_prefix": "/company/",
+    "name_selector": "h2"
+  },
+  "match_in": "title",
+  "max_age_days": 45,
+  "max_results": 200,
+  "keywords": ["software engineer", "backend", "full stack", "full-stack",
+               "platform", "infrastructure", "devops", "site reliability",
+               "data engineer", "engineering manager", "qa engineer",
+               "machine learning", "data scientist", "python"],
+  "locations": ["remote"],
+  "allow_empty": true
+}
+```
+
+- **The employer is not in the cache.** Each card wraps the company `<h2>` in
+  `a[href="/company/<slug>"]` and links the posting from the sibling
+  `a[href="/jobs/<id>-<slug>"]`; `card_company` walks the links in page order and
+  gives the last company seen to the next job link (112/112 rows joined on the
+  live board). It only fills rows that have **no** company, so a payload with a
+  `company_path` still wins. The join matches on URL path, so a `www.`-vs-
+  canonical host difference cannot break it.
+- **`remote` is the flag that matters.** `remoteConfig.kind` is `null` on 56 of
+  the 112 rows, while `remote` is a boolean on every one, so `location_tpl:
+  "{remote}"` + `value_labels` renders `Remote`/`On-site` and `locations:
+  ["remote"]` drops the office/hybrid rows (3 of 112). `locationNames` (a list of
+  cities/countries) feeds the tags instead of `location_tpl`, because a list
+  would render as its Python repr.
+- **The narrowing happens locally.** The board's own search route (`/search`) is
+  disallowed by `robots.txt` and `/graphql` is Turnstile-gated, so the location
+  listing is the only readable entry point and the gate is `match_in: title` over
+  the card title plus `primaryRoleTitle`, `locationNames` and `jobType` (the
+  descriptions are long markdown that name every technology a company uses).
+  Measured on 2026-10-25, twice and hours apart (the listing is edge-cached):
+  `pages=5 items=111..112 raw=111..112 kept=14..17 stale_dropped=60..61
+  loc_dropped=3 loc_unknown=0` — the fifth page is the clamp probe below, and
+  postings rotate in and out during the day. Two of the 17 are site-classified
+  *Software Engineer* while their titles say "Shopify Growth Developer (CRO)"
+  and "Technical Account Manager"; add `exclude_keywords` (`growth`, `account
+  manager`) if those should not be stored.
+- **`liveStartAt` is epoch seconds** and 60 of the 112 postings are older than 45
+  days (a 90-day window keeps 23 instead of 17), so the freshness gate does most
+  of the filtering.
+- **Pagination ends on a clamp, not on an empty page.** Pages 1–4 carry
+  37/36/28/11 rows, and `?page=5` answers **HTTP 303** to
+  `/location/brazil` — the listing root, i.e. page 1 again rather than an empty
+  page. `next_page_url` treats a fetch that comes back without the query it was
+  asked with as the end of the walk, and `parse` ignores the re-served page
+  (its rows are page 1 over again), so `max_pages: 6` stays a runaway guard
+  instead of an endless re-read. `max_results: 200` keeps the per-page cap above
+  a page's row count (the provider default is 50, and a page that outgrows it
+  would be cut silently). `wellfound.com/robots.txt` disallows `/search`,
+  `/_jobs/` and a handful of query parameters — not `/location` or `?page=` —
+  and each hop is checked (`rate_limit_seconds: 2` covers five fetches).
+
 **Comeet boards (MWDN).** `jobs.mwdn.com/careers/` embeds a Comeet widget. The
 `ul.comeet-positions-list` is **empty** in the static HTML and the 41 cards that do
 render server-side are the `a.comeet-position` anchors themselves, so the
@@ -1309,7 +1403,9 @@ incomplete and drops valid Glassdoor jobs.
 ## Out of scope (documented, not attempted)
 
 Moved out of these buckets: FullStack Talent (`talent.fullstack.com`) is now
-collected through its public JSON API — see *Id-only JSON boards* above.
+collected through its public JSON API — see *Id-only JSON boards* above — and
+Wellfound (`wellfound.com`) is collected from the page state it renders itself —
+see *Wellfound* above.
 
 - **Login-walled dashboards / talent networks** (Outlier, Alignerr, Toptal,
   Upwork, Revelo, Lemon.io, FlexJobs, VanHack, Proxify and similar) —
@@ -1327,7 +1423,7 @@ collected through its public JSON API — see *Id-only JSON boards* above.
   `POST /api/jobs/all` (*Turing* above), so that source is no longer `manual`
   either.
 - **ToS / anti-bot by direct scraping** — LinkedIn, Indeed, Glassdoor, Dice,
-  Catho, Jobot, Levels.fyi, Landing.jobs, Wellfound, Hays, Michael Page, Robert
+  Catho, Jobot, Levels.fyi, Landing.jobs, Hays, Michael Page, Robert
   Half, SimplyHired, Welcome to the Jungle, Himalayas, Stack Overflow Jobs. Use
   the paid providers above (`serpapi` `google_jobs` covers most of them);
   Friday Glee, Outscal, VanHack and YellowIpe block the request outright

@@ -375,6 +375,15 @@ async def test_providers_endpoint_lists_discovery_providers(auth_client):
     json_list = next(provider for provider in body if provider["name"] == "json_list")
     assert json_list["required_any"] == [["url", "url_tpl"]]
 
+    # `next_data` reads the JSON a board embeds in its own HTML, so the page
+    # state path is mandatory alongside the URL and the `json_list` knobs apply.
+    next_data = next(provider for provider in body if provider["name"] == "next_data")
+    assert next_data["family"] == "json"
+    assert next_data["required_any"] == [["url", "url_tpl"], ["items_path"]]
+    assert {"payload_script", "items_filter", "card_company"} <= set(
+        next_data["optional_config"]
+    )
+
 
 async def test_user_isolation(auth_client, db_client, db_session):
     """User B must not see sources created by user A."""

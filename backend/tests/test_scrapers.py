@@ -1,5 +1,6 @@
 """Unit tests for the scraper implementations (no DB/network required)."""
 
+import asyncio
 import json
 import logging
 from datetime import date, datetime, timedelta
@@ -28,6 +29,7 @@ from scrapers.discovery import (
     JSearchProvider,
     JsonListProvider,
     LeverProvider,
+    NextDataProvider,
     PersonioProvider,
     RecruiteeProvider,
     SerpApiProvider,
@@ -53,6 +55,7 @@ from scrapers.utils import (
 )
 
 from app.models.enums import SourceType
+from app.services.source_config import validate_source_config
 
 
 @pytest.fixture(autouse=True)
@@ -2917,6 +2920,427 @@ def test_turing_config_is_registered_and_dispatched():
     # the source's `url` for the UI.
     assert scraper.robots_url(TURING_CONFIG["url"]) == TURING_CONFIG["url"]
     assert scraper.allow_empty is True
+
+
+# --- Job JSON embedded in the page HTML (Next.js state, Wellfound) -----------
+
+#: `wellfound.com/location/brazil?page=N` is server-rendered HTML whose
+#: `<script id="__NEXT_DATA__">` carries the whole Apollo cache: a *keyed* object
+#: with one `JobListingSearchResult:<id>` entry per card, plus `StartupResult:*`,
+#: `Badge:*` and `ROOT_QUERY` entries that are not postings. There is no JSON
+#: route (`/_next/data` answers 404 and `/graphql` sits behind Turnstile), so the
+#: page state is the API. The employer is the one field the cache omits: it is
+#: the `<h2>` of the card's `a[href="/company/<slug>"]`, which is what
+#: `card_company` joins back onto each row.
+WELLFOUND_CONFIG = {
+    "provider": "next_data",
+    "url": "https://wellfound.com/location/brazil?page={page}",
+    "max_pages": 6,
+    "payload_script": "__NEXT_DATA__",
+    "items_path": "props.pageProps.apolloState.data",
+    "items_filter": {"__typename": "JobListingSearchResult"},
+    "id_path": "id",
+    "title_path": "title",
+    "url_path": "slug",
+    "job_url_tpl": "https://wellfound.com/jobs/{id}-{slug}",
+    "date_path": "liveStartAt",
+    "description_path": "description",
+    "location_tpl": "{remote}",
+    "value_labels": {"remote": {"true": "Remote", "false": "On-site"}},
+    "tags_paths": [
+        "locationNames",
+        "acceptedRemoteLocationNames",
+        "primaryRoleTitle",
+        "jobType",
+    ],
+    "card_company": {
+        "job_link_prefix": "/jobs/",
+        "company_link_prefix": "/company/",
+        "name_selector": "h2",
+    },
+    "match_in": "title",
+    "max_age_days": 45,
+    "max_results": 200,
+    "keywords": [
+        "software engineer",
+        "backend",
+        "full stack",
+        "full-stack",
+        "platform",
+        "infrastructure",
+        "devops",
+        "site reliability",
+        "data engineer",
+        "engineering manager",
+        "qa engineer",
+        "machine learning",
+        "data scientist",
+        "python",
+    ],
+    "locations": ["remote"],
+    "allow_empty": True,
+}
+
+
+def _wellfound_item(
+    *,
+    job_id: str,
+    title: str,
+    slug: str = "",
+    remote: bool | None = True,
+    locations: tuple[str, ...] = ("São Paulo",),
+    accepted: tuple[str, ...] = (),
+    role: str = "Software Engineer",
+    job_type: str = "full-time",
+    age_days: int = 3,
+    description: str = "",
+) -> dict:
+    """One `JobListingSearchResult` entry (dates relative to today).
+
+    `liveStartAt` is an epoch *seconds* integer at noon, so the UTC conversion in
+    `coerce_date` lands on the intended day in any timezone the suite runs in.
+    """
+    published = datetime.combine(
+        date.today() - timedelta(days=age_days), datetime.min.time()
+    ).replace(hour=12)
+    return {
+        "__typename": "JobListingSearchResult",
+        "id": job_id,
+        "title": title,
+        "slug": slug or f"role-{job_id}",
+        "remote": remote,
+        "locationNames": list(locations),
+        "acceptedRemoteLocationNames": list(accepted),
+        "primaryRoleTitle": role,
+        "jobType": job_type,
+        "liveStartAt": int(published.timestamp()),
+        "description": description,
+    }
+
+
+def _next_data_page(
+    items: list[dict],
+    *,
+    cards: tuple[tuple[str, str, str | None], ...] = (),
+    script_id: str = "__NEXT_DATA__",
+    final_url: str = "https://wellfound.com/location/brazil?page=1",
+) -> ScrapedPage:
+    """A rendered board page: the cache in a script tag plus the card markup.
+
+    Two cache entries are never postings: `StartupResult` (which carries a
+    `title`/`slug` of its own, so only the `__typename` filter keeps it out) and
+    `Badge`. `cards` renders `(job_id, slug, company_name)` the way the board
+    does, with `None` standing for a card whose company name did not render.
+    """
+    state: dict = {
+        "ROOT_QUERY": {"__typename": "Query"},
+        "StartupResult:acme": {
+            "__typename": "StartupResult",
+            "id": "99",
+            "title": "Acme",
+            "slug": "acme",
+            "liveStartAt": int(datetime.now().timestamp()),
+        },
+        "Badge:7": {"__typename": "Badge", "id": "7", "label": "Actively hiring"},
+    }
+    for item in items:
+        state[f"JobListingSearchResult:{item['id']}"] = item
+    markup = "".join(
+        f'<div class="card"><a href="/company/{job_id}-co"><h2>{name or ""}</h2></a>'
+        f'<a href="/jobs/{job_id}-{slug}">View role</a></div>'
+        for job_id, slug, name in cards
+    )
+    payload = {"props": {"pageProps": {"apolloState": {"data": state}}}}
+    return ScrapedPage(
+        html_content=(
+            "<html><head>"
+            f'<script id="{script_id}" type="application/json">{json.dumps(payload)}</script>'
+            f"</head><body>{markup}</body></html>"
+        ),
+        status_code=200,
+        final_url=final_url,
+    )
+
+
+def test_next_data_provider_reads_the_page_state_and_ignores_non_job_entries():
+    items = [
+        _wellfound_item(
+            job_id="4867205",
+            title="Software Engineering Manager",
+            slug="software-engineering-manager",
+            role="Engineering Manager",
+            locations=("Rio de Janeiro", "São Paulo"),
+            description="**About LawnStarter**\n\nBuild the platform with Python.",
+        ),
+        _wellfound_item(
+            job_id="4867300",
+            title="Backend Engineer",
+            slug="backend-engineer",
+            remote=False,
+            accepted=("Brazil",),
+        ),
+    ]
+    jobs = NextDataProvider(WELLFOUND_CONFIG).parse(_next_data_page(items))
+
+    # `StartupResult:acme` carries a title and a slug of its own: only the
+    # `__typename` filter keeps it from being parsed as a posting.
+    assert [job.external_id for job in jobs] == ["4867205", "4867300"]
+    first, second = jobs
+    # The cache stores the id and the slug separately, so `job_url_tpl` builds
+    # the public page the posting is stored under.
+    assert first.url == "https://wellfound.com/jobs/4867205-software-engineering-manager"
+    assert first.title == "Software Engineering Manager"
+    assert second.url == "https://wellfound.com/jobs/4867300-backend-engineer"
+    # `liveStartAt` is epoch seconds, which `date_path` converts without help.
+    assert first.posted_date == date.today() - timedelta(days=3)
+    # `remote` is the boolean the site itself filters on (`remoteConfig.kind` is
+    # null on half the board), so `value_labels` turns it into a location.
+    assert first.location == "Remote"
+    assert second.location == "On-site"
+    assert first.tags == [
+        "Rio de Janeiro",
+        "São Paulo",
+        "Engineering Manager",
+        "full-time",
+        "Remote",
+    ]
+    # Descriptions arrive as markdown; they are stored as text, capped at 2 KB
+    # like every `json_list` board.
+    assert first.description is not None
+    assert first.description.startswith("**About LawnStarter**")
+    assert "Build the platform" in first.description
+
+    long_job = NextDataProvider(WELLFOUND_CONFIG).parse(
+        _next_data_page(
+            [_wellfound_item(job_id="7", title="Data Engineer", description="Data " * 2000)]
+        )
+    )[0]
+    assert long_job.description is not None
+    assert len(long_job.description) == 2000
+
+
+def test_next_data_provider_fails_when_the_page_carries_no_state():
+    # A consent wall or an anti-bot challenge answers 200 with no page state.
+    walled = ScrapedPage(
+        html_content="<html><body>Verify you are human</body></html>",
+        status_code=200,
+        final_url="https://wellfound.com/location/brazil",
+    )
+    with pytest.raises(ValueError) as no_state:
+        NextDataProvider(WELLFOUND_CONFIG).parse(walled)
+    assert "no <script id='__NEXT_DATA__'> payload" in str(no_state.value)
+
+    # The tag name is config, so a board on another framework reads its own.
+    page = _next_data_page([_wellfound_item(job_id="1", title="Backend Engineer")])
+    with pytest.raises(ValueError):
+        NextDataProvider({**WELLFOUND_CONFIG, "payload_script": "app-state"}).parse(page)
+    renamed = _next_data_page(
+        [_wellfound_item(job_id="1", title="Backend Engineer")], script_id="app-state"
+    )
+    assert [
+        job.external_id
+        for job in NextDataProvider(
+            {**WELLFOUND_CONFIG, "payload_script": "app-state"}
+        ).parse(renamed)
+    ] == ["1"]
+
+    # Corrupt state is a format change, not an empty board.
+    broken = ScrapedPage(
+        html_content='<html><head><script id="__NEXT_DATA__">{not json</script></head></html>',
+        status_code=200,
+        final_url="https://wellfound.com/location/brazil",
+    )
+    with pytest.raises(ValueError) as invalid:
+        NextDataProvider(WELLFOUND_CONFIG).parse(broken)
+    assert "next_data: <script id='__NEXT_DATA__'> is not valid JSON" in str(invalid.value)
+
+
+def test_next_data_config_joins_each_employer_from_its_card():
+    items = [
+        _wellfound_item(job_id="1", title="Backend Engineer", slug="backend"),
+        _wellfound_item(job_id="2", title="Full Stack Engineer", slug="full-stack"),
+        _wellfound_item(job_id="3", title="Platform Engineer", slug="platform"),
+    ]
+    cards = (
+        ("1", "backend", "Acme"),
+        ("2", "full-stack", "Beta Labs"),
+        # A card whose company name did not render must not borrow the name of
+        # the card above it.
+        ("3", "platform", None),
+    )
+    jobs = NextDataProvider(WELLFOUND_CONFIG).parse(_next_data_page(items, cards=cards))
+
+    assert [(job.external_id, job.company) for job in jobs] == [
+        ("1", "Acme"),
+        ("2", "Beta Labs"),
+        ("3", ""),
+    ]
+    # The unjoined row is stored as `Unknown` instead of disappearing.
+    assert DiscoveryScraper("next_data", WELLFOUND_CONFIG).normalize(jobs)[2]["company"] == (
+        "Unknown"
+    )
+
+    # A payload that names the employer still wins over the card.
+    named = [dict(items[0], company="Payload Inc")]
+    joined = NextDataProvider({**WELLFOUND_CONFIG, "company_path": "company"}).parse(
+        _next_data_page(named, cards=(("1", "backend", "Acme"),))
+    )
+    assert joined[0].company == "Payload Inc"
+
+
+def test_next_data_config_gates_on_title_and_role_tags_not_descriptions():
+    items = [
+        _wellfound_item(job_id="1", title="Backend Engineer", role="Backend Engineer"),
+        # Wellfound files this under *Software Engineer*, so the role tag keeps
+        # it even though the card title never says "engineer".
+        _wellfound_item(job_id="2", title="Shopify Growth Developer (CRO)", slug="growth"),
+        _wellfound_item(
+            job_id="3",
+            title="Growth Marketing Manager",
+            slug="growth-marketing",
+            role="Marketing",
+        ),
+        _wellfound_item(
+            job_id="4",
+            title="Product Designer",
+            slug="product-designer",
+            role="Design",
+            description="Partner with our Python backend team.",
+        ),
+    ]
+    scraper = DiscoveryScraper("next_data", WELLFOUND_CONFIG)
+    jobs = scraper.parse(_next_data_page(items))
+
+    # 3 matches no keyword and 4 matches only inside its description, which
+    # `match_in: title` excludes on purpose (a board blurbs every technology).
+    assert [job.external_id for job in jobs] == ["1", "2"]
+    assert all(job.location == "Remote" for job in jobs)
+
+    loose = DiscoveryScraper("next_data", {**WELLFOUND_CONFIG, "match_in": "anywhere"})
+    assert [job.external_id for job in loose.parse(_next_data_page(items))] == [
+        "1",
+        "2",
+        "4",
+    ]
+
+    # A gate that matches nothing empties the run without failing it.
+    empty = DiscoveryScraper("next_data", {**WELLFOUND_CONFIG, "keywords": ["cobol"]})
+    assert empty.parse(_next_data_page(items)) == []
+    assert empty.allow_empty is True
+def test_next_data_config_drops_non_remote_rows_and_keeps_unknown():
+    items = [
+        _wellfound_item(job_id="1", title="Backend Engineer", remote=True),
+        _wellfound_item(job_id="2", title="Frontend Engineer", remote=False),
+        _wellfound_item(job_id="3", title="Platform Engineer", remote=None),
+    ]
+    # No keyword gate: this test is about `location_tpl` + `value_labels`.
+    scraper = DiscoveryScraper("next_data", {**WELLFOUND_CONFIG, "keywords": []})
+    jobs = scraper.parse(_next_data_page(items))
+
+    assert [(job.external_id, job.location) for job in jobs] == [
+        ("1", "Remote"),
+        ("3", None),
+    ]
+    assert scraper._location_dropped == 1
+    # A row the page does not classify is kept and counted, as everywhere else.
+    assert scraper._location_unknown == 1
+
+
+def test_next_data_config_drops_stale_postings():
+    stale = _wellfound_item(
+        job_id="99", title="Python Backend Engineer", age_days=400
+    )
+    windowed = DiscoveryScraper("next_data", WELLFOUND_CONFIG)
+    assert windowed.parse(_next_data_page([stale])) == []
+    assert windowed._stale_dropped == 1
+
+    unwindowed = DiscoveryScraper("next_data", {**WELLFOUND_CONFIG, "max_age_days": 0})
+    assert [job.external_id for job in unwindowed.parse(_next_data_page([stale]))] == ["99"]
+
+
+def test_next_data_walks_until_a_page_carries_no_job():
+    provider = NextDataProvider(WELLFOUND_CONFIG)
+    assert provider.results_url() == "https://wellfound.com/location/brazil?page=1"
+
+    first = _next_data_page([_wellfound_item(job_id="1", title="Backend Engineer")])
+    provider.parse(first)
+    assert provider.next_page_url(first) == "https://wellfound.com/location/brazil?page=2"
+
+    second = _next_data_page(
+        [_wellfound_item(job_id="2", title="Full Stack Engineer")],
+        final_url="https://wellfound.com/location/brazil?page=2",
+    )
+    provider.parse(second)
+    assert provider.next_page_url(second) == "https://wellfound.com/location/brazil?page=3"
+
+    # The live board's last page is the one *with* cards: the walk ends on the
+    # empty page, so it grows with the board instead of trusting a page count.
+    empty = _next_data_page([], final_url="https://wellfound.com/location/brazil?page=3")
+    assert provider.parse(empty) == []
+    assert provider.next_page_url(empty) is None
+
+    # `max_pages` is only a runaway guard.
+    capped = NextDataProvider({**WELLFOUND_CONFIG, "max_pages": 2})
+    capped.parse(first)
+    assert capped.next_page_url(first) is not None
+    capped.parse(second)
+    assert capped.next_page_url(second) is None
+
+
+def test_next_data_stops_when_the_board_clamps_the_page_number(monkeypatch):
+    """`?page=5` is past the end: Wellfound 303s it to the listing root."""
+
+    import scrapers.discovery as discovery
+
+    html = _next_data_page([_wellfound_item(job_id="1", title="Backend Engineer")]).html_content
+
+    async def fake_fetch(url, **kwargs):
+        # An out-of-range page answers with the listing root, i.e. no query.
+        final = "https://wellfound.com/location/brazil" if "page=2" in url else url
+        return ScrapedPage(html_content=html, status_code=200, final_url=final)
+
+    monkeypatch.setattr(discovery, "fetch_html", fake_fetch)
+
+    provider = NextDataProvider({**WELLFOUND_CONFIG, "max_pages": 6})
+    first = asyncio.run(provider.fetch(provider.results_url()))
+    assert [job.external_id for job in provider.parse(first)] == ["1"]
+    second_url = provider.next_page_url(first)
+    assert second_url == "https://wellfound.com/location/brazil?page=2"
+
+    clamped = asyncio.run(provider.fetch(second_url))
+    # The first page served again: parsing it would re-store page 1, so the walk
+    # ends here instead of looping until `max_pages`.
+    assert clamped.final_url == "https://wellfound.com/location/brazil"
+    assert provider.parse(clamped) == []
+    assert provider.next_page_url(clamped) is None
+
+
+def test_next_data_provider_is_registered_and_validates_its_config():
+    provider = get_discovery_provider("next_data", WELLFOUND_CONFIG)
+    assert provider.requires_key is False
+    assert provider.family == "json"
+
+    metadata = NextDataProvider.config_metadata()
+    # `items_path` is what turns a page state into rows, so it is mandatory.
+    assert ("items_path",) in metadata["required_any"]
+    for key in ("payload_script", "items_filter", "card_company"):
+        assert key in metadata["optional"]
+    # The inherited `json_list` knobs stay selectable (the contract is derived).
+    for key in ("title_path", "job_url_tpl", "value_labels", "match_in", "max_age_days"):
+        assert key in metadata["optional"]
+
+    scraper = get_scraper(SimpleNamespace(type=SourceType.discovery, config=WELLFOUND_CONFIG))
+    page_url = scraper.first_fetch_url("https://wellfound.com/location/brazil")
+    assert page_url == "https://wellfound.com/location/brazil?page=1"
+    # `robots.txt` disallows `/search` and a few query params, not `/location`.
+    assert scraper.robots_url(page_url) == page_url
+    assert scraper.allow_empty is True
+
+    validate_source_config(SourceType.discovery, WELLFOUND_CONFIG)
+    with pytest.raises(ValueError, match="items_path"):
+        validate_source_config(
+            SourceType.discovery, {**WELLFOUND_CONFIG, "items_path": ""}
+        )
 
 
 ADZUNA_PAYLOAD = {
