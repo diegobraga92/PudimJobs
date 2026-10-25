@@ -267,18 +267,22 @@ async def fetch_html(
     auth: FetchAuth | None = None,
     method: str = "GET",
     json_body: dict | None = None,
+    form_body: dict | None = None,
     read_error_body: bool = False,
     max_bytes: int | None = None,
 ) -> ScrapedPage:
     """Fetch a URL and return a ``ScrapedPage`` with the response HTML.
 
     ``method``/``json_body`` cover keyed APIs that only answer to POST (Jooble,
-    Adzuna's JSON endpoints). ``read_error_body`` attaches a redacted excerpt of
-    the error payload to the raised ``httpx.HTTPStatusError`` so callers can show
-    the provider's own message; the exception type and ``exc.response`` stay
-    intact, so status-code handling in the scrape worker keeps working.
-    ``max_bytes`` raises the size cap for payloads that are legitimately larger
-    than a page (ATS board dumps).
+    Adzuna's JSON endpoints). ``form_body`` sends the same template
+    ``application/x-www-form-urlencoded`` instead, for endpoints that read
+    ``$_POST``: a WordPress ``admin-ajax.php`` action answers ``0`` to a JSON
+    body (it never sees the fields). ``read_error_body`` attaches a redacted
+    excerpt of the error payload to the raised ``httpx.HTTPStatusError`` so
+    callers can show the provider's own message; the exception type and
+    ``exc.response`` stay intact, so status-code handling in the scrape worker
+    keeps working. ``max_bytes`` raises the size cap for payloads that are
+    legitimately larger than a page (ATS board dumps).
     """
     headers = {"User-Agent": random_user_agent(), "Accept-Language": "en-US,en;q=0.9"}
     if auth and auth.headers:
@@ -290,7 +294,7 @@ async def fetch_html(
         for _ in range(settings.scraper_max_redirects + 1):
             assert_safe_url(current)
             async with client.stream(
-                verb, current, headers=headers, json=json_body
+                verb, current, headers=headers, json=json_body, data=form_body
             ) as resp:
                 if resp.is_redirect and resp.headers.get("location"):
                     current = urljoin(str(resp.url), resp.headers["location"])
@@ -931,7 +935,11 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
     detail page (``parse_listing``). Recognized keys: ``item_selector``,
     ``title_selector``, ``url_selector``, ``company_selector``,
     ``location_selector``, ``date_selector`` and the optional
-    ``description_selector`` (a card snippet; location is appended to it). Every
+    ``description_selector`` (a card snippet; location is appended to it).
+    ``tags_selector`` (one selector or a comma-separated list) collects the
+    card's chips into ``tags``, splitting a chip that carries a comma list, so
+    the ``keywords`` gate sees one term per chip — boards that print the tech
+    stack on every card have no other field for it. Every
     selector is evaluated *inside* the row; a row that is itself an ``<a>``
     contributes its own ``href``.
     """
@@ -941,6 +949,7 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
     date_selector = config.get("date_selector")
     description_selector = config.get("description_selector")
     title_exclude_selectors = _split_selectors(config.get("title_exclude_selector")) or []
+    tags_selectors = _split_selectors(config.get("tags_selector")) or []
     exclude_pattern = compile_exclude_pattern(config)
     jobs: list[RawJob] = []
     for item in items:
@@ -982,6 +991,17 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
             )
 
         date_node = item.select_one(date_selector) if date_selector else None
+        tags: list[str] = []
+        for tags_selector in tags_selectors:
+            for chip in item.select(tags_selector):
+                # A single chip often carries a comma list ("Engineering,
+                # Databases, Python"); each part is its own tag, so the UI and
+                # the `keywords` gate see one term per chip.
+                tags.extend(
+                    part.strip()
+                    for part in chip.get_text(" ", strip=True).split(",")
+                    if part.strip()
+                )
         jobs.append(
             RawJob(
                 title=title,
@@ -992,6 +1012,9 @@ def parse_html_list(page: ScrapedPage, config: dict | None = None) -> list[RawJo
                 posted_date=date_from_node(date_node),
                 description=description,
                 location=location,
+                # Chips repeat across a card ("Remote" also in the location
+                # line); the order is kept, so the first occurrence wins.
+                tags=list(dict.fromkeys(tags)),
             )
         )
     return jobs

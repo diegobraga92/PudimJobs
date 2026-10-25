@@ -184,10 +184,10 @@ are redacted before they are stored or returned).
 
 | Config key | Meaning |
 |---|---|
-| `url` / `url_tpl` | endpoint template; any config key plus the reserved `{api_key}`, `{page}` and `{page_size}` renders into it (`{api_key}` in the template means "the key goes right here") |
+| `url` / `url_tpl` | endpoint template; any config key plus the reserved `{api_key}`, `{page}`, `{page0}` and `{page_size}` renders into it (`{api_key}` in the template means "the key goes right here"). `{page0}` is the same cursor minus one, for APIs whose first page is `0` |
 | `auth` | where the key travels: `"query"` or `{"in": "query", "name": "app_key"}`, `{"in": "header", "name": "X-Api-Key"}`, or nothing at all so the `{api_key}` marker above decides. Names default to `X-API-Key` |
-| `method` + `body` | `POST` + a JSON `body` template for vendors that only answer to POST; body placeholders render as **text**, so quote them (`"page": "{page}"`, not `"page": {page}`) |
-| `next_page_tpl` / `next_page_path` / `current_page_path` / `last_page_path` / `max_pages` | pagination. Providers that page through the body (Jooble) keep the same URL and send `{page}` in the body — the worker knows such a URL is not "no more pages" (`pagination_in_body`). `next_page_path` reads the API's own flag (a dotted path such as `meta.hasNextPage`) and stops the walk when it is false or missing. A numeric bound works instead: `last_page_path` (`meta.last_page`) plus `current_page_path` (`meta.current_page`) follows the payload's own page count; once configured, a payload that loses that field stops the walk rather than over-fetching to `max_pages`. `max_pages` is always the source's config, never a provider default |
+| `method` + `body` | `POST` + a `body` template for vendors that only answer to POST; body placeholders render as **text**, so quote them (`"page": "{page}"`, not `"page": {page}`). `body_encoding: "form"` sends that same body `application/x-www-form-urlencoded` instead of JSON, for PHP endpoints that read `$_POST` (WordPress `admin-ajax.php` answers a bare `0` to a JSON body) |
+| `next_page_tpl` / `next_page_path` / `current_page_path` / `last_page_path` / `max_pages` | pagination. Providers that page through the body (Jooble) keep the same URL and send `{page}` in the body — the worker knows such a URL is not "no more pages" (`pagination_in_body`); `{page0}` counts as a page marker too, for 0-based actions. `next_page_path` reads the API's own flag (a dotted path such as `meta.hasNextPage`) and stops the walk when it is false or missing. A numeric bound works instead: `last_page_path` (`meta.last_page`) plus `current_page_path` (`meta.current_page`) follows the payload's own page count; once configured, a payload that loses that field stops the walk rather than over-fetching to `max_pages`. `max_pages` is always the source's config, never a provider default |
 | `url_path` + `job_url_tpl` | `url_path` extracts the item's link; when the payload only carries an id/slug (`url_path: "id"`), `job_url_tpl` renders any item field plus `{url}` into the public posting URL (`"https://talent.fullstack.com/jobs/{id}"`) instead of letting the id resolve against the API host. A placeholder with no matching field fails the run |
 | `url_fallback_tpl` | public posting URL for rows whose `url_path` is empty (`"https://remotar.com.br/job/{id}"`); missing placeholders make the row unpostable instead of storing a broken link |
 | `location_path` / `location_tpl` | `location_path` maps a single field; `location_tpl` composes several (`"{type} - {city}, {state}, {country.name}"`). Missing parts and their separators are cleaned up, so a row with no country becomes `Remote - São Paulo, SP` |
@@ -195,7 +195,8 @@ are redacted before they are stored or returned).
 | `tags_path` / `tags_paths` | one path, or a list of paths, mapped into tags. A path may project nested arrays with `[]` (`"jobTags[].tag.name"`, `"jobRequirements[].description"`); the location is appended to the tags as before |
 | `match_paths` | extra text for the local `keywords`/`exclude_keywords` gate, with the same wildcard syntax (`["subtitle", "description", "jobRequirements[].description"]`); use it when the stored 2 KB description is not enough |
 | `skip_if_true` / `skip_if_false` | drop a row when a path is truthy (`["expired"]`) or present-and-false (`["active"]`). A missing `skip_if_false` path is **not** a skip: many boards omit the flag on live rows |
-| `items_path`, `title_path`, … | field mapping, exactly as for any other `json_list` source |
+| `items_path`, `title_path`, … | object/array payload → field mapping, exactly as for any other `json_list` source |
+| `items_path` → a string **and** `item_selector` | a "load more" action that wraps its cards in HTML (`{"data": {"html": "<a class=…>"}}`): the string is parsed as a listing page, so `item_selector`/`title_selector`/`url_selector`/`location_selector`/`tags_selector`/`title_exclude_selector` apply as they do for `generic_html_list`, and the per-item paths above are not needed. `tags_selector` (one selector or a comma list) also **splits** a chip that carries a comma list, so `Engineering, Python` becomes two tags |
 
 | Provider | Endpoint / key | Notes |
 |---|---|---|
@@ -603,6 +604,58 @@ Nomads is collected (`/api/exposed_jobs/` is a bare array of
 `{url,title,description,company_name,category_name,tags,location,pub_date}`, so
 `"tags"` is a comma-separated string that `tags_path` already splits).
 
+**RemoteOK (single-page public API).** `remoteok.com/api` answers a bare array
+of postings (`id`, `position`, `company`, `location`, `tags`, `date`, `url`,
+`description`) preceded by one legal-notice object; that row has no `position`
+nor `url`, so the title+url requirement drops it. The endpoint is a
+**firehose**: `?tags=<term>`, `?page`, `?offset` and `?limit` are all ignored
+(99 rows with or without them), and `?tags=<lang>` is worse than useless —
+requesting `?tags=golang` *injects* `golang` into the `tags` of every returned
+row, so a tag-based filter built on that URL would match all 99 postings. The
+board also has no Rust inventory right now (0 `rust` and 0 `c++` tags in the
+payload, `?tags=rust` answers 0, `/remote-rust-jobs` 301s to the homepage), so
+the source reads the one page and filters locally, exactly like the Brave
+sweep:
+
+```json
+{
+  "provider": "json_list",
+  "url": "https://remoteok.com/api",
+  "items_path": ".",
+  "id_path": "id",
+  "title_path": "position",
+  "company_path": "company",
+  "url_path": "url",
+  "date_path": "date",
+  "tags_path": "tags",
+  "location_path": "location",
+  "description_path": "description",
+  "max_results": 100,
+  "keywords": ["rust", "c++", "cpp", "golang", "go engineer", "go developer"],
+  "exclude_keywords": ["account manager", "student", "technician",
+                       "product manager", "accounting and implementation"],
+  "locations": ["remote", "remoto", "home office", "worldwide", "anywhere",
+                "global", "brazil", "brasil", "latam", "latin america",
+                "south america", "americas", "sao paulo"],
+  "match_paths": ["description"],
+  "max_age_days": 45
+}
+```
+
+Measured on 2026-10-25 (99 postings): 99 unfiltered, 27 with the language
+keywords alone, 20 after the location gate, 16 once `exclude_keywords` ran, and
+11 with `max_age_days: 45` (25 feed postings are older than 45 days — RemoteOK
+keeps serving old listings, so the window does real work). Two board-specific
+traps: `location` is empty on 53 of the 99 rows (the gate keeps unknown
+locations and logs them as `unknown`), and the 10 rows that do report one say
+exactly `Remote` — a verbatim copy of the Brave location list drops every one
+of them, hence `remote`/`remoto`/`home office`. Tags are auto-generated and
+noisy (an "Accounting and Implementation Manager" carries a `golang` tag while
+its description never mentions Go), which is why `exclude_keywords` stays
+narrow: broad terms such as `sales` or `recruiter` also appear inside
+legitimate dev descriptions. `match_paths: ["description"]` mirrors Remotar and
+lets the gate read the whole posting instead of the 2 KB stored copy.
+
 **Id-only JSON boards (FullStack Talent).** `talent.fullstack.com/jobs` is an
 Angular shell, but the board reads a public, unauthenticated API:
 `https://api-v1.fullstack.com/api/job-postings/public` answers
@@ -719,6 +772,69 @@ growing catalogue). A 2 s `rate_limit_seconds` finishes a run in ~75 s (the old
 30 s default would make the same sweep an 18-minute run). Because the source is
 a plain `json_list` board, the same generic filters apply to it as to a sweep:
 no Remotar-specific Python is needed.
+
+**Sigma Software (WordPress `admin-ajax.php`).** `career.sigma.software` renders
+its board from a WordPress action, and every route into it is a POST: `GET` on
+the endpoint **silently ignores** the arguments and always answers page 1, and a
+JSON body makes WordPress return a bare `0` because the handler reads `$_POST`.
+`action=filter_vacancies_v2_loadmore` is the only action that honours a page
+(`filter_vacancies_v2` always answers 1–8, `page`/`paged`/`offset`/`skip` are
+ignored), and its `page` is **0-based**: `page=0` → cards 1–8, `page=7` → the
+tail. The response is HTML *inside* JSON —
+`{success: true, data: {html: "<a class=\"vacancy-card-new\" …>", has_more: true, total: 57}}`
+— so the source uses `body_encoding: form`, `{page0}` and the fragment parser.
+Filters are applied **server-side** too (`locations: ["latin-america"]` → 12 of
+57, `workplace_type: ["remote"]` → 48, `keyword` matches title and stack), but
+the source pins the LatAm view in the body *and* keeps the generic
+`keywords`/`locations` gate, which is what actually decides what is stored:
+
+```json
+{
+  "provider": "json_list",
+  "url": "https://career.sigma.software/wp-admin/admin-ajax.php",
+  "method": "POST",
+  "body_encoding": "form",
+  "body": {
+    "action": "filter_vacancies_v2_loadmore",
+    "page": "{page0}",
+    "keyword": "",
+    "locations": "[\"latin-america\"]"
+  },
+  "items_path": "data.html",
+  "item_selector": "a.vacancy-card-new",
+  "title_selector": ".vacancy-card-new__title",
+  "location_selector": ".vacancy-card-new__locations span",
+  "tags_selector": ".vacancy-card-new__technologies span, .vacancy-card__seniority, .vacancy-card__workplace",
+  "company": "Sigma Software",
+  "next_page_path": "data.has_more",
+  "max_pages": 8,
+  "max_results": 60,
+  "keywords": ["rust", "c++", "cpp", "golang", "go engineer", "go developer"],
+  "locations": ["latam", "latin america", "south america", "americas", "brazil",
+                "brasil", "sao paulo", "argentina", "colombia", "mexico"],
+  "allow_empty": true
+}
+```
+
+`next_page_path: data.has_more` ends the walk by itself (2 requests for the LatAm
+view, 8 for the whole board), so `max_pages` is only a safety cap;
+`pagination_in_body` is what tells the worker that the repeated URL is this
+action's page cursor and not the end of the board. `rate_limit_seconds: 2` and a
+daily `scrape_interval_minutes` suit a 2-request run.
+
+Measured on 2026-10-25 (57 openings, 12 in the site's own Latin America view):
+the Brave set alone keeps 3, the LatAm gate alone keeps 12 (all of them remote),
+and both together — the same gate RemoteOK runs — keep **1**: *Software Architect
+(AdTech)*, whose chips read `C++, GO, RUST`. A wider engineering set (python,
+java, js, ts, react, node.js, go, golang, rust, c++, cpp) plus LatAm keeps 9,
+which is the knob to turn if the board is too quiet for you.
+
+Cards carry **no date** anywhere (no `date` field, no `JobPosting` JSON-LD) and
+no body text, so `max_age_days` never fires and the stored description is the
+card's location line; the stack lives in `tags`, which is where the keyword gate
+reads it. Like every `json_list` board, dedupe falls back to the posting URL, so
+re-reading the same page costs nothing. The site's `robots.txt` is a 404, which
+the fetcher treats as "allowed".
 
 **Comeet boards (MWDN).** `jobs.mwdn.com/careers/` embeds a Comeet widget. The
 `ul.comeet-positions-list` is **empty** in the static HTML and the 41 cards that do

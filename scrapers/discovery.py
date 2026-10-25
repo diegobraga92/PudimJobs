@@ -44,6 +44,10 @@ from scrapers.utils import (
 #: string, in a header, or as a path segment (Jooble).
 _JSON_AUTH_LOCATIONS = frozenset({"url", "path", "query", "header"})
 _JSON_METHODS = frozenset({"GET", "POST"})
+#: How a ``json_list`` POST body is encoded: JSON (vendor APIs) or a
+#: form-urlencoded body (PHP/``admin-ajax.php`` endpoints, which read
+#: ``$_POST`` and answer ``0`` to a JSON payload).
+_JSON_BODY_ENCODINGS = frozenset({"json", "form"})
 
 #: A SerpApi ``extensions`` entry is a free-text chip ("Full-time", "$120K a
 #: year", "5 days ago"). Only the age chips may become a posting date: parsing
@@ -892,8 +896,11 @@ class JsonListProvider(DiscoveryProvider):
     """Config-driven provider for plain or keyed JSON job APIs.
 
     One config drives the whole request: ``url``/``url_tpl`` render with any
-    config key plus the reserved ``{api_key}``, ``{page}`` and ``{page_size}``;
-    ``method: POST`` + ``body`` covers APIs that only answer to POST (Jooble);
+    config key plus the reserved ``{api_key}``, ``{page}``, ``{page0}`` and
+    ``{page_size}``; ``method: POST`` + ``body`` covers APIs that only answer to
+    POST (Jooble), and ``body_encoding: form`` sends that body
+    ``application/x-www-form-urlencoded`` for endpoints that read ``$_POST``
+    (WordPress ``admin-ajax.php``);
     ``auth`` says where the key travels (``query``/``header``/``path``);
     ``next_page_tpl``/``max_pages`` paginate, ``next_page_path`` stops on the
     API's own ``hasNextPage`` flag, and ``current_page_path``/``last_page_path``
@@ -904,7 +911,10 @@ class JsonListProvider(DiscoveryProvider):
     with no URL at all. ``location_tpl`` composes a location from several fields,
     ``value_labels`` maps API enums to readable labels, and wildcard paths
     (``jobTags[].tag.name``) project nested arrays into tags or ``match_paths``.
-    ``skip_if_true``/``skip_if_false`` drop stale or inactive rows. The API key
+    ``skip_if_true``/``skip_if_false`` drop stale or inactive rows. When
+    ``items_path`` resolves to a *string* (a "load more" action that wraps its
+    cards in HTML), ``item_selector``/``title_selector``/``tags_selector``
+    parse that fragment with the listing parser. The API key
     comes from the source's stored credentials, never from the config, so
     ``GET /api/sources`` keeps returning ``config`` verbatim.
     """
@@ -941,7 +951,11 @@ class JsonListProvider(DiscoveryProvider):
 
     def _render_values(self, page: int | None = None) -> dict:
         values: dict = dict(self.config)
-        values["page"] = self._page if page is None else page
+        page_number = self._page if page is None else page
+        values["page"] = page_number
+        # 0-based page APIs (`admin-ajax.php` `loadmore` actions) start at 0
+        # while `max_pages`/`{page}` stay 1-based.
+        values["page0"] = page_number - 1
         values["page_size"] = self.page_size()
         values["api_key"] = self.api_key or ""
         return values
@@ -981,6 +995,7 @@ class JsonListProvider(DiscoveryProvider):
         probe = cls(config, api_key=None if has_api_key is False else "probe")
         url = probe.results_url()
         probe.request_spec(url)
+        probe.body_encoding()
         if has_api_key is False and (cls.requires_key or "{api_key}" in json.dumps(config)):
             raise ValueError(
                 f"{cls.provider_name} needs an API key — add one in the source's "
@@ -1052,6 +1067,21 @@ class JsonListProvider(DiscoveryProvider):
             )
         return method, self._render_body(body, self._render_values())
 
+    def body_encoding(self) -> str:
+        """How a POST ``body`` is sent: ``json`` (default) or ``form``.
+
+        The same body template covers both; only the wire encoding changes.
+        WordPress ``admin-ajax.php`` actions read ``$_POST``, so a JSON body
+        leaves every field empty and the endpoint answers a bare ``0``.
+        """
+        raw = str(self.config.get("body_encoding") or "json").strip().lower()
+        if raw not in _JSON_BODY_ENCODINGS:
+            raise ValueError(
+                "json_list: 'body_encoding' must be one of "
+                f"{', '.join(sorted(_JSON_BODY_ENCODINGS))} (got {raw!r})"
+            )
+        return raw
+
     def _render_body(self, node: object, values: dict) -> object:
         """Render every string inside a JSON body template."""
         if isinstance(node, str):
@@ -1067,11 +1097,14 @@ class JsonListProvider(DiscoveryProvider):
         headers = dict((auth.headers or {}) if auth else {})
         headers.update(self._static_headers())
         headers.update(self._key_headers())
+        # A form body must not also ride as JSON, and vice versa.
+        as_form = method != "GET" and body is not None and self.body_encoding() == "form"
         page = await fetch_html(
             url,
             auth=FetchAuth(headers=headers or None, api_key=self.api_key),
             method=method,
-            json_body=body,
+            json_body=None if as_form else body,
+            form_body=body if as_form else None,
             # Providers put the real reason ("invalid api key", "quota exceeded")
             # in the payload; the snippet is capped and redacted.
             read_error_body=True,
@@ -1094,7 +1127,7 @@ class JsonListProvider(DiscoveryProvider):
         the body) from "same URL" (= there are no more pages).
         """
         body = self.config.get("body")
-        return isinstance(body, dict) and "{page}" in json.dumps(body)
+        return isinstance(body, dict) and re.search(r"\{page0?\}", json.dumps(body)) is not None
 
     def next_page_url(self, page: ScrapedPage) -> str | None:
         """The next results URL, or None (single-page sources stop here)."""
@@ -1185,6 +1218,21 @@ class JsonListProvider(DiscoveryProvider):
         items = resolve_path(payload, self.config.get("items_path"))
         if isinstance(items, dict):
             items = [items]
+        if isinstance(items, str) and self.config.get("item_selector"):
+            # A WordPress-style "load more" action wraps its cards in a JSON
+            # *string* (`{"data": {"html": "<a class=...>"}}`). Hand the fragment
+            # to the listing parser, so `item_selector`/`title_selector`/
+            # `tags_selector` behave exactly as they do for `generic_html_list`.
+            max_results = int(self.config.get("max_results") or 0)
+            jobs = parse_html_list(
+                ScrapedPage(
+                    html_content=items,
+                    status_code=page.status_code,
+                    final_url=page.final_url,
+                ),
+                self.config,
+            )
+            return jobs[:max_results] if max_results > 0 else jobs
         if not isinstance(items, list):
             raise ValueError(
                 "json_list: 'items_path' must point to a JSON array of jobs "
@@ -2227,6 +2275,16 @@ _DISCOVERY_CONFIG_METADATA: dict[str, dict] = {
             "skip_if_false",
             "method",
             "body",
+            "body_encoding",
+            "item_selector",
+            "title_selector",
+            "url_selector",
+            "company_selector",
+            "location_selector",
+            "date_selector",
+            "description_selector",
+            "tags_selector",
+            "title_exclude_selector",
             "auth",
             "headers",
             "page_size",

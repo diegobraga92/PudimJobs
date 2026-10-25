@@ -2162,6 +2162,183 @@ def test_json_list_rejects_bad_methods_and_bodies():
     with pytest.raises(ValueError, match="'body'"):
         JsonListProvider({"url": "https://api.example/jobs", "method": "POST"}).request_spec("x")
 
+
+# --- WordPress admin-ajax boards (form bodies + HTML fragments) ---------------
+
+#: A board whose "load more" action takes a form-encoded POST and answers with
+#: HTML *inside* JSON. Pinned to the site's own Latin America view, because the
+#: endpoint filters server-side: `locations=["latin-america"]` -> 12 of 57.
+SIGMA_CONFIG = {
+    "provider": "json_list",
+    "url": "https://career.sigma.software/wp-admin/admin-ajax.php",
+    "method": "POST",
+    "body_encoding": "form",
+    "body": {
+        "action": "filter_vacancies_v2_loadmore",
+        "page": "{page0}",
+        "keyword": "",
+        "locations": '["latin-america"]',
+    },
+    "items_path": "data.html",
+    "item_selector": "a.vacancy-card-new",
+    "title_selector": ".vacancy-card-new__title",
+    "location_selector": ".vacancy-card-new__locations span",
+    "tags_selector": (
+        ".vacancy-card-new__technologies span, .vacancy-card__seniority, .vacancy-card__workplace"
+    ),
+    "company": "Sigma Software",
+    "next_page_path": "data.has_more",
+    "max_pages": 8,
+    "max_results": 60,
+    "keywords": ["rust", "c++", "cpp", "golang", "go engineer", "go developer"],
+    "locations": ["latam", "latin america", "brazil", "brasil", "sao paulo", "argentina"],
+    "allow_empty": True,
+}
+
+
+def _sigma_card(
+    *,
+    title: str,
+    href: str,
+    seniority: str,
+    workplace: str,
+    locations: str,
+    technologies: str,
+) -> str:
+    """One card, structured like the board's own markup."""
+    return (
+        f'<a class="vacancy-card-new" href="{href}">'
+        f'<h3 class="vacancy-card-new__title">{title}</h3>'
+        f'<span class="vacancy-card__seniority">{seniority}</span>'
+        f'<span class="vacancy-card__workplace">{workplace}</span>'
+        f'<div class="vacancy-card-new__locations"><span>{locations}</span></div>'
+        f'<div class="vacancy-card-new__technologies"><span>{technologies}</span></div>'
+        "</a>"
+    )
+
+
+SIGMA_PAYLOAD = {
+    "success": True,
+    "data": {
+        "html": "".join(
+            [
+                _sigma_card(
+                    title="Software Architect (AdTech)",
+                    href="https://career.sigma.software/vacancy/software-architect-adtech/",
+                    seniority="Senior",
+                    workplace="Remote",
+                    locations="Latin America, Brazil, Colombia",
+                    technologies="Software Development, C++, Embedded, Engineering",
+                ),
+                _sigma_card(
+                    title="Middle Data Engineer",
+                    href="https://career.sigma.software/vacancy/middle-data-engineer-12/",
+                    seniority="Middle",
+                    workplace="Remote",
+                    locations="Latin America, Argentina, Brazil",
+                    technologies="Engineering, Databases, Python",
+                ),
+                _sigma_card(
+                    title="Rust Engineer (Warsaw)",
+                    href="https://career.sigma.software/vacancy/rust-engineer-warsaw/",
+                    seniority="Senior",
+                    workplace="Hybrid",
+                    locations="Europe, Poland",
+                    technologies="Rust, Embedded",
+                ),
+                _sigma_card(
+                    title="Go Developer",
+                    href="https://career.sigma.software/vacancy/go-developer-7/",
+                    seniority="Middle",
+                    workplace="Remote",
+                    locations="Latin America, Argentina",
+                    technologies="GO, Golang, Python",
+                ),
+            ]
+        ),
+        "has_more": True,
+        "total": 4,
+    },
+}
+
+
+def test_json_list_sends_a_form_body_with_zero_based_pages():
+    provider = JsonListProvider(SIGMA_CONFIG)
+
+    assert provider.body_encoding() == "form"
+    # The action's `page` is 0-based: page 1 of the walk asks for 0.
+    assert provider.request_spec(provider.results_url())[1]["page"] == "0"
+    assert provider.pagination_in_body is True
+
+    # A 1-based `{page}` keeps working for the vendors that expect it.
+    jooble = JsonListProvider({"url": "u", "method": "POST", "body": {"page": "{page}"}})
+    assert jooble.request_spec("u") == ("POST", {"page": "1"})
+    assert jooble.body_encoding() == "json"
+
+    # Body pagination repeats the endpoint, so only the board's own flag ends it.
+    next_url = provider.next_page_url(_json_page(SIGMA_PAYLOAD))
+    assert next_url == SIGMA_CONFIG["url"]
+    assert provider.request_spec(next_url)[1]["page"] == "1"
+    assert provider.next_page_url(_json_page({"data": {"html": "", "has_more": False}})) is None
+
+    with pytest.raises(ValueError, match="body_encoding"):
+        JsonListProvider({**SIGMA_CONFIG, "body_encoding": "xml"}).body_encoding()
+
+
+def test_sigma_config_parses_the_html_fragment_into_jobs():
+    """`items_path` pointing at a string parses it as a listing page."""
+    jobs = JsonListProvider(SIGMA_CONFIG).parse(_json_page(SIGMA_PAYLOAD))
+
+    assert [job.title for job in jobs] == [
+        "Software Architect (AdTech)",
+        "Middle Data Engineer",
+        "Rust Engineer (Warsaw)",
+        "Go Developer",
+    ]
+    first = jobs[0]
+    assert first.url == "https://career.sigma.software/vacancy/software-architect-adtech/"
+    assert first.company == "Sigma Software"
+    assert first.location == "Latin America, Brazil, Colombia"
+    # The chips are the only place the stack is printed, and a chip may carry a
+    # comma list: every part becomes its own tag, where the keyword gate reads.
+    assert first.tags == [
+        "Software Development",
+        "C++",
+        "Embedded",
+        "Engineering",
+        "Senior",
+        "Remote",
+    ]
+    # Cards carry no date and no body: the listing parser's location line is all
+    # the description can be, exactly as for `generic_html_list`.
+    assert first.posted_date is None
+    assert first.description == "Location: Latin America, Brazil, Colombia"
+
+
+def test_sigma_config_applies_the_keyword_and_location_gate():
+    scraper = DiscoveryScraper("json_list", SIGMA_CONFIG)
+    jobs = scraper.parse(_json_page(SIGMA_PAYLOAD))
+
+    assert [job.title for job in jobs] == ["Software Architect (AdTech)", "Go Developer"]
+    assert scraper.allow_empty is True
+    # Python-only row: dropped by `keywords`. Warsaw row: dropped by `locations`.
+    assert scraper._location_dropped == 1
+    assert scraper._location_unknown == 0
+
+
+def test_sigma_config_is_registered_and_dispatched():
+    provider = get_discovery_provider("json_list", SIGMA_CONFIG)
+    assert provider.requires_key is False
+    JsonListProvider.validate_config(SIGMA_CONFIG)
+    metadata = JsonListProvider.config_metadata()["optional"]
+    for key in ("body_encoding", "item_selector", "title_selector", "tags_selector"):
+        assert key in metadata
+
+    scraper = get_scraper(SimpleNamespace(type=SourceType.discovery, config=SIGMA_CONFIG))
+    assert scraper.first_fetch_url("https://ignored.example") == SIGMA_CONFIG["url"]
+    assert scraper.allow_empty is True
+
+
 ADZUNA_PAYLOAD = {
     "results": [
         {
@@ -4903,6 +5080,29 @@ async def test_fetch_html_posts_a_json_body_with_auth_headers(monkeypatch, offli
     assert request.headers["x-rapidapi-key"] == "SECRET"
     assert request.headers["accept-language"] == "en-US,en;q=0.9"
     assert request.headers["content-type"] == "application/json"
+
+
+async def test_fetch_html_posts_a_form_body_when_asked(monkeypatch, offline_fetch):
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, text='{"success": true, "data": {"html": ""}}')
+
+    _patch_httpx_transport(monkeypatch, handler)
+    page = await fetch_html(
+        _OFFLINE_URL,
+        method="POST",
+        form_body={"action": "filter_vacancies_v2_loadmore", "page": "0"},
+    )
+
+    assert page.status_code == 200
+    request = seen[0]
+    assert request.method == "POST"
+    # A PHP endpoint reads `$_POST`: the fields must be form-encoded, and no
+    # JSON body may ride along (WordPress answers a bare `0` to one).
+    assert request.headers["content-type"] == "application/x-www-form-urlencoded"
+    assert request.content == b"action=filter_vacancies_v2_loadmore&page=0"
 
 
 async def test_fetch_html_defaults_to_get_without_a_body(monkeypatch, offline_fetch):
