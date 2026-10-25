@@ -336,7 +336,23 @@ async def _store_jobs(
             location=_location_value(data.get("location")),
             external_id=external_id,
         )
-        session.add(job)
+        try:
+            async with session.begin_nested():
+                session.add(job)
+        except IntegrityError:
+            # A provider id that is not unique per posting (Radartec's JSON-LD
+            # stamps the *employer* id) used to abort the whole batch: the
+            # transaction rolled back and the run reported every row as
+            # *skipped*, so a successful scrape silently stored nothing. Cost
+            # the one row instead.
+            skip_count += 1
+            logger.warning(
+                "scrape_skip_conflict",
+                source_id=str(source.id),
+                url=url,
+                external_id=external_id,
+            )
+            continue
         if url:
             existing_urls.add(url)
         if external_id:

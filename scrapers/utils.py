@@ -712,6 +712,28 @@ def _json_ld_location(item: dict) -> str | None:
     return ", ".join(dict.fromkeys(parts)) or None
 
 
+def _json_ld_external_id(item: dict, company: str) -> str | None:
+    """The posting's own id, or ``None`` when the JSON-LD only carries an org id.
+
+    ``identifier`` is a ``PropertyValue`` and boards disagree about what it
+    identifies. Radartec stamps the *employer's* id there
+    (``{"@type": "PropertyValue", "name": "Radartec", "value": "1"}``), so every
+    ad the board posts itself carries ``value: "1"``: taken as the posting id it
+    makes 18 distinct jobs collide on ``uq_jobs_source_external_id``. An
+    identifier that names the hiring organization describes the org, not the
+    posting, so the row keeps no external id and is deduped by URL instead.
+    """
+    identifier = item.get("identifier")
+    if isinstance(identifier, dict):
+        name = as_optional_str(identifier.get("name"))
+        if name and company and fold_text(name) == fold_text(company):
+            return None
+        identifier = identifier.get("value") or identifier.get("@id")
+    elif identifier is not None:
+        identifier = str(identifier)
+    return as_optional_str(identifier)
+
+
 def parse_json_ld_jobs(
     html_content: str, fallback_url: str | None = None
 ) -> list[RawJob]:
@@ -741,11 +763,7 @@ def parse_json_ld_jobs(
             if isinstance(company_obj, list):
                 company_obj = company_obj[0] if company_obj else {}
             company = company_obj.get("name") if isinstance(company_obj, dict) else ""
-            identifier = item.get("identifier")
-            if isinstance(identifier, dict):
-                identifier = identifier.get("value") or identifier.get("@id")
-            elif identifier is not None:
-                identifier = str(identifier)
+            identifier = _json_ld_external_id(item, company)
             jobs.append(
                 RawJob(
                     title=item.get("title") or "",

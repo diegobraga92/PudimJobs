@@ -68,6 +68,19 @@ worker stores it in `jobs.location`:
 - **RSS**: `region`/`location` entry fields, region-like categories when
   `include_region` is set, and Jobspresso's author suffix (`Algolia ⚲ Brazil`).
 
+Boards spell countries differently, and the gate matches the **stored** string, so
+a term list can only be copied between boards that spell a region the same way.
+Nerdin's JSON-LD writes the ISO code instead of the name (`São Paulo, SP, BR`,
+`Home Office, HO, BR`), where `brazil`/`brasil` match nothing and `br` — safe
+because matching is whole-term, so it cannot reach `Brasil` or `Bruxelas` — is
+the only country-level term that works. Radartec writes the opposite — its
+`addressCountry` is the name (`São Paulo, SP, Brasil`), so `brasil` is the term
+that works there and `br` is not; copying either board's list to the other
+silently changes what the gate keeps. The mirror image: a board that writes
+`Remote` never matches `home office`. Derive the list from the strings already
+stored (`SELECT location, count(*) FROM jobs WHERE source_id = … GROUP BY 1`)
+rather than from what another source happens to use.
+
 `config["locations"]` gates ingestion on that value (see below): a matching term
 keeps the job, a non-matching detected location drops it, and a job with **no**
 detected location is always kept. The jobs API filters on the same field with
@@ -368,11 +381,19 @@ not a feed parameter).
 
 **RSS / Atom** (`type = rss`): We Work Remotely
 (`weworkremotely.com/remote-jobs.rss`), NoDesk (`nodesk.co/remote-jobs/index.xml`),
-Jobspresso (`jobspresso.co/jobs/feed/` — the bare `/feed/` is the *blog* and
-carries **0** jobs), RemoteYeah, Dexian Brasil, Rangertech (feed href declared in
-the search page). Remote Habit only feeds interviews/tools → use its HTML
+RemoteYeah, Dexian Brasil, Rangertech (feed href declared in the search page).
+Remote Habit only feeds interviews/tools → use its HTML
 listing. RemoteOK / Remotive / Working Nomads expose JSON (use `json_list`), not
 job RSS.
+
+Jobspresso is the exception that proves it: `jobspresso.co/jobs/feed/` (the bare
+`/feed/` is the *blog* and carries **0** jobs) holds only the 20 newest
+postings, so a `locations` gate never sees a Latam row outside that window —
+0 of any given 20 match. Its WordPress API is collected with `json_list`
+instead (`wp/v2/job-listings?per_page=100&page=N`, `next_page_tpl`, `max_pages`
+for the ~6 pages of catalogue): `meta._job_location` is present on **every**
+row, so nothing falls through with an unknown location, and the gate then keeps
+the ~15 Americas/Latam postings from all 576.
 
 Feeds whose metadata describes the *board* rather than the employer support
 opt-in config flags:
@@ -397,24 +418,31 @@ board-shaped feed is configured like this:
 }
 ```
 
-NoDesk uses `{"company_from_title_at": true}` and Jobspresso
-`{"company_from_author": true}` (both feeds already carry the full description
-and date, so no other flag is needed). Relative dates from Brazilian boards
+NoDesk uses `{"company_from_title_at": true}`; `{"company_from_author": true}` is
+what the Jobspresso *feed* would need (its employer sits in the `dc:creator`
+before the `⚲ location` suffix) — that source now reads the WP API instead, where
+`meta._company_name` is a field. Both feeds already carry the full description
+and date, so no other flag is needed. Relative dates from Brazilian boards
 (`"há 2 horas"`, `"2 semanas atrás"`, `"ontem"`) are parsed by `date_selector` /
 `date_from_node` just like the English forms.
 
 **Server-rendered HTML** (`type = aggregator` + `generic_html_list`): Programathor,
 GeekHunter, Remote.com, aijobs.ai, dev.pro, TrabalhaBrasil, InfoJobs, Nerdin
-(`www.nerdin.com.br/vagas.php`, cards `.vaga-card`, next page `?pagina=2`), MWDN
-(`jobs.mwdn.com/careers/` — a **Comeet** embed, 40 cards under
-`.comeet-positions-list li`), SkipTheDrive (its **job-category** pages, e.g.
-`/job-category/remote-part-time-jobs/`, each carry 20 `/job/<slug>/` cards — the
-homepage does not), JobConvo employer boards, Akvelon
+(`www.nerdin.com.br/vagas.php`, cards `.vaga-card`, next page `?pagina=2`),
+Radartec (`radartec.com.br/pesquisar/vaga?ordem=0&page=N`, cards
+`.vote-item` — **not** the homepage, a rotating 7-card teaser that ignores
+`?page=`, and **not** with an empty `q=` in the URL, which makes the site scan
+every posting and intermittently time out), SkipTheDrive (its **job-category**
+pages, e.g. `/job-category/remote-part-time-jobs/`, each carry 20 `/job/<slug>/`
+cards — the homepage does not), JobConvo employer boards, Akvelon
 (PeopleForce), Remote Habit, Job na Gringa, Init-i8, JustRemote,
 remote4me, Toughbyte. InfoJobs only works on its **job search** route
 (`/empregos.aspx?palabra=<term>` — `/empregos` is a company directory). Working
 Nomads *looks* server-rendered but is AngularJS fed by a JSON API → collect it
 with `json_list` against `https://www.workingnomads.com/api/exposed_jobs/`;
+MWDN is a **Comeet** embed whose `ul.comeet-positions-list` stays empty until the
+widget's JavaScript runs (only the 41 `a.comeet-position` links render) →
+collected from the Comeet API with `json_list` (see *Comeet boards* below);
 `jobs.hirewithnear.com/#/` is a hash-route SPA, so it stays `manual` (see below).
 `career.sigma.software` and `remotifyeurope.com` are **not** in this list: both
 return a shell with 0 job rows (see the JS-only shells below). Jobsora is
@@ -458,11 +486,63 @@ writing):
 | InfoJobs | `/empregos.aspx?palabra=<term>` | `{"term": "Python", "url_tpl": "https://www.infojobs.com.br/empregos.aspx?palabra={term}", "item_selector": "div.js_cardLink", "title_selector": "h2.js_vacancyTitle", "url_selector": "a[href*='/vaga-de-']"}` | 20 — but only **2** on `palabra=Rust` (that page's card slice is client-rendered), so preview the term you store |
 | GeekHunter | `/pt/vagas?workModality=remote` | `{"item_selector": "article", "title_selector": "h3 a", "url_selector": "h3 a", "next_page_selector": "a[rel=next]", "max_pages": 3}` — list mode has no company (chakra hashes the classes); adding `"detail": true` makes each job page's JSON-LD (tried before the `detail_*_selectors`) supply company, date and description | 25/page |
 | RemoteYeah | `/remote-<term>-jobs-in-brazil` | the `url_tpl` + `next_page_tpl` recipe in *URL arguments and search terms* above: `detail: true` + `item_selector: "article.job-card"` (a bare `li` matches the recent-applications ticker, not job cards); each detail page's JSON-LD supplies the description, date and skills | 31 / 38 |
+| Radartec | `radartec.com.br/pesquisar/vaga?ordem=0&page=1` | `{"detail": true, "item_selector": ".vote-item", "title_selector": "a.vote-title", "url_selector": "a.vote-title", "location_selector": "span.cidade", "next_page_tpl": "https://radartec.com.br/pesquisar/vaga?ordem=0&page={page}", "max_pages": 3, "max_results": 30, "locations": ["home office", "sao paulo", "sao jose dos campos"]}` — the **homepage is a 7-card rotating teaser** (it ignores `?page=` and `?ordem=`), so the source reads the site's own search route instead (10 `.vote-item` per page, `span.cidade` = `City - UF`); keep `q=` **out** of the URL — empty it makes the site scan every posting and the page takes >60 s, while `?ordem=0&page=N` answers in ~1.2 s; `max_results` must be at least `10 × max_pages`, because it caps detail fetches | 30 detail fetches (3 pages × 10) |
+| Nerdin | `www.nerdin.com.br/vagas.php` | `{"detail": true, "item_selector": ".vaga-card", "title_selector": "h3.vaga-titulo", "url_selector": "a.btn-ver-vaga", "company_selector": ".vaga-empresa-nome", "location_selector": ".vaga-local-linha span", "date_selector": "time", "title_exclude_selector": ".vaga-nova-badge", "locations": ["home office", "sao paulo", "sao jose dos campos"]}` — every card carries a `.vaga-local-linha span`, but list mode has no description; the detail page's JSON-LD is the only full address | 20/run (one detail fetch each, 30 s) |
 
 `max_results` does **not** cap list-mode rows (it bounds detail fetches and
 `embedded_json_list` items); what bounds a multi-page walk is `max_pages`, and one
 request is paid per page plus per detail page, all under the source's
 `rate_limit_seconds` cooldown.
+
+Nerdin shows why the detail-fetch budget decides coverage: the listing holds 871
+postings over 45 `?pagina=N` pages, but at `rate_limit_seconds: 30` one run buys
+20 cards in ~10 minutes, so the source tracks the newest 20 (≈19 postings/day are
+published — it keeps up with the flow but never backfills, and a fifth page would
+need a lower cooldown). Its detail pages carry **no** location markup at all
+(verified: zero `.vaga-local*` nodes on a stored job), so the address comes from
+JSON-LD (`City, UF, BR`) with `_apply_card_location` filling the card's
+`.vaga-local-linha` value when JSON-LD has none — the same split that makes the
+`, BR` ISO-code trap bite. The gate is therefore a city whitelist — `home
+office`, `sao paulo`, `sao jose dos campos`, i.e. 697 of the 871 postings — and
+`sao jose dos campos` has to stay the full phrase, because the same board also
+lists São José • SC, São José dos Pinhais • PR and São José do Rio Preto • SP.
+Its own `?busca_local=<city>` search is a fuzzy full-text match
+(`busca_local=São Paulo` also returns Santos rows) so it is no substitute for the
+gate, and `?busca=` does not filter at all.
+
+Radartec is the mirror case for *pagination* rather than spelling: its homepage
+prints a rotating **7-card teaser** that ignores `?page=` and `?ordem=`, which is
+why the source's first four days (9 rows) are a random sample of 7 postings per
+run. The site's own search route is server-rendered and pageable —
+`/pesquisar/vaga?ordem=0&page=N`, ten `.vote-item` per page, 105 live postings
+over 11 pages (the `sitemap.xml` advertises 160 `/vaga/<id>/<slug>` URLs, 55 of
+them expired) — so `url` + `next_page_tpl` + `max_pages: 3` replace the teaser
+with a deterministic window. Drop the `q=` this route advertises: an **empty**
+`q` sends the site scanning every posting, which answered in ~1.2 s for days and
+then started taking >60 s (a `ReadTimeout` that failed a run and left the source
+`failing`), while the same page without it stayed at 1.2 s. Two budgets decide
+coverage and they must agree: `max_pages` walks the listing while `max_results`
+caps **detail** fetches at `10 × max_pages` (the default 20 would fetch page 3
+and then drop half of its cards). A run costs 3 listing + 30 detail requests
+under the 30 s cooldown ≈ 16 minutes (measured 15 m 56 s) and keeps the 18 São
+Paulo postings out of the 30 cards on pages 1–3; the other 12 are Nova Friburgo,
+Belo Horizonte, Recife, Duque de Caxias, Araucária, São José • SC and Barueri. A
+search term is no substitute for the gate here either: `?q=home office` matches
+the **title** and still returns Belo Horizonte and São Paulo rows. `home office`
+never appears as a location on this board and `sao jose dos campos` had 0
+postings; both terms stay because the hits are one ad away. Two JSON-LD quirks
+had to be survived: the `description` carries raw control characters (invalid
+JSON, hence `strict=False` in `parse_json_ld_jobs`) and `identifier` is the
+**employer's** id (`{"name": "Radartec", "value": "1"}`), not the posting's — read
+as a posting id it made every ad the board posts itself collide on
+`uq_jobs_source_external_id`, and because a failed batch rolled back whole the run
+reported `new=0 skipped=18` as a *success* and stored nothing. The parser now
+ignores an `identifier` that names the hiring organization, and `_store_jobs`
+inserts row by row inside a savepoint, so a bad id costs one row instead of the
+run. `addressCountry` is spelled out (`Brasil`) — the reverse of Nerdin's `BR` —
+and the card's `span.cidade` (`São Paulo - SP`) is the configured
+`location_selector`, which `_apply_card_location` falls back to when JSON-LD
+carries no address.
 
 **Embedded JSON** (`type = aggregator` + `embedded_json_list`): boards that render
 their listing with a JS framework but ship the data in the page. `payload_script`
@@ -576,6 +656,51 @@ rows hold title, company, location, date and `skillsNames` as tags, and
 `POST /api/jobs/{id}/parse` has no body to read. Narrow the volume with the
 Brazil/São Paulo filter, `max_age_days`, or a `locations` eligibility gate
 (keyword filters only apply to sweeps).
+
+**Comeet boards (MWDN).** `jobs.mwdn.com/careers/` embeds a Comeet widget. The
+`ul.comeet-positions-list` is **empty** in the static HTML and the 41 cards that do
+render server-side are the `a.comeet-position` anchors themselves, so the
+`item_selector` matches nothing and the rows come from the URL-selector fallback
+(41 rows, each with its own title and a `Remote · Poland · …` location suffix).
+Two things break that route: `"detail": true` pays `rate_limit_seconds` (30 s) for
+every card, so 41 fetches is a 20-minute run that the reaper kills as stale
+(`stale run: worker did not finish within 30 minutes`) — what the old MWDN config
+did on every sweep — and even a healthy walk only sees 41 of the 335 postings
+(23 Ukraine, 9 remote, 4 Poland, 2 Ukraine-remote, 1 each Poland-remote, Moldova,
+Bulgaria), all of them EMEA. The page also hands out its own API credentials
+(`Comeet.uid` / `Comeet.token` in the markup), and the public positions API
+returns the **whole** catalogue — 335 postings where the page links 41 — in a
+single 417 KB response:
+
+```json
+{
+  "provider": "json_list",
+  "url": "https://www.comeet.co/careers-api/2.0/company/<uid>/positions?token=<token>",
+  "max_pages": 1,
+  "id_path": "uid",
+  "title_path": "name",
+  "url_path": "url_comeet_hosted_page",
+  "location_path": "location.name",
+  "date_path": "time_updated",
+  "tags_path": "department",
+  "company": "MWDN",
+  "locations": ["brazil", "brasil", "sao paulo", "latam", "latin america", "south america", "americas"]
+}
+```
+
+Every posting carries `location {name, country, city, state, is_remote}` plus
+`workplace_type` (`Remote`/`On-site`), so the eligibility gate keys off
+`location.name` reliably — `?country=BR` is accepted by the API but ignored (335
+rows with or without it), so narrowing stays local. `details=true` adds ordered
+`details[]` sections (`Description`, `Why …`, `Requirements`, …) holding the JD as
+HTML with ~4 KB of text per posting, but it inflates the payload to **2.27 MB**,
+past the 2 MB `scraper_max_response_bytes` default, so the fetch is rejected
+before parsing: raise that budget *and* map `description_path: "details[0].value"`
+if a section-level blurb is worth it, otherwise the rows have no description.
+Mind the payload shape: it is a bare array (`items_path` defaults to `.`), and
+`max_results` must stay unset or it truncates `parse()` before the location gate
+sees the other countries. One UID/token pair per board, both public, so a new
+Comeet widget is a config change rather than a scraper.
 
 **Paid search providers** (`type = discovery`, key via `PUT /sources/{id}/auth`
 with `auth_type=api_key`): `brightdata` for LinkedIn (`{"engine": "linkedin",

@@ -1011,6 +1011,38 @@ def test_json_ld_identifier_dict_is_coerced():
     assert jobs[0].external_id == "req-42"
 
 
+def test_json_ld_identifier_that_names_the_employer_is_not_a_posting_id():
+    """Radartec's JSON-LD puts the *employer* id in `identifier`.
+
+    Every ad the board posts itself carries `value: "1"`, so using it as the
+    posting id made 18 distinct jobs collide on `uq_jobs_source_external_id`
+    (the whole insert was rolled back and reported as skipped). A `name` that
+    matches the hiring organization marks the value as an org id.
+    """
+    html = """
+    <script type="application/ld+json">
+    {"@type": "JobPosting", "title": "T", "url": "https://x.example/1",
+     "hiringOrganization": {"@type": "Organization", "name": "Radartec"},
+     "identifier": {"@type": "PropertyValue", "name": "Radartec", "value": "1"}}
+    </script>
+    """
+    jobs = parse_json_ld_jobs(html)
+    assert jobs[0].external_id is None
+
+
+def test_json_ld_identifier_from_another_employer_still_carries_an_id():
+    """A `name` that is *not* the hiring org keeps the id (agency-posted ads)."""
+    html = """
+    <script type="application/ld+json">
+    {"@type": "JobPosting", "title": "T", "url": "https://x.example/2",
+     "hiringOrganization": {"@type": "Organization", "name": "Radartec"},
+     "identifier": {"@type": "PropertyValue", "name": "Sempre IT", "value": "1221"}}
+    </script>
+    """
+    jobs = parse_json_ld_jobs(html)
+    assert jobs[0].external_id == "1221"
+
+
 def test_json_ld_tolerates_control_characters_graph_and_list_type():
     """Real boards emit raw newlines inside strings and wrap nodes in @graph."""
     html = """

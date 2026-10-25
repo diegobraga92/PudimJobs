@@ -273,6 +273,55 @@ async def test_scrape_pipeline_stores_jobs_and_records_run(
     assert source.health == "healthy"
 
 
+async def test_store_jobs_keeps_a_batch_whose_external_ids_collide(
+    test_engine, db_session
+):
+    """One duplicate id must cost one row, not the whole run.
+
+    Regression: Radartec's JSON-LD stamps the employer id as the posting id, so
+    18 kept jobs arrived with `external_id="1"`. The unique constraint rolled
+    the batch back and the run reported `new=0 skipped=18` as a *success*.
+    """
+    user = await create_user(db_session)
+    source = await _make_source(db_session, user)
+    normalized = [
+        {
+            "title": "Backend Engineer",
+            "company": "Radartec",
+            "url": "https://acme.example/jobs/1",
+            "description": None,
+            "posted_date": None,
+            "tags": [],
+            "external_id": "1",
+        },
+        {
+            "title": "Full Stack Engineer",
+            "company": "Radartec",
+            "url": "https://acme.example/jobs/2",
+            "description": None,
+            "posted_date": None,
+            "tags": [],
+            "external_id": "1",
+        },
+        {
+            "title": "Data Engineer",
+            "company": "Acme",
+            "url": "https://acme.example/jobs/3",
+            "description": None,
+            "posted_date": None,
+            "tags": [],
+            "external_id": "1221",
+        },
+    ]
+
+    new_count, skip_count, stored = await _store_jobs(source, normalized, db_session)
+
+    assert (new_count, skip_count) == (2, 1)
+    assert [job.title for job in stored] == ["Backend Engineer", "Data Engineer"]
+    jobs = (await db_session.execute(select(Job))).scalars().all()
+    assert sorted(job.external_id for job in jobs) == ["1", "1221"]
+
+
 async def test_store_jobs_coerces_a_string_posted_date(test_engine, db_session):
     """A provider leaking a str date must not abort the batch insert.
 
