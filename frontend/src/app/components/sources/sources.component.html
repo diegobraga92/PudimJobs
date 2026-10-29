@@ -896,62 +896,91 @@
                 </span>
               }
             </td>
+            <!-- Icon-only on purpose: five labelled buttons overflowed the table and
+                 pushed the last ones out of view. The label lives in the tooltip and
+                 the accessible name carries the source name for context. -->
             <td class="row-actions">
               @if (canViewJobs(source)) {
-                <button type="button" class="btn btn-ghost btn-sm" (click)="viewJobs(source)">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-icon btn-sm"
+                  [attr.title]="i18n.t('sources.viewJobsHint')"
+                  [attr.aria-label]="i18n.t('sources.viewJobsAria', { name: source.name })"
+                  (click)="viewJobs(source)"
+                >
                   <app-icon name="briefcase" [size]="14" />
-                  {{ i18n.t('sources.viewJobs') }}
                 </button>
               }
               @if (source.type === 'manual') {
                 <a
-                  class="btn btn-ghost btn-sm"
+                  class="btn btn-ghost btn-icon btn-sm"
                   [href]="source.url"
                   target="_blank"
                   rel="noopener noreferrer"
+                  [attr.title]="i18n.t('sources.openBoard')"
+                  [attr.aria-label]="i18n.t('sources.openBoardAria', { name: source.name })"
                 >
                   <app-icon name="external-link" [size]="14" />
-                  {{ i18n.t('sources.openBoard') }}
                 </a>
                 <button
                   type="button"
-                  class="btn btn-ghost btn-sm"
+                  class="btn btn-ghost btn-icon btn-sm"
                   [disabled]="checkingId === source.id"
+                  [attr.title]="i18n.t('sources.markChecked')"
+                  [attr.aria-label]="i18n.t('sources.markCheckedAria', { name: source.name })"
                   (click)="markChecked(source)"
                 >
                   <app-icon name="circle-check" [size]="14" />
-                  {{ i18n.t('sources.markChecked') }}
                 </button>
               }
               @if (source.type !== 'manual') {
                 <!-- Manual sources are never fetched, so credentials mean nothing here. -->
-                <button type="button" class="btn btn-ghost btn-sm" (click)="openAuth(source)">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-icon btn-sm"
+                  [attr.title]="i18n.t('common.auth')"
+                  [attr.aria-label]="i18n.t('sources.authAria', { name: source.name })"
+                  (click)="openAuth(source)"
+                >
                   <app-icon name="settings" [size]="14" />
-                  {{ i18n.t('common.auth') }}
                 </button>
               }
               <!-- Avoid/restore works for every type: an avoided source is never
                    fetched and never reminded about, but stays listed (ADR 019). -->
               <button
                 type="button"
-                class="btn btn-ghost btn-sm"
+                class="btn btn-ghost btn-icon btn-sm"
                 [disabled]="avoidingId === source.id"
                 [attr.aria-pressed]="source.avoided ? 'true' : 'false'"
                 [attr.title]="
                   source.avoided ? i18n.t('sources.restoreSourceHint') : i18n.t('sources.avoidSourceHint')
                 "
+                [attr.aria-label]="
+                  source.avoided
+                    ? i18n.t('sources.restoreAria', { name: source.name })
+                    : i18n.t('sources.avoidAria', { name: source.name })
+                "
                 (click)="toggleAvoided(source)"
               >
                 <app-icon [name]="source.avoided ? 'eye' : 'eye-off'" [size]="14" />
-                {{ source.avoided ? i18n.t('sources.restoreSource') : i18n.t('sources.avoidOnly') }}
               </button>
-              <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(source)">
+              <button
+                type="button"
+                class="btn btn-ghost btn-icon btn-sm"
+                [attr.title]="i18n.t('common.edit')"
+                [attr.aria-label]="i18n.t('sources.editAria', { name: source.name })"
+                (click)="openEdit(source)"
+              >
                 <app-icon name="pencil" [size]="14" />
-                {{ i18n.t('common.edit') }}
               </button>
-              <button type="button" class="btn btn-danger btn-sm" (click)="remove(source)">
+              <button
+                type="button"
+                class="btn btn-danger btn-icon btn-sm"
+                [attr.title]="i18n.t('common.delete')"
+                [attr.aria-label]="i18n.t('sources.deleteAria', { name: source.name })"
+                (click)="remove(source)"
+              >
                 <app-icon name="trash" [size]="14" />
-                {{ i18n.t('common.delete') }}
               </button>
             </td>
           </tr>

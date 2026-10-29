@@ -583,6 +583,40 @@ describe('SourcesComponent — manual watchlist', () => {
     expect(navigate).toHaveBeenCalledWith(['/jobs'], { queryParams: { source_id: 'src-6' } });
   });
 
+  it('renders the row actions as icon-only buttons with an accessible name', () => {
+    component.sources = [CAREER_SOURCE, MANUAL_SOURCE];
+    fixture.detectChanges();
+
+    // Five labelled buttons per row used to be wider than the table itself, so
+    // the last actions were clipped. The label now lives in `title` and the
+    // accessible name has to say which source it acts on.
+    const actions = fixture.debugElement.queryAll(
+      By.css('tbody td.row-actions button, tbody td.row-actions a')
+    );
+    expect(actions.length).toBe(10);
+
+    const labels = actions.map((action) => {
+      const element = action.nativeElement as HTMLElement;
+      // No visible text left in the button: only the icon renders.
+      expect(element.textContent?.trim()).toBe('');
+      expect(element.getAttribute('title')).withContext('tooltip').toBeTruthy();
+      return element.getAttribute('aria-label');
+    });
+
+    expect(labels.filter((label) => !label)).toEqual([]);
+    expect(labels).toContain('View the jobs from Acme Careers');
+    expect(labels).toContain('Authentication settings for Acme Careers');
+    expect(labels).toContain('Avoid Acme Careers');
+    expect(labels).toContain('Edit source Acme Careers');
+    expect(labels).toContain('Delete source Acme Careers');
+    expect(labels).toContain('Open the board of Login-walled board');
+    expect(labels).toContain('Mark Login-walled board as checked');
+    // Delete stays the one danger-coloured action in the row.
+    expect(
+      fixture.debugElement.query(By.css('tbody td.row-actions button.btn-danger'))
+    ).toBeTruthy();
+  });
+
   it('shows only scraped boards when the Automated filter is active', () => {
     component.sources = [MANUAL_SOURCE, CAREER_SOURCE, UNHEALTHY_SOURCE];
 

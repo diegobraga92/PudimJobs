@@ -282,6 +282,24 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     'pt-BR': 'Abrir as vagas desta fonte na lista de vagas.',
   },
   'sources.viewJobsAria': { en: 'View the jobs from {name}', 'pt-BR': 'Ver as vagas de {name}' },
+  // Row actions are icon-only (the labels live in their tooltips), so the
+  // accessible name has to say what the button does *and* for which source.
+  'sources.openBoardAria': {
+    en: 'Open the board of {name}',
+    'pt-BR': 'Abrir o quadro de {name}',
+  },
+  'sources.markCheckedAria': {
+    en: 'Mark {name} as checked',
+    'pt-BR': 'Marcar {name} como revisada',
+  },
+  'sources.authAria': {
+    en: 'Authentication settings for {name}',
+    'pt-BR': 'Configurações de autenticação de {name}',
+  },
+  'sources.avoidAria': { en: 'Avoid {name}', 'pt-BR': 'Evitar {name}' },
+  'sources.restoreAria': { en: 'Restore {name}', 'pt-BR': 'Restaurar {name}' },
+  'sources.editAria': { en: 'Edit source {name}', 'pt-BR': 'Editar fonte {name}' },
+  'sources.deleteAria': { en: 'Delete source {name}', 'pt-BR': 'Excluir fonte {name}' },
   'sources.manualHasNoJobs': {
     en: 'Manual watchlists are checked by hand, so they collect no jobs.',
     'pt-BR': 'Quadros manuais são revisados à mão, então não coletam vagas.',
