@@ -23,6 +23,7 @@ from app.services.cv_schema import CV_JSON_SCHEMA
 from app.services.llm_client import chat_json
 from app.services.llm_config import LlmRuntimeConfig
 from app.services.skill_matcher import _ALIAS_LOOKUP, _SKILL_TO_GROUP
+from app.services.text_norm import fold_words
 
 logger = logging.getLogger(__name__)
 
@@ -474,13 +475,82 @@ def _extract_date_range(header: str) -> tuple[str | None, str | None]:
     return None, None
 
 
+# The words that name a *job*. A role header is split by meaning because the
+# two halves of "Acme — Senior Software Engineer" are indistinguishable by
+# position (ADR 028); this is the vocabulary that distinguishes them, in the
+# languages the app is used in. Folded (no accents, lowercase) because that is
+# how `fold_words` hands them over.
+_TITLE_WORDS = frozenset(
+    # A list literal would be one unreadable 200-word line; the wrapped block is
+    # the readable form of the same set.
+    """
+    accountant administrator admin analyst analytics architect architecture artist
+    assistant associate attorney auditor apprentice cashier chef chief clerk coder
+    consultant controller coordinator cofounder cto ceo cio coo cfo developer
+    designer devops director driver editor electrician engineer engineering
+    executive founder foreman head instructor intern internship lawyer leader lead
+    manager management marketer mechanic nurse officer operator owner partner
+    pharmacist physician planner president producer professor programmer
+    psychologist qa qc receptionist recruiter representative researcher scientist
+    secretary salesperson sre strategist supervisor surveyor teacher technician
+    tester therapist trainee veterinarian vp waiter writer
+    administrador administradora advogado advogada analista aprendiz arquiteta
+    arquiteto assistente atendente auditora auxiliar cientista comprador compradora
+    consultor consultora contador contadora coordenador coordenadora cozinheiro
+    cozinheira desenvolvedor desenvolvedora diretor diretora editora eletricista
+    enfermeira enfermeiro engenheira engenharia engenheiro estagiaria estagiario
+    estagio farmaceutica farmaceutico fundador fundadora gerente gestor gestora
+    instrutora jornalista lider mecanico medico motorista musico nutricionista
+    operador operadora pesquisador pesquisadora planejador planejadora professor
+    professora programador programadora projetista psicologa psicologo redator
+    redatora representante secretaria secretario socio socia supervisora tecnico
+    tecnica tecnologo terapeuta vendedor vendedora chefe
+    """.split()  # noqa: SIM905
+)
+
+
+def is_role_word(word: str) -> bool:
+    """Whether a single folded word names a job title (``engineer``, ``analista``)."""
+    return word in _TITLE_WORDS
+
+
+def role_title_score(part: str) -> int:
+    """How many words of ``part`` name a job — 0 for a plain employer name."""
+    return sum(1 for word in fold_words(part) if word in _TITLE_WORDS)
+
+
+def _company_first_header(first: str, last: str) -> bool:
+    """Whether a two-part header puts the employer before the role title.
+
+    Only a *strictly* higher title score swaps the halves, so an ambiguous
+    header (neither side names a job, or both do) keeps the traditional
+    title-first reading — the default every existing CV relied on.
+    """
+    return role_title_score(last) > role_title_score(first)
+
+
 def _split_title_company(cleaned: str) -> tuple[str, str]:
+    """Split a role header into ``(title, company)``, whatever the order.
+
+    A header is normally ``"Title | Company"``, but plenty of CVs put the
+    employer first (``"Acme — Senior Software Engineer"``) and reading those by
+    position swaps the two fields for *every* role in the file. The swap is
+    invisible in the preview — "Acme / Jul 2022 — Oct 2025 / Senior Software
+    Engineer" reads perfectly naturally — and wrong everywhere else: the rule
+    variant, the PDF/DOCX exports and every comparison downstream (relevance
+    scoring, ``_restore_missing_roles``) then treat the employer as the job
+    title. So the side that names the job is decided by what the words mean
+    (ADR 028).
+    """
     for sep in _SEPARATORS:
         if sep in cleaned:
             parts = [p.strip(" \t|,;") for p in cleaned.split(sep)]
             parts = [p for p in parts if p]
             if len(parts) >= 2:
-                return parts[0][:255], parts[-1][:255]
+                title, company = parts[0], parts[-1]
+                if _company_first_header(title, company):
+                    title, company = company, title
+                return title[:255], company[:255]
     return cleaned[:255], ""
 
 

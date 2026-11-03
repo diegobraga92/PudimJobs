@@ -650,3 +650,81 @@ def test_structure_cv_defaults_contact_when_absent():
     assert cv.links == []
     assert cv.certifications == []
     assert cv.languages == []
+
+
+# --- title/company order (ADR 028) ------------------------------------------
+
+
+def test_structure_cv_reads_a_company_first_role_header():
+    """"Company — Title" is split by meaning, not by position.
+
+    Parsing these by position stored every role of such a CV with its two name
+    fields swapped: invisible in the preview, wrong in every export.
+    """
+    text = (
+        "WORK EXPERIENCE\n"
+        "Axcient — Senior Software Engineer (Remote)\n"
+        "Jul 2022 — Oct 2025\n"
+        "- Built a cross-platform backup agent in C++ and Rust\n"
+        "Independent Contractor — Senior Software Engineer (Remote)\n"
+        "Oct 2025 — Present\n"
+        "- Built an event-driven platform\n"
+        "Embraer S.A. — Product Development Engineer (São Paulo, Brazil)\n"
+        "Jun 2013 — May 2021\n"
+        "- Modelled aircraft systems\n"
+    )
+    cv = structure_cv(text)
+    assert [(role.title, role.company) for role in cv.experience] == [
+        ("Senior Software Engineer (Remote)", "Axcient"),
+        ("Senior Software Engineer (Remote)", "Independent Contractor"),
+        ("Product Development Engineer (São Paulo, Brazil)", "Embraer S.A."),
+    ]
+    assert [role.start_date for role in cv.experience] == ["2022-07", "2025-10", "2013-06"]
+
+
+def test_structure_cv_keeps_a_title_first_role_header():
+    """The traditional order is unchanged: the first half stays the title."""
+    text = (
+        "WORK EXPERIENCE\n"
+        "Senior Software Engineer (Remote) — Axcient\n"
+        "2022 - 2025\n"
+        "- Did things\n"
+    )
+    role = structure_cv(text).experience[0]
+    assert (role.title, role.company) == ("Senior Software Engineer (Remote)", "Axcient")
+
+
+@pytest.mark.parametrize(
+    ("header", "title", "company"),
+    [
+        # Neither half names a job: the ambiguous default is title-first.
+        ("Acme — Globex", "Acme", "Globex"),
+        # Both halves name a job: a tie also keeps title-first.
+        ("Data Analyst — Engineering", "Data Analyst", "Engineering"),
+        # Accented titles are folded before the decision is made.
+        ("Analista de Dados Sênior — Itaú Unibanco", "Analista de Dados Sênior", "Itaú Unibanco"),
+        ("Itaú Unibanco — Analista de Dados Sênior", "Analista de Dados Sênior", "Itaú Unibanco"),
+        # A company whose name contains a job word does not beat a real title.
+        (
+            "Senior Rust Engineer | Engineer Solutions Ltd",
+            "Senior Rust Engineer",
+            "Engineer Solutions Ltd",
+        ),
+    ],
+)
+def test_split_title_company_resolves_the_order_by_meaning(header, title, company):
+    text = f"WORK EXPERIENCE\n{header}\n2020 - 2021\n- Did things\n"
+    role = structure_cv(text).experience[0]
+    assert (role.title, role.company) == (title, company)
+
+
+def test_role_words_are_folded_before_scoring():
+    """Accents, case and punctuation must not decide which half is the title."""
+    from app.services.cv_parser import is_role_word, role_title_score
+
+    assert role_title_score("Engenheiro de Software Sênior") == 1
+    assert role_title_score("Sênior, Engenheira; de Dados") == 1
+    assert role_title_score("Embraer S.A.") == 0
+    assert is_role_word("engenheiro")
+    assert not is_role_word("embraer")
+

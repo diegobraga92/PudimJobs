@@ -557,6 +557,191 @@ async def test_generate_tailored_cv_with_llm_does_not_duplicate_a_rewrapped_titl
     ]
 
 
+async def test_generate_tailored_cv_with_llm_matches_a_swapped_master_cv(monkeypatch, caplog):
+    """A master CV stored with `title`/`company` inverted must not double the roles.
+
+    The parser used to read "Company — Title" headers by position, so a whole CV
+    could arrive with the two fields swapped. The model reads it semantically and
+    writes it correctly; company-only matching then failed to recognise *any*
+    role, re-inserted every one of them next to the model's copy, and the
+    tailored CV listed the whole history twice.
+    """
+    from app.services import llm_client
+
+    master = {
+        **CV,
+        "experience": [
+            {
+                "title": "Acme",
+                "company": "Senior Software Engineer",
+                "start_date": "2022-07",
+                "end_date": "2025-10",
+                "bullets": ["Built FastAPI services on AWS"],
+            },
+            {
+                "title": "Beta",
+                "company": "Java Developer",
+                "start_date": "2019-01",
+                "end_date": "2022-06",
+                "bullets": ["Maintained Spring applications"],
+            },
+        ],
+    }
+    corrected = {
+        **master,
+        "experience": [
+            {**role, "title": role["company"], "company": role["title"]}
+            for role in master["experience"]
+        ],
+    }
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": corrected, "ats_self_score": 80})
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    with caplog.at_level(logging.INFO, logger="app.services.cv_tailor"):
+        result = await generate_tailored_cv_with_llm(
+            master, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+        )
+
+    assert result is not None
+    structure, _score = result
+    assert [(role["title"], role["company"]) for role in structure["experience"]] == [
+        ("Senior Software Engineer", "Acme"),
+        ("Java Developer", "Beta"),
+    ]
+    assert "llm_cv_roles_restored" not in caplog.text
+    assert "llm_cv_roles_duplicated" not in caplog.text
+
+
+async def test_generate_tailored_cv_with_llm_matches_a_role_on_its_period(monkeypatch):
+    """Rewritten dates, accents and names still describe one job, not two."""
+    from app.services import llm_client
+
+    master = {
+        **CV,
+        "experience": [
+            {
+                "title": "Full Stack Developer",
+                "company": "Itaú Unibanco",
+                "start_date": "2020-03",
+                "end_date": "2021-08",
+                "bullets": ["Built FastAPI services on AWS"],
+            }
+        ],
+    }
+    rewritten = {
+        **master,
+        "experience": [
+            {
+                **master["experience"][0],
+                "title": "Full-Stack Engineer",
+                "company": "Itau Unibanco S.A.",
+                "start_date": "Mar 2020",
+                "end_date": "August 2021",
+            }
+        ],
+    }
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": rewritten, "ats_self_score": 70})
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    result = await generate_tailored_cv_with_llm(
+        master, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+    )
+
+    assert result is not None
+    structure, _score = result
+    # The model's wording is kept: the guard recognised its copy as the same job.
+    assert [(role["title"], role["company"]) for role in structure["experience"]] == [
+        ("Full-Stack Engineer", "Itau Unibanco S.A.")
+    ]
+
+
+async def test_generate_tailored_cv_with_llm_keeps_a_promotion_at_one_employer(
+    monkeypatch, caplog
+):
+    """Two roles at one employer stay two roles: the dates, not the name, decide."""
+    from app.services import llm_client
+
+    master = {
+        **CV,
+        "experience": [
+            {
+                "title": "Senior Engineer",
+                "company": "Acme",
+                "start_date": "2020-01",
+                "end_date": "Present",
+                "bullets": ["Built FastAPI services"],
+            },
+            {
+                "title": "Engineer",
+                "company": "Acme",
+                "start_date": "2017-01",
+                "end_date": "2019-12",
+                "bullets": ["Maintained Spring applications"],
+            },
+        ],
+    }
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps(
+        {"cv": {**master, "experience": master["experience"][:1]}, "ats_self_score": 50}
+    )
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    with caplog.at_level(logging.INFO, logger="app.services.cv_tailor"):
+        result = await generate_tailored_cv_with_llm(
+            master, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+        )
+
+    assert result is not None
+    structure, _score = result
+    assert [(role["title"], role["start_date"]) for role in structure["experience"]] == [
+        ("Senior Engineer", "2020-01"),
+        ("Engineer", "2017-01"),
+    ]
+    assert "llm_cv_roles_restored restored=1 unmatched=0" in caplog.text
+
+
+async def test_generate_tailored_cv_with_llm_drops_a_repeated_role(monkeypatch, caplog):
+    """A reply that lists one job twice never becomes two entries in the CV."""
+    from app.services import llm_client
+
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps(
+        {
+            "cv": {**CV, "experience": [*CV["experience"], dict(CV["experience"][0])]},
+            "ats_self_score": 50,
+        }
+    )
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    with caplog.at_level(logging.INFO, logger="app.services.cv_tailor"):
+        result = await generate_tailored_cv_with_llm(
+            CV, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+        )
+
+    assert result is not None
+    structure, _score = result
+    assert [role["title"] for role in structure["experience"]] == [
+        "Python Developer",
+        "Java Developer",
+    ]
+    assert "llm_cv_roles_duplicated removed=1" in caplog.text
+
+
+def test_role_date_understands_the_ways_a_date_is_written():
+    """Dates are compared as periods, never as strings."""
+    from app.services.cv_tailor import _role_date
+
+    assert _role_date("2022-07") == "2022-07"
+    assert _role_date("Jul 2022") == "2022-07"
+    assert _role_date("July, 2022") == "2022-07"
+    assert _role_date("07/2022") == "2022-07"
+    assert _role_date("2022") == "2022"
+    assert _role_date("Present") == "present"
+    assert _role_date(None) == ""
+
+
 async def test_generate_tailored_cv_with_llm_trims_an_oversized_master_cv(
     monkeypatch, caplog
 ):

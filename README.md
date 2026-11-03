@@ -155,6 +155,15 @@ The `scripts/` tooling (load test, chaos experiments) talks to
 > tailored CVs: artifacts written before ADR 016 (`structured_json` NULL) are
 > repaired in place by the next tailor run for that job, same row id, so the
 > application link and PDF keep working.
+>
+> If a CV was **uploaded with the employer first in its role headers**
+> (`"Axcient — Senior Software Engineer"`), it was imported with `title` and
+> `company` swapped (ADR 028) — the preview reads naturally, so it goes unnoticed
+> until an export, which is why tailoring listed every role twice. The parser now
+> reads the header by meaning; the CVs already stored are repaired with
+> `python scripts/repair_cv_fields.py [--user-email you@example.com]` — dry-run
+> by default, `--apply` to write, and it drops the tailored artifacts rendered
+> from a repaired CV so the stale field order cannot be served again.
 
 ## Development commands
 
@@ -335,7 +344,11 @@ the job (master CV as single source of truth, every role kept with its
 employer, title and dates, the two pages filled with 3–6 bullets for the roles
 that best support the application and at least 2 for the rest), and a role the
 model omits anyway is re-inserted from the master CV with its own dates and
-bullets rather than invented. Both variants render a PDF via
+bullets rather than invented. Roles are matched on what a rewrite cannot change
+— the period (`2022-07` and `Jul 2022` agree) and then the employer/title words
+— so a reworded title is the same job, a promotion at one employer stays two
+roles, and a role the model writes twice is de-duplicated instead of printed
+twice (ADR 027). Both variants render a PDF via
 Jinja2 templates (Classic and ATS-safe) behind `GET /api/cv/generated/{id}/pdf`;
 the same endpoint accepts `?format=docx`, and `POST /api/cv/pdf` (`?format=`,
 plus `?template=` for the PDF) renders straight from the editor, so both also
