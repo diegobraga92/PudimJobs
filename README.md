@@ -276,10 +276,11 @@ reminders, free-text retrospectives) are listed in the ADRs.
 `GET /api/auth/me`, bcrypt); user-scoped CRUD for sources, jobs (manual add,
 "import from a URL" into a reviewable draft — ADR 025 — plus search/filter, a
 `source_id` filter and a preview-first bulk cleanup — ADR 023), versioned master
-CV and applications (pipeline status, notes); audit logging for CV and
-application mutations; Alembic migrations + idempotent seed. 780 backend tests
-(526 run without PostgreSQL, 254 integration tests skipped when it is
-unreachable) and 160 Angular specs.
+CV and applications (pipeline status, notes; the feed's `hide_applied` filter
+hides every job already in the pipeline, whatever its status, `saved`
+included); audit logging for CV and application mutations; Alembic migrations +
+idempotent seed. 780 backend tests (526 run without PostgreSQL, 254 integration
+tests skipped when it is unreachable) and 161 Angular specs.
 
 **Scraping engine (Celery + RabbitMQ)** — pluggable scrapers (`scrapers/`:
 career page via schema.org/JSON-LD, RSS via feedparser, aggregator adapters,

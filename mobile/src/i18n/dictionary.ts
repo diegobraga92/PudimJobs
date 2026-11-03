@@ -158,7 +158,7 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'jobs.zeroResults': { en: '0 results', 'pt-BR': '0 resultados' },
   'jobs.rangeLabel': { en: '{start}–{end} of {total}', 'pt-BR': '{start}–{end} de {total}' },
   'jobs.jobAdded': { en: 'Job added successfully.', 'pt-BR': 'Vaga adicionada com sucesso.' },
-  'jobs.hideApplied': { en: 'Hide applied jobs', 'pt-BR': 'Ocultar vagas já candidatadas' },
+  'jobs.hideApplied': { en: 'Hide jobs in my pipeline', 'pt-BR': 'Ocultar vagas no meu pipeline' },
   'jobs.showHidden': { en: 'Show hidden jobs', 'pt-BR': 'Mostrar vagas ocultas' },
   'jobs.allSources': { en: 'All sources', 'pt-BR': 'Todas as fontes' },
   'jobs.sourceFilterActive': { en: 'Source: {name}', 'pt-BR': 'Fonte: {name}' },

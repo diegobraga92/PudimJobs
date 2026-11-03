@@ -12,7 +12,7 @@ from app.broker import enqueue_parse_jd, enqueue_tailor
 from app.config import settings
 from app.database import get_db
 from app.models.application import Application
-from app.models.enums import ApplicationStatus, CVVariant
+from app.models.enums import CVVariant
 from app.models.job import Job
 from app.models.source import Source
 from app.models.user import User
@@ -99,20 +99,15 @@ async def list_jobs(
         stmt = stmt.where(Job.hidden.is_(False))
 
     if hide_applied:
+        # Any application at all, whatever its status: "Add to applications"
+        # creates the row with status ``saved``, so restricting this to
+        # applied/interview/offer/rejected left every newly tracked job in the
+        # feed — listed twice, once under New and once under Saved — and the
+        # checkbox looked broken. Pipeline membership is what the user means by
+        # "already applied".
         stmt = stmt.where(
             ~select(Application.id)
-            .where(
-                Application.job_id == Job.id,
-                Application.user_id == user.id,
-                Application.status.in_(
-                    (
-                        ApplicationStatus.applied,
-                        ApplicationStatus.interview,
-                        ApplicationStatus.offer,
-                        ApplicationStatus.rejected,
-                    )
-                ),
-            )
+            .where(Application.job_id == Job.id, Application.user_id == user.id)
             .exists()
         )
 

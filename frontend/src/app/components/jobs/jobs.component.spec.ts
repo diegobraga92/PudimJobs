@@ -130,6 +130,25 @@ describe('JobsComponent (bulk cleanup, ADR 023)', () => {
     list.flush([]);
   });
 
+  it('sends hide_applied while the box is ticked', () => {
+    flushInit();
+
+    // Off by default: the param is omitted, not sent as `false`.
+    http.expectNone((c) => c.url === '/api/jobs' && c.params.has('hide_applied'));
+
+    component.toggleHideApplied();
+    let list = http.expectOne((c) => c.url === '/api/jobs');
+
+    expect(list.request.params.get('hide_applied')).toBe('true');
+    list.flush([]);
+
+    component.toggleHideApplied();
+    list = http.expectOne((c) => c.url === '/api/jobs');
+
+    expect(list.request.params.has('hide_applied')).toBeFalse();
+    list.flush([]);
+  });
+
   it('translates the Added window into an ISO created_after cutoff', () => {
     flushInit();
 

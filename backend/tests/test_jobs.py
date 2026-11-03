@@ -338,21 +338,24 @@ async def test_hidden_jobs_excluded_by_default_and_toggleable(auth_client):
     assert any(job["id"] == job_id for job in listed.json())
 
 
-async def test_hide_applied_filters_out_applied_jobs(auth_client):
+async def test_hide_applied_hides_every_job_in_the_pipeline(auth_client):
+    """The filter means "in my pipeline", including its `saved` column.
+
+    "Add to applications" creates the application with status `saved`, so
+    hiding only applied/interview/offer/rejected kept every freshly tracked job
+    in the feed — listed twice, once under New and once under Saved — which
+    made the checkbox look broken.
+    """
     client, _, _ = auth_client
     await client.post("/api/jobs", json={"title": "Plain", "company": "Acme"})
     saved = (await client.post("/api/jobs", json={"title": "Saved", "company": "Beta"})).json()
     applied = (await client.post("/api/jobs", json={"title": "Applied", "company": "Gamma"})).json()
 
-    # "saved" is a bookmark — the job stays visible; "applied" should be hidden.
     await client.post("/api/applications", json={"job_id": saved["id"], "status": "saved"})
     await client.post("/api/applications", json={"job_id": applied["id"], "status": "applied"})
 
     filtered = await client.get("/api/jobs", params={"hide_applied": "true"})
-    titles = [job["title"] for job in filtered.json()]
-    assert "Applied" not in titles
-    assert "Saved" in titles
-    assert "Plain" in titles
+    assert [job["title"] for job in filtered.json()] == ["Plain"]
 
     # Without the filter every job is present again.
     unfiltered = await client.get("/api/jobs")
