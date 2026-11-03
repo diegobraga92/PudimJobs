@@ -279,8 +279,8 @@ reminders, free-text retrospectives) are listed in the ADRs.
 CV and applications (pipeline status, notes; the feed's `hide_applied` filter
 hides every job already in the pipeline, whatever its status, `saved`
 included); audit logging for CV and application mutations; Alembic migrations +
-idempotent seed. 780 backend tests (526 run without PostgreSQL, 254 integration
-tests skipped when it is unreachable) and 161 Angular specs.
+idempotent seed. 785 backend tests (526 run without PostgreSQL, 259 integration
+tests skipped when it is unreachable) and 166 Angular specs.
 
 **Scraping engine (Celery + RabbitMQ)** — pluggable scrapers (`scrapers/`:
 career page via schema.org/JSON-LD, RSS via feedparser, aggregator adapters,
@@ -406,7 +406,8 @@ saving — ADR 025), a
 preview-then-confirm bulk cleanup (age and/or source, applications protected by
 default — ADR 023) and a
 detail view (parsed requirements, *add to applications*, pipeline badge once
-tracked); master CV editor (contact, summary, experience, education, skills,
+tracked, and an edit dialog that repairs what a source stored incompletely — the
+missing description included, ADR 026); master CV editor (contact, summary, experience, education, skills,
 projects, certifications, languages) with version history, PDF/DOCX/ODT import,
 live preview and Classic/ATS-safe PDF export (plus a PT-BR copy translated on
 demand, ADR 024); a kanban pipeline (saved → applied

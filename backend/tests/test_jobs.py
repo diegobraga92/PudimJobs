@@ -624,3 +624,113 @@ async def test_cleanup_writes_an_audit_log(auth_client, db_session):
     assert entry.changes["deleted"] == 1
     assert entry.changes["older_than_days"] == 60
 
+async def test_update_job_fills_a_missing_description(auth_client):
+    """A source that stores no description leaves tailoring nothing to read (ADR 026)."""
+    client, _, _ = auth_client
+    job = await _create_job(client, description=None)
+    assert job["description"] is None
+    # Nothing to match: the posting is invisible to a keyword search.
+    assert (await client.get("/api/jobs", params={"q": "kubernetes"})).json() == []
+
+    updated = await client.put(
+        f"/api/jobs/{job['id']}",
+        json={
+            "description": "Kubernetes, Python and PostgreSQL, on call.",
+            "location": "Remote, Brazil",
+        },
+    )
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["description"] == "Kubernetes, Python and PostgreSQL, on call."
+    assert body["location"] == "Remote, Brazil"
+
+    # The detail page reads the same row back…
+    fetched = await client.get(f"/api/jobs/{job['id']}")
+    assert fetched.json()["description"] == body["description"]
+    # …and the generated search vector now covers the pasted text.
+    found = await client.get("/api/jobs", params={"q": "kubernetes"})
+    assert [item["id"] for item in found.json()] == [job["id"]]
+
+
+async def test_editing_the_description_drops_the_stale_parse(auth_client, db_session):
+    """Tailoring re-parses the new text instead of reusing the old requirements."""
+    client, _, _ = auth_client
+    job = await _create_job(client)
+    await db_session.execute(
+        update(Job)
+        .where(Job.id == uuid.UUID(job["id"]))
+        .values(
+            parsed_jd={
+                "skills": ["python"],
+                "keywords": [],
+                "years_experience": None,
+                "education_level": None,
+            }
+        )
+    )
+    await db_session.commit()
+    assert (await client.get(f"/api/jobs/{job['id']}/parsed")).json()["skills"] == ["python"]
+
+    # A field the parse does not read keeps it…
+    await client.put(f"/api/jobs/{job['id']}", json={"location": "Remote"})
+    assert (await client.get(f"/api/jobs/{job['id']}/parsed")).json() is not None
+
+    # …but the description is exactly what it was derived from.
+    await client.put(f"/api/jobs/{job['id']}", json={"description": "Rust and Kafka."})
+    assert (await client.get(f"/api/jobs/{job['id']}/parsed")).json() is None
+
+
+async def test_update_job_is_audited(auth_client, db_session):
+    client, user, _ = auth_client
+    job = await _create_job(client)
+
+    # Labels are trimmed before they are stored or compared.
+    await client.put(f"/api/jobs/{job['id']}", json={"title": "  Staff Engineer  "})
+    # The same values again: no write, no second audit row.
+    await client.put(f"/api/jobs/{job['id']}", json={"title": "Staff Engineer"})
+
+    entries = (
+        (
+            await db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.user_id == user.id, AuditLog.entity_type == "job"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(entries) == 1
+    assert entries[0].action == "updated"
+    assert entries[0].entity_id == job["id"]
+    assert entries[0].changes == {
+        "title": {"before": "Backend Engineer", "after": "Staff Engineer"}
+    }
+
+
+async def test_update_job_audits_a_description_edit_by_size(auth_client, db_session):
+    """Descriptions run to tens of KB: the audit row records sizes, not text."""
+    client, user, _ = auth_client
+    job = await _create_job(client)  # the description is "Python API" (10 chars)
+
+    await client.put(f"/api/jobs/{job['id']}", json={"description": "Rust."})
+
+    entry = (
+        await db_session.execute(
+            select(AuditLog).where(AuditLog.user_id == user.id, AuditLog.entity_type == "job")
+        )
+    ).scalar_one()
+    assert entry.changes == {"description": {"before_chars": 10, "after_chars": 5}}
+
+
+async def test_blank_labels_are_refused(auth_client):
+    """Whitespace-only labels would render as nameless rows."""
+    client, _, _ = auth_client
+    job = await _create_job(client)
+
+    blank = await client.put(f"/api/jobs/{job['id']}", json={"title": "   "})
+    assert blank.status_code == 422
+    assert (await client.get(f"/api/jobs/{job['id']}")).json()["title"] == "Backend Engineer"
+
+    created = await client.post("/api/jobs", json={"title": "Data Engineer", "company": "  "})
+    assert created.status_code == 422

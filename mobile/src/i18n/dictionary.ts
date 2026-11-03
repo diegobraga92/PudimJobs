@@ -239,6 +239,22 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     'pt-BR': 'Excluir "{title}" e todas as suas candidaturas? Esta ação não pode ser desfeita.',
   },
   'jobDetail.deleted': { en: 'Job deleted.', 'pt-BR': 'Vaga excluída.' },
+  'jobDetail.edit': { en: 'Edit job', 'pt-BR': 'Editar vaga' },
+  'jobDetail.editHint': {
+    en: 'Fix what the source did not store. Skills, matching and CV tailoring all read the description below.',
+    'pt-BR':
+      'Corrija o que a fonte não guardou. Habilidades, compatibilidade e a adaptação do CV leem a descrição abaixo.',
+  },
+  'jobDetail.editDescriptionHint': {
+    en: 'Paste the description from the original posting. New text is re-parsed on save.',
+    'pt-BR': 'Cole a descrição da publicação original. Um texto novo é analisado de novo ao salvar.',
+  },
+  'jobDetail.saved': { en: 'Job updated.', 'pt-BR': 'Vaga atualizada.' },
+  'jobDetail.missingDescription': {
+    en: 'The source stored this posting without a description, so tailoring has nothing to read.',
+    'pt-BR': 'A fonte guardou esta vaga sem descrição, então a adaptação do CV não tem o que ler.',
+  },
+  'jobDetail.addDescription': { en: 'Add description', 'pt-BR': 'Adicionar descrição' },
 
   // ---- Sources -------------------------------------------------------------
   'sources.title': { en: 'Job Sources', 'pt-BR': 'Fontes de Vagas' },
@@ -1024,6 +1040,7 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     'pt-BR': 'Cole primeiro a URL da vaga',
   },
   'errors.failedHideJob': { en: 'Failed to update job visibility', 'pt-BR': 'Falha ao atualizar a visibilidade da vaga' },
+  'errors.failedUpdateJob': { en: 'Failed to update job', 'pt-BR': 'Falha ao atualizar a vaga' },
   'errors.failedDeleteJob': { en: 'Failed to delete job', 'pt-BR': 'Falha ao excluir a vaga' },
   'errors.failedLoadJob': { en: 'Failed to load job', 'pt-BR': 'Falha ao carregar a vaga' },
   'errors.failedEnqueueParsing': { en: 'Failed to enqueue parsing', 'pt-BR': 'Falha ao enfileirar a análise' },

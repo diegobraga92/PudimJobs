@@ -2,7 +2,21 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _strip_required(value: str | None) -> str | None:
+    """Trim a required label and refuse one made only of whitespace.
+
+    ``min_length`` alone lets ``"   "`` through, which renders as a nameless row
+    and is exactly what the manual edit path invites the user to type.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("must not be blank")
+    return stripped
 
 
 class JobCreate(BaseModel):
@@ -15,8 +29,17 @@ class JobCreate(BaseModel):
     posted_date: date | None = None
     tags: list[str] = Field(default_factory=list)
 
+    _trim_required = field_validator("title", "company")(_strip_required)
+
 
 class JobUpdate(BaseModel):
+    """A partial job update — the manual fix-up path (ADR 026).
+
+    Every field is optional and ``exclude_unset`` decides what was really sent:
+    ``{"hidden": true}`` touches nothing else, while ``{"description": null}``
+    clears the text.
+    """
+
     title: str | None = Field(default=None, min_length=1, max_length=255)
     company: str | None = Field(default=None, min_length=1, max_length=255)
     location: str | None = Field(default=None, max_length=255)
@@ -26,6 +49,8 @@ class JobUpdate(BaseModel):
     posted_date: date | None = None
     tags: list[str] | None = None
     hidden: bool | None = None
+
+    _trim_required = field_validator("title", "company")(_strip_required)
 
 
 class JobSummary(BaseModel):

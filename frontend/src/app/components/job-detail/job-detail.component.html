@@ -85,6 +85,11 @@
         </button>
       }
 
+      <button type="button" class="btn btn-ghost" (click)="openEdit()" [disabled]="saving">
+        <app-icon name="pencil" [size]="16" />
+        {{ i18n.t('jobDetail.edit') }}
+      </button>
+
       <button type="button" class="btn btn-ghost" (click)="toggleHidden()" [disabled]="saving">
         <app-icon [name]="job.hidden ? 'eye' : 'eye-off'" [size]="16" />
         {{ job.hidden ? i18n.t('jobDetail.unhide') : i18n.t('jobDetail.hide') }}
@@ -144,7 +149,113 @@
     }
 
     <h3>{{ i18n.t('common.description') }}</h3>
-    <div class="description" [innerHTML]="job.description || i18n.t('jobDetail.noDescription')"></div>
+    @if (!job.description) {
+      <div class="alert" role="status">
+        <app-icon class="alert-icon" name="info" [size]="16" />
+        <span>{{ i18n.t('jobDetail.missingDescription') }}</span>
+        <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit()">
+          <app-icon name="pencil" [size]="14" />
+          {{ i18n.t('jobDetail.addDescription') }}
+        </button>
+      </div>
+    }
+    <div class="description" [innerHTML]="descriptionHtml"></div>
   </div>
+}
+
+@if (editOpen) {
+  <app-modal [title]="i18n.t('jobDetail.edit')" size="lg" (closed)="closeEdit()">
+    <form
+      class="form"
+      [formGroup]="editForm"
+      (ngSubmit)="saveEdit()"
+      [attr.aria-label]="i18n.t('jobDetail.edit')"
+    >
+      <p class="muted">{{ i18n.t('jobDetail.editHint') }}</p>
+
+      <div class="form-field">
+        <label for="job-edit-title">{{ i18n.t('common.title') }}</label>
+        <input id="job-edit-title" class="input" formControlName="title" />
+      </div>
+
+      <div class="form-field">
+        <label for="job-edit-company">{{ i18n.t('common.company') }}</label>
+        <input id="job-edit-company" class="input" formControlName="company" />
+      </div>
+
+      <div class="form-field">
+        <label for="job-edit-location">{{ i18n.t('common.location') }}</label>
+        <input
+          id="job-edit-location"
+          class="input"
+          formControlName="location"
+          [placeholder]="i18n.t('jobs.locationPlaceholder')"
+        />
+      </div>
+
+      <div class="form-field">
+        <label for="job-edit-url">{{ i18n.t('common.url') }}</label>
+        <input
+          id="job-edit-url"
+          class="input"
+          formControlName="url"
+          placeholder="https://acme.example/jobs/1"
+        />
+      </div>
+
+      <div class="grid-2">
+        <div class="form-field">
+          <label for="job-edit-posted-date">{{ i18n.t('jobs.postedDate') }}</label>
+          <input
+            id="job-edit-posted-date"
+            class="input"
+            type="date"
+            formControlName="posted_date"
+          />
+        </div>
+
+        <div class="form-field">
+          <label for="job-edit-tags">{{ i18n.t('common.tags') }}</label>
+          <input
+            id="job-edit-tags"
+            class="input"
+            formControlName="tags"
+            placeholder="python, fastapi"
+          />
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label for="job-edit-description">{{ i18n.t('common.description') }}</label>
+        <textarea
+          id="job-edit-description"
+          class="textarea"
+          formControlName="description"
+          rows="12"
+        ></textarea>
+        <p class="muted xs">{{ i18n.t('jobDetail.editDescriptionHint') }}</p>
+      </div>
+
+      @if (editError) {
+        <div class="alert alert-error" role="alert">
+          <app-icon class="alert-icon" name="circle-alert" [size]="16" />
+          <span>{{ editError }}</span>
+        </div>
+      }
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" (click)="closeEdit()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button type="submit" class="btn btn-primary" [disabled]="editForm.invalid || saving">
+          @if (saving) {
+            <app-icon class="spinner" name="loader" [size]="16" />
+          }
+          <app-icon name="check" [size]="16" />
+          {{ i18n.t('common.save') }}
+        </button>
+      </div>
+    </form>
+  </app-modal>
 }
 

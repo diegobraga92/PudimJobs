@@ -127,4 +127,123 @@ describe('JobDetailComponent', () => {
     expect(component.error).toBe(component.i18n.t('errors.failedLoadJob'));
     expect(text()).not.toContain('Open workspace');
   });
+
+  /** A button whose visible label contains `label` (the actions row mixes several). */
+  function button(label: string): HTMLButtonElement | undefined {
+    return Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('button')
+    ).find((item) => item.textContent?.includes(label));
+  }
+
+  /** The rendered description markup, exactly as the page shows it. */
+  function descriptionMarkup(): string {
+    const node = (fixture.nativeElement as HTMLElement).querySelector('.description');
+    return node?.innerHTML?.trim() ?? '';
+  }
+
+  it('opens the edit dialog pre-filled with what the source stored', () => {
+    loadJob();
+
+    button('Edit job')?.click();
+    fixture.detectChanges();
+
+    expect(component.editOpen).toBeTrue();
+    expect(component.editForm.value).toEqual({
+      title: 'Backend Engineer',
+      company: 'Acme',
+      location: 'Remote, Brazil',
+      url: 'https://acme.example/jobs/1',
+      posted_date: '2026-02-01',
+      tags: 'python',
+      description: '<p>Python, FastAPI, PostgreSQL.</p>',
+    });
+  });
+
+  it('saves the edited fields and re-queues parsing for a new description', () => {
+    loadJob();
+    component.openEdit();
+    component.editForm.patchValue({
+      description: 'Kubernetes and Go.\nOwn the platform.',
+      tags: 'go, kubernetes',
+    });
+
+    component.saveEdit();
+
+    const request = http.expectOne('/api/jobs/job-1');
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.body).toEqual({
+      title: 'Backend Engineer',
+      company: 'Acme',
+      location: 'Remote, Brazil',
+      url: 'https://acme.example/jobs/1',
+      posted_date: '2026-02-01',
+      tags: ['go', 'kubernetes'],
+      description: 'Kubernetes and Go.\nOwn the platform.',
+    });
+    request.flush({
+      ...JOB,
+      description: 'Kubernetes and Go.\nOwn the platform.',
+      tags: ['go', 'kubernetes'],
+    });
+
+    // New text means new requirements: the stale parse is dropped and re-queued.
+    http
+      .expectOne({ url: '/api/jobs/job-1/parse', method: 'POST' })
+      .flush({ enqueued: true, job_id: 'job-1' });
+    fixture.detectChanges();
+
+    expect(component.editOpen).toBeFalse();
+    expect(component.parsed).toBeNull();
+    expect(component.message).toBe(component.i18n.t('jobDetail.saved'));
+    // A hand-typed description keeps its line breaks instead of collapsing.
+    expect(descriptionMarkup()).toContain('Kubernetes and Go.<br>Own the platform.');
+  });
+
+  it('does not re-queue parsing when only other fields change', () => {
+    loadJob();
+    component.openEdit();
+    component.editForm.patchValue({ title: 'Staff Engineer' });
+
+    component.saveEdit();
+
+    http.expectOne('/api/jobs/job-1').flush({ ...JOB, title: 'Staff Engineer' });
+
+    http.expectNone({ url: '/api/jobs/job-1/parse', method: 'POST' });
+    expect(component.job?.title).toBe('Staff Engineer');
+  });
+
+  it('keeps the dialog open and explains a failed save', () => {
+    loadJob();
+    component.openEdit();
+    component.editForm.patchValue({ description: 'Anything.' });
+
+    component.saveEdit();
+
+    http
+      .expectOne('/api/jobs/job-1')
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    // The page must not be replaced by the error: the typed text lives here.
+    expect(component.editOpen).toBeTrue();
+    expect(component.editError).toBe(component.i18n.t('errors.failedUpdateJob'));
+    expect(component.editForm.value.description).toBe('Anything.');
+    expect(text()).toContain(component.i18n.t('jobDetail.editHint'));
+  });
+
+  it('offers to add a description when the source stored none', () => {
+    http.expectOne('/api/jobs/job-1').flush({ ...JOB, description: null });
+    http.expectOne('/api/jobs/job-1/parsed').flush(null);
+    http.expectOne('/api/applications').flush([]);
+    fixture.detectChanges();
+
+    expect(text()).toContain(component.i18n.t('jobDetail.missingDescription'));
+    expect(descriptionMarkup()).toBe(component.i18n.t('jobDetail.noDescription'));
+
+    button('Add description')?.click();
+    fixture.detectChanges();
+
+    expect(component.editOpen).toBeTrue();
+    expect(component.editForm.value.description).toBe('');
+  });
 });

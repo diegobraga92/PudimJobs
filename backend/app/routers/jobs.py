@@ -330,11 +330,50 @@ async def update_job(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """Update a job's fields — the manual fix-up path (ADR 026).
+
+    A source that cannot read a posting stores the job without its description,
+    and without text there is nothing for JD parsing, matching or CV tailoring to
+    work with, so the user can paste it in by hand.
+
+    Editing the description invalidates the parse derived from the old text, so
+    ``parsed_jd`` is dropped: the next parse/tailor run re-reads the new text from
+    scratch (``workers/tasks/tailor.py`` parses on demand when it is empty). The
+    write is audit-logged with the fields that changed, so a hand-edited job
+    stays distinguishable from what the scraper stored.
+    """
     job = await get_owned_job(job_id, user, db)
     if payload.source_id is not None:
         await validate_source(payload.source_id, user, db)
+
+    changes: dict = {}
     for field, value in payload.model_dump(exclude_unset=True).items():
+        current = getattr(job, field)
+        if value == current:
+            continue
+        if field == "description":
+            # Postings run to tens of KB: log the size, not the text.
+            changes[field] = {
+                "before_chars": len(current or ""),
+                "after_chars": len(value or ""),
+            }
+        else:
+            changes[field] = {"before": str(current), "after": str(value)}
         setattr(job, field, value)
+
+    if not changes:
+        # Nothing differed: no write, no audit row.
+        return job
+    if "description" in changes:
+        job.parsed_jd = None
+    await log_audit(
+        db,
+        user_id=user.id,
+        action="updated",
+        entity_type="job",
+        entity_id=job.id,
+        changes=changes,
+    )
     await db.commit()
     await db.refresh(job)
     return job
