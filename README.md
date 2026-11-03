@@ -417,7 +417,9 @@ five-tab admin panel (Overview, Sources, Quality, Dead-Letter Queue, Audit Log);
 onboarding panel for new users; client-side pagination (12/page).
 
 **Mobile (React Native / Expo SDK 57)** — mirrors the web UI: login, jobs +
-detail, applications kanban and workspace (dual `rule`/`llm` tailoring variants,
+detail (with the same manual edit dialog that repairs a posting a source stored
+incompletely, description included — ADR 026), applications kanban and workspace
+(dual `rule`/`llm` tailoring variants,
 inline edit, *Use this one*), master CV editor (edit/preview, import, export),
 sources (CRUD + auth), alerts, notifications and the admin panel. React
 Navigation 7, TanStack Query, Zustand (keychain-backed session via

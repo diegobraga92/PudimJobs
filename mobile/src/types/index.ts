@@ -25,6 +25,7 @@ export interface JobSummary {
   id: string;
   title: string;
   company: string;
+  location: string | null;
   url: string | null;
   posted_date: string | null;
   tags: string[];
@@ -60,6 +61,7 @@ export interface JobFilters {
 export interface JobCreateInput {
   title: string;
   company: string;
+  location?: string | null;
   description?: string | null;
   url?: string | null;
   posted_date?: string | null;

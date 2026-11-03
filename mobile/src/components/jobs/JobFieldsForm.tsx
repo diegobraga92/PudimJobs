@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
@@ -7,32 +8,49 @@ import { TextArea } from '@/components/ui/TextArea';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useTheme } from '@/theme/ThemeProvider';
 
-export interface AddJobFields {
+/** The job fields a person can type by hand. */
+export interface JobFields {
   title: string;
   company: string;
+  location: string;
   url: string;
   posted_date: string;
   tags: string;
   description: string;
 }
 
-/** Manual "Add job" form — mirrors the web form on the Jobs page. */
-export function AddJobForm({
+/**
+ * Manual job form — the "Add job" panel on the Jobs page and the edit dialog on the
+ * job page (ADR 026) share it, since both write the same fields through the same
+ * validation: title and company are required (the API trims them and refuses a
+ * blank), while everything else is optional.
+ */
+export function JobFieldsForm({
   fields,
   onChange,
   onCancel,
   onSave,
   saving,
+  heading,
+  submitLabel,
+  hint,
+  descriptionHint,
+  error,
 }: {
-  fields: AddJobFields;
-  onChange: (fields: AddJobFields) => void;
+  fields: JobFields;
+  onChange: (fields: JobFields) => void;
   onCancel: () => void;
   onSave: () => void;
   saving: boolean;
+  heading: string;
+  submitLabel: string;
+  hint?: string;
+  descriptionHint?: string;
+  error?: string | null;
 }) {
   const { theme } = useTheme();
   const i18n = useI18n();
-  const set = (key: keyof AddJobFields, value: string) => onChange({ ...fields, [key]: value });
+  const set = (key: keyof JobFields, value: string) => onChange({ ...fields, [key]: value });
   const valid = fields.title.trim().length > 0 && fields.company.trim().length > 0;
 
   return (
@@ -42,9 +60,8 @@ export function AddJobForm({
         { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
       ]}
     >
-      <Text style={[styles.heading, { color: theme.colors.text }]}>
-        {i18n.t('jobs.addJobManually')}
-      </Text>
+      <Text style={[styles.heading, { color: theme.colors.text }]}>{heading}</Text>
+      {hint ? <Text style={[styles.hint, { color: theme.colors.textMuted }]}>{hint}</Text> : null}
 
       <FormField label={i18n.t('common.title')}>
         <Input
@@ -59,6 +76,14 @@ export function AddJobForm({
           value={fields.company}
           onChangeText={(value) => set('company', value)}
           placeholder="Acme"
+        />
+      </FormField>
+
+      <FormField label={i18n.t('common.location')}>
+        <Input
+          value={fields.location}
+          onChangeText={(value) => set('location', value)}
+          placeholder={i18n.t('jobs.locationPlaceholder')}
         />
       </FormField>
 
@@ -93,16 +118,23 @@ export function AddJobForm({
           value={fields.description}
           onChangeText={(value) => set('description', value)}
           placeholder={i18n.t('jobs.descriptionPlaceholder')}
-          minHeight={100}
+          minHeight={140}
         />
       </FormField>
+      {descriptionHint ? (
+        <Text style={[styles.hint, styles.descriptionHint, { color: theme.colors.textMuted }]}>
+          {descriptionHint}
+        </Text>
+      ) : null}
+
+      {error ? <Alert tone="error">{error}</Alert> : null}
 
       <View style={styles.actions}>
         <Button variant="ghost" onPress={onCancel}>
           {i18n.t('common.cancel')}
         </Button>
         <Button onPress={onSave} disabled={!valid} loading={saving}>
-          {i18n.t('jobs.addJob')}
+          {submitLabel}
         </Button>
       </View>
     </View>
@@ -119,6 +151,14 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: 16,
     fontWeight: '700',
+    marginBottom: 10,
+  },
+  hint: {
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  descriptionHint: {
+    marginTop: -6,
     marginBottom: 10,
   },
   row: {

@@ -9,6 +9,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useState } from 'react';
 import {
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +23,7 @@ import { AppHeader } from '@/components/layout/AppHeader';
 import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 import { Badge } from '@/components/ui/Badge';
+import { JobFields, JobFieldsForm } from '@/components/jobs/JobFieldsForm';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Tag } from '@/components/ui/Tag';
 import { Icon } from '@/components/icons/Icon';
@@ -32,8 +34,20 @@ import { useJob, useParsedJd, useParseJob, useUpdateJob, useDeleteJob } from '@/
 import { useI18n } from '@/i18n/I18nProvider';
 import { AppDrawerParamList, JobsStackParamList } from '@/navigation/types';
 import { useTheme } from '@/theme/ThemeProvider';
+import { JobUpdateInput } from '@/types';
 import { dateLocale, mediumDate } from '@/utils/dates';
+import { parseList } from '@/utils/lists';
 import { pipelineBadgeVariant, pipelineLabel } from '@/utils/pipeline';
+
+const EMPTY_EDIT: JobFields = {
+  title: '',
+  company: '',
+  location: '',
+  url: '',
+  posted_date: '',
+  tags: '',
+  description: '',
+};
 
 /** The screen sits in the jobs stack but links across to the application workspace, so its navigation prop is composed with the parent drawer. */
 type JobDetailNavigation = CompositeNavigationProp<
@@ -63,6 +77,10 @@ export function JobDetailScreen() {
 
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** The edit dialog stays open on a failed save so the typed description is not lost. */
+  const [editOpen, setEditOpen] = useState(false);
+  const [editFields, setEditFields] = useState<JobFields>(EMPTY_EDIT);
+  const [editError, setEditError] = useState<string | null>(null);
   const loadError = error ? i18n.t('errors.failedLoadJob') : null;
   const displayError = loadError ?? actionError;
 
@@ -162,6 +180,64 @@ export function JobDetailScreen() {
     });
   };
 
+  /** Opens the edit dialog seeded with what the source (or an earlier edit) stored. */
+  const openEdit = () => {
+    if (!job) {
+      return;
+    }
+    setEditError(null);
+    setEditFields({
+      title: job.title,
+      company: job.company,
+      location: job.location ?? '',
+      url: job.url ?? '',
+      posted_date: job.posted_date ?? '',
+      tags: job.tags.join(', '),
+      description: job.description ?? '',
+    });
+    setEditOpen(true);
+  };
+
+  const closeEdit = () => {
+    setEditOpen(false);
+    setEditError(null);
+  };
+
+  /**
+   * Saves the dialog. A new description is what makes an unusable row usable, so the
+   * JD is re-queued for parsing: the API drops the stale `parsed_jd` with the text
+   * (ADR 026) and the panel reads the new requirements once the worker lands them.
+   */
+  const saveEdit = () => {
+    if (!job) {
+      return;
+    }
+    const payload: JobUpdateInput = {
+      title: editFields.title.trim(),
+      company: editFields.company.trim(),
+      location: editFields.location.trim() || null,
+      url: editFields.url.trim() || null,
+      posted_date: editFields.posted_date.trim() || null,
+      tags: parseList(editFields.tags),
+      description: editFields.description.trim() ? editFields.description : null,
+    };
+    const descriptionChanged = (job.description ?? '') !== (payload.description ?? '');
+    setEditError(null);
+    updateJob.mutate(payload, {
+      onSuccess: () => {
+        setEditOpen(false);
+        setMessage(i18n.t('jobDetail.saved'));
+        toast.success(i18n.t('jobDetail.saved'));
+        if (descriptionChanged) {
+          parseJob.mutate(job.id, {
+            onError: () => toast.error(i18n.t('errors.failedEnqueueParsing')),
+          });
+        }
+      },
+      onError: () => setEditError(i18n.t('errors.failedUpdateJob')),
+    });
+  };
+
   const descriptionHtml = job?.description?.trim() ? job.description : null;
 
   return (
@@ -253,6 +329,10 @@ export function JobDetailScreen() {
                       : i18n.t('jobDetail.addToApplications')}
                   </Button>
                 )}
+                <Button variant="ghost" onPress={openEdit}>
+                  <Icon name="pencil" size={14} color={theme.colors.text} />
+                  {i18n.t('jobDetail.edit')}
+                </Button>
                 <Button variant="ghost" onPress={toggleHidden} loading={updateJob.isPending}>
                   {job.hidden ? i18n.t('jobDetail.unhide') : i18n.t('jobDetail.hide')}
                 </Button>
@@ -340,14 +420,51 @@ export function JobDetailScreen() {
                   baseStyle={{ color: theme.colors.text, fontSize: 15, lineHeight: 22 }}
                 />
               ) : (
-                <Text style={[styles.metaMuted, { color: theme.colors.textMuted }]}>
-                  {i18n.t('jobDetail.noDescription')}
-                </Text>
+                <View style={styles.missing}>
+                  <Text style={[styles.metaMuted, { color: theme.colors.textMuted }]}>
+                    {i18n.t('jobDetail.missingDescription')}
+                  </Text>
+                  <Button variant="ghost" size="sm" onPress={openEdit}>
+                    <Icon name="pencil" size={14} color={theme.colors.text} />
+                    {i18n.t('jobDetail.addDescription')}
+                  </Button>
+                </View>
               )}
             </View>
           </>
         ) : null}
       </ScrollView>
+
+      <Modal visible={editOpen} transparent animationType="fade" onRequestClose={closeEdit}>
+        <View style={styles.modalWrap}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={closeEdit}
+            accessibilityLabel={i18n.t('common.cancel')}
+          />
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+            ]}
+          >
+            <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+              <JobFieldsForm
+                heading={i18n.t('jobDetail.edit')}
+                submitLabel={i18n.t('common.save')}
+                hint={i18n.t('jobDetail.editHint')}
+                descriptionHint={i18n.t('jobDetail.editDescriptionHint')}
+                fields={editFields}
+                onChange={setEditFields}
+                onCancel={closeEdit}
+                onSave={saveEdit}
+                saving={updateJob.isPending}
+                error={editError}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -437,5 +554,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     flexWrap: 'wrap',
+  },
+  missing: {
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  modalWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+  },
+  modalCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    maxHeight: '90%',
+  },
+  modalContent: {
+    padding: 8,
   },
 });

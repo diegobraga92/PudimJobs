@@ -7,7 +7,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 
 import { hideJob as hideJobApi, unhideJob as unhideJobApi } from '@/api/jobs';
 import { AppHeader } from '@/components/layout/AppHeader';
-import { AddJobForm, AddJobFields } from '@/components/jobs/AddJobForm';
+import { JobFieldsForm, JobFields } from '@/components/jobs/JobFieldsForm';
 import { JobCard } from '@/components/jobs/JobCard';
 import { SearchForm, SearchFields } from '@/components/jobs/SearchForm';
 import { Onboarding } from '@/components/onboarding/Onboarding';
@@ -29,9 +29,10 @@ const ONBOARDING_KEY = 'pudimjobs_onboarding_dismissed';
 const PAGE_SIZE = 12;
 
 const EMPTY_SEARCH: SearchFields = { q: '', company: '', tags: '', date_from: '', date_to: '' };
-const EMPTY_FORM: AddJobFields = {
+const EMPTY_FORM: JobFields = {
   title: '',
   company: '',
+  location: '',
   url: '',
   posted_date: '',
   tags: '',
@@ -51,7 +52,7 @@ export function JobsScreen() {
   const [showHidden, setShowHidden] = useState(false);
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
-  const [formFields, setFormFields] = useState<AddJobFields>(EMPTY_FORM);
+  const [formFields, setFormFields] = useState<JobFields>(EMPTY_FORM);
   const [onboardingDismissed, setOnboardingDismissed] = useState(true);
 
   const listRef = useRef<FlatList<JobSummary>>(null);
@@ -147,6 +148,7 @@ export function JobsScreen() {
     const payload: JobCreateInput = {
       title: formFields.title,
       company: formFields.company,
+      location: formFields.location || null,
       url: formFields.url || null,
       posted_date: formFields.posted_date || null,
       description: formFields.description || null,
@@ -168,7 +170,9 @@ export function JobsScreen() {
       {error ? <Alert tone="error">{i18n.t('errors.failedLoadJobs')}</Alert> : null}
 
       {showForm ? (
-        <AddJobForm
+        <JobFieldsForm
+          heading={i18n.t('jobs.addJobManually')}
+          submitLabel={i18n.t('jobs.addJob')}
           fields={formFields}
           onChange={setFormFields}
           onCancel={() => setShowForm(false)}
