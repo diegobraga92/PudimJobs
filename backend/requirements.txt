@@ -24,13 +24,16 @@ spacy>=3.7.0
 weasyprint>=60.0
 Jinja2>=3.1.0
 cryptography>=42.0.0
-opentelemetry-api>=1.24.0
-opentelemetry-sdk>=1.24.0
-# Instrumentation packages ship only as pre-releases (e.g. 0.65b0); pin exact
+opentelemetry-api>=1.45.2
+opentelemetry-sdk>=1.45.2
+# Instrumentation packages ship only as pre-releases (e.g. 0.66b2); pin exact
 # versions so `pip install` without --pre can resolve them (CI + Docker).
-opentelemetry-instrumentation-fastapi==0.65b0
-opentelemetry-instrumentation-celery==0.65b0
-opentelemetry-exporter-otlp>=1.24.0
+# 0.66b2 is the line that pairs with opentelemetry-api/sdk 1.45.2: the old
+# 0.65b0 pins held opentelemetry-semantic-conventions at 0.65b0, which locked
+# the SDK to 1.44.0 and kept CVE-2026-114603 (GHSA-xcq7-p3pf-p88h) alive.
+opentelemetry-instrumentation-fastapi==0.66b2
+opentelemetry-instrumentation-celery==0.66b2
+opentelemetry-exporter-otlp>=1.45.2
 # Trivy HIGH fixes in the Python layer (msgpack via CacheControl, base setuptools)
 msgpack>=1.2.1
 setuptools>=78.1.1

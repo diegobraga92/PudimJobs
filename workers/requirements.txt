@@ -10,12 +10,13 @@ sqlalchemy[asyncio]>=2.0.0
 asyncpg>=0.29.0
 pydantic-settings>=2.0.0
 structlog>=24.0.0
-opentelemetry-api>=1.24.0
-opentelemetry-sdk>=1.24.0
-# Instrumentation packages ship only as pre-releases (e.g. 0.65b0); pin exact
-# versions so `pip install` without --pre can resolve them.
-opentelemetry-instrumentation-celery==0.65b0
-opentelemetry-exporter-otlp>=1.24.0
+opentelemetry-api>=1.45.2
+opentelemetry-sdk>=1.45.2
+# Instrumentation packages ship only as pre-releases (e.g. 0.66b2); pin exact
+# versions so `pip install` without --pre can resolve them. Must match the
+# backend pins: workers/Dockerfile installs both files into one environment.
+opentelemetry-instrumentation-celery==0.66b2
+opentelemetry-exporter-otlp>=1.45.2
 
 # The worker shares models/config with the backend (backend/app is mounted or
 # copied into the image at /app/backend).
