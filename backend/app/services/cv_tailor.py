@@ -57,7 +57,7 @@ _NUMBERED_LINE_RE = re.compile(r"^\d+[.)]\s*(.+)$")
 # if that stylesheet changes.
 LLM_TARGET_PAGES = 2
 _LLM_TARGET_WORDS = "600-750"
-_LLM_TARGET_BULLETS = "3-6"
+_LLM_TARGET_BULLETS = "3-8"
 _LLM_MIN_BULLETS = 2
 
 
