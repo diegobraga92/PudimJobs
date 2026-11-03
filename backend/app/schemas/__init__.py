@@ -10,7 +10,14 @@ from app.schemas.audit import AuditLogResponse
 from app.schemas.auth import LoginRequest, TokenResponse, UserResponse
 from app.schemas.generated_cv import GeneratedCVResponse, TailorRequest
 from app.schemas.jd import ParsedJDResponse
-from app.schemas.job import JobCreate, JobResponse, JobSummary, JobUpdate
+from app.schemas.job import (
+    JobCreate,
+    JobImportPreview,
+    JobImportRequest,
+    JobResponse,
+    JobSummary,
+    JobUpdate,
+)
 from app.schemas.master_cv import (
     CVStructure,
     EducationItem,
@@ -36,6 +43,8 @@ __all__ = [
     "ExperienceItem",
     "GeneratedCVResponse",
     "JobCreate",
+    "JobImportPreview",
+    "JobImportRequest",
     "JobResponse",
     "JobSummary",
     "JobUpdate",

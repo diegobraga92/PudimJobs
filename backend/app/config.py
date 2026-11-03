@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # Source preview runs a scraper synchronously inside the API process, so it
     # is throttled harder than the rest of the API.
     rate_limit_preview: str = "20/minute"
+    # "Import from a URL" (ADR 025) also fetches + parses inside the API, and may
+    # make one optional LLM call; same cost class as the source preview.
+    rate_limit_import: str = "20/minute"
 
     # Celery / workers
     celery_broker_url: str = "amqp://pudimjobs:pudimjobs_dev@localhost:5672/"
@@ -102,6 +105,17 @@ class Settings(BaseSettings):
     # run may take before the request gives up.
     scraper_preview_max_jobs: int = 5
     scraper_preview_timeout_seconds: float = 20.0
+    # "Import from a URL" (ADR 025): one user-supplied posting fetched on demand.
+    # The timeout covers the fetch only; the optional LLM gap-fill call is capped
+    # separately in the service, so the worst case stays well under the 60 s
+    # proxy/ALB idle timeout.
+    job_import_timeout_seconds: float = 15.0
+    # Page text handed to the LLM. Enough for a posting body, not the whole page.
+    job_import_llm_max_chars: int = 8_000
+    # robots.txt is checked for every scheduled scrape. This one-off fetch of a
+    # page the user is already looking at follows the ad-hoc preview's rule and
+    # skips the check by default; set it to true to enforce robots.txt here too.
+    job_import_respect_robots: bool = False
     # Bot identity used when matching robots.txt rules (not the HTTP request UA,
     # which stays browser-like for anti-bot compatibility).
     scraper_bot_user_agent: str = "PudimJobsBot/0.1"

@@ -1,4 +1,12 @@
-/** Translation dictionary for the PudimJobs app. */
+/**
+ * Translation dictionary for the PudimJobs app.
+ * Every user-facing string lives here in English (en) and Brazilian
+ * Portuguese (pt-BR). Keys are dot-namespaced by feature/domain.
+ *
+ * NOTE: this file is generated from the Angular web frontend
+ * (frontend/src/app/services/i18n.service.ts) to keep web + mobile strings
+ * identical. Regenerate with: node scripts/extract-dictionary.js
+ */
 
 export interface TranslationEntry {
   en: string;
@@ -27,6 +35,7 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'common.title': { en: 'Title', 'pt-BR': 'Título' },
   'common.url': { en: 'URL', 'pt-BR': 'URL' },
   'common.tags': { en: 'Tags', 'pt-BR': 'Tags' },
+  'common.location': { en: 'Location', 'pt-BR': 'Local' },
   'common.description': { en: 'Description', 'pt-BR': 'Descrição' },
   'common.skills': { en: 'Skills:', 'pt-BR': 'Habilidades:' },
   'common.experience': { en: 'Experience:', 'pt-BR': 'Experiência:' },
@@ -85,16 +94,57 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   // ---- Jobs ----------------------------------------------------------------
   'jobs.title': { en: 'Jobs', 'pt-BR': 'Vagas' },
   'jobs.addJob': { en: 'Add job', 'pt-BR': 'Adicionar vaga' },
-  'jobs.searchKeywordsPlaceholder': { en: 'Keywords (title, company, description)', 'pt-BR': 'Palavras-chave (título, empresa, descrição)' },
+  'jobs.searchKeywordsPlaceholder': { en: 'Keywords (title, company, description, tags)', 'pt-BR': 'Palavras-chave (título, empresa, descrição, tags)' },
   'jobs.aria.searchKeywords': { en: 'Search keywords', 'pt-BR': 'Buscar palavras-chave' },
   'jobs.aria.filterCompany': { en: 'Filter by company', 'pt-BR': 'Filtrar por empresa' },
   'jobs.aria.filterTags': { en: 'Filter by tags', 'pt-BR': 'Filtrar por tags' },
   'jobs.aria.afterDate': { en: 'Posted after date', 'pt-BR': 'Publicada após' },
   'jobs.aria.beforeDate': { en: 'Posted before date', 'pt-BR': 'Publicada antes de' },
+  'jobs.aria.filterSource': { en: 'Filter by source', 'pt-BR': 'Filtrar por fonte' },
+  'jobs.aria.filterAdded': { en: 'Filter by when the job was added', 'pt-BR': 'Filtrar por quando a vaga foi adicionada' },
+  'jobs.added.any': { en: 'Any time', 'pt-BR': 'Qualquer data' },
+  'jobs.added.24h': { en: 'Added in last 24h', 'pt-BR': 'Adicionadas nas últimas 24h' },
+  'jobs.added.7d': { en: 'Added in last 7 days', 'pt-BR': 'Adicionadas nos últimos 7 dias' },
+  'jobs.added.30d': { en: 'Added in last 30 days', 'pt-BR': 'Adicionadas nos últimos 30 dias' },
+  'jobs.added.lastVisit': { en: 'Added since last visit', 'pt-BR': 'Adicionadas desde a última visita' },
   'jobs.tagsPlaceholder': { en: 'Tags (comma separated)', 'pt-BR': 'Tags (separadas por vírgula)' },
+  'jobs.locationPlaceholder': {
+    en: 'Location (city, country or Remote)',
+    'pt-BR': 'Local (cidade, país ou Remoto)',
+  },
+  'jobs.aria.filterLocation': { en: 'Filter by location', 'pt-BR': 'Filtrar por local' },
+  'jobs.includeUnknownLocation': {
+    en: 'Include jobs without location',
+    'pt-BR': 'Incluir vagas sem local',
+  },
   'jobs.searching': { en: 'Searching…', 'pt-BR': 'Buscando…' },
   'jobs.search': { en: 'Search', 'pt-BR': 'Buscar' },
   'jobs.addJobManually': { en: 'Add job manually', 'pt-BR': 'Adicionar vaga manualmente' },
+  'jobs.import.title': { en: 'Import from a URL', 'pt-BR': 'Importar de uma URL' },
+  'jobs.import.urlPlaceholder': {
+    en: 'https://acme.example/jobs/123',
+    'pt-BR': 'https://acme.example/jobs/123',
+  },
+  'jobs.import.button': { en: 'Import', 'pt-BR': 'Importar' },
+  'jobs.import.importing': { en: 'Reading…', 'pt-BR': 'Lendo…' },
+  'jobs.import.hint': {
+    en: 'We open the page, read the posting and fill the fields below — you review before saving.',
+    'pt-BR': 'Abrimos a página, lemos a vaga e preenchemos os campos abaixo — você revisa antes de salvar.',
+  },
+  'jobs.import.filled': {
+    en: 'Draft filled from {host}. Check it before saving.',
+    'pt-BR': 'Rascunho preenchido a partir de {host}. Confira antes de salvar.',
+  },
+  'jobs.import.llmUsed': {
+    en: 'The optional AI reader filled some of these fields.',
+    'pt-BR': 'O leitor de IA opcional preencheu alguns destes campos.',
+  },
+  'jobs.import.check': { en: 'Check before saving:', 'pt-BR': 'Confira antes de salvar:' },
+  'jobs.import.existing': {
+    en: 'You already saved a job with this URL.',
+    'pt-BR': 'Você já salvou uma vaga com esta URL.',
+  },
+  'jobs.import.openExisting': { en: 'Open that job', 'pt-BR': 'Abrir essa vaga' },
   'jobs.titlePlaceholder': { en: 'Senior Python Engineer', 'pt-BR': 'Engenheiro(a) Python Sênior' },
   'jobs.postedDate': { en: 'Posted date', 'pt-BR': 'Data de publicação' },
   'jobs.descriptionPlaceholder': { en: 'Full job description…', 'pt-BR': 'Descrição completa da vaga…' },
@@ -102,17 +152,55 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'jobs.noJobsHint': { en: 'Try adjusting your search filters, or add a job manually to get started.', 'pt-BR': 'Tente ajustar os filtros de busca ou adicione uma vaga manualmente para começar.' },
   'jobs.addFirstJob': { en: 'Add your first job', 'pt-BR': 'Adicione sua primeira vaga' },
   'jobs.postedPrefix': { en: 'Posted', 'pt-BR': 'Publicada em' },
+  'jobs.addedPrefix': { en: 'Added', 'pt-BR': 'Adicionada em' },
+  'jobs.newBadge': { en: 'New', 'pt-BR': 'Nova' },
   'jobs.pagination': { en: 'Jobs pagination', 'pt-BR': 'Paginação de vagas' },
   'jobs.zeroResults': { en: '0 results', 'pt-BR': '0 resultados' },
   'jobs.rangeLabel': { en: '{start}–{end} of {total}', 'pt-BR': '{start}–{end} de {total}' },
   'jobs.jobAdded': { en: 'Job added successfully.', 'pt-BR': 'Vaga adicionada com sucesso.' },
   'jobs.hideApplied': { en: 'Hide applied jobs', 'pt-BR': 'Ocultar vagas já candidatadas' },
   'jobs.showHidden': { en: 'Show hidden jobs', 'pt-BR': 'Mostrar vagas ocultas' },
+  'jobs.allSources': { en: 'All sources', 'pt-BR': 'Todas as fontes' },
+  'jobs.sourceFilterActive': { en: 'Source: {name}', 'pt-BR': 'Fonte: {name}' },
+  'jobs.sourceFilterUnknown': { en: 'Narrowed to one source', 'pt-BR': 'Restrito a uma fonte' },
+  'jobs.clearSourceFilter': { en: 'Clear source filter', 'pt-BR': 'Limpar filtro de fonte' },
   'jobs.hiddenBadge': { en: 'Hidden', 'pt-BR': 'Oculta' },
   'jobs.hide': { en: 'Hide', 'pt-BR': 'Ocultar' },
   'jobs.unhide': { en: 'Show job', 'pt-BR': 'Mostrar vaga' },
   'jobs.jobHidden': { en: 'Job hidden.', 'pt-BR': 'Vaga ocultada.' },
   'jobs.jobUnhidden': { en: 'Job is visible again.', 'pt-BR': 'Vaga visível novamente.' },
+  'jobs.cleanup.open': { en: 'Clean up', 'pt-BR': 'Limpar' },
+  'jobs.cleanup.title': { en: 'Clean up old jobs', 'pt-BR': 'Limpar vagas antigas' },
+  'jobs.cleanup.intro': {
+    en: 'Delete jobs in bulk by age and/or source. Preview first — nothing is removed until you confirm.',
+    'pt-BR': 'Exclua vagas em massa por idade e/ou fonte. Pré-visualize antes — nada é removido até você confirmar.',
+  },
+  'jobs.cleanup.olderThan': { en: 'Older than (days)', 'pt-BR': 'Mais antigas que (dias)' },
+  'jobs.cleanup.source': { en: 'Source', 'pt-BR': 'Fonte' },
+  'jobs.cleanup.anySource': { en: 'Any source', 'pt-BR': 'Qualquer fonte' },
+  'jobs.cleanup.includeWithApplications': {
+    en: 'Also delete jobs with an application',
+    'pt-BR': 'Excluir também vagas com candidatura',
+  },
+  'jobs.cleanup.protectedHint': {
+    en: 'Jobs you applied to are kept by default; deleting them also deletes their application.',
+    'pt-BR': 'Vagas com candidatura são mantidas por padrão; excluí-las também exclui a candidatura.',
+  },
+  'jobs.cleanup.preview': { en: 'Preview', 'pt-BR': 'Pré-visualizar' },
+  'jobs.cleanup.confirm': { en: 'Delete jobs', 'pt-BR': 'Excluir vagas' },
+  'jobs.cleanup.previewResult': {
+    en: '{matched} jobs match; {protected} kept (they have an application).',
+    'pt-BR': '{matched} vagas correspondem; {protected} mantidas (com candidatura).',
+  },
+  'jobs.cleanup.nothingMatched': {
+    en: 'No jobs match these criteria.',
+    'pt-BR': 'Nenhuma vaga corresponde a estes critérios.',
+  },
+  'jobs.cleanup.needCriteria': {
+    en: 'Set an age and/or a source.',
+    'pt-BR': 'Informe uma idade e/ou uma fonte.',
+  },
+  'jobs.cleanup.done': { en: '{count} jobs deleted.', 'pt-BR': '{count} vagas excluídas.' },
 
   // ---- Application pipeline statuses ---------------------------------------
   'pipeline.saved': { en: 'Saved', 'pt-BR': 'Salva' },
@@ -170,6 +258,15 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     en: 'How often this watchlist source should be checked by hand. A reminder appears when it is due.',
     'pt-BR': 'Com que frequência esta fonte de acompanhamento deve ser revisada manualmente. Um lembrete aparece quando estiver na hora.',
   },
+  'sources.locations': { en: 'Locations', 'pt-BR': 'Locais' },
+  'sources.locationsPlaceholder': {
+    en: 'Brazil, LATAM, Americas, Worldwide',
+    'pt-BR': 'Brasil, LATAM, Américas, Mundial',
+  },
+  'sources.locationsHint': {
+    en: 'Only keep jobs whose detected location matches one of these terms (comma separated, case/accent-insensitive). Name the regions you can work from — a bare "Remote" is often US-only on these boards. Jobs with no detected location are always kept.',
+    'pt-BR': 'Mantém apenas vagas cujo local detectado corresponda a um destes termos (separados por vírgula, sem diferenciar maiúsculas ou acentos). Informe as regiões onde você pode trabalhar — "Remoto" sozinho costuma significar apenas EUA nesses quadros. Vagas sem local detectado são sempre mantidas.',
+  },
   'sources.schedule': { en: 'Scrape frequency', 'pt-BR': 'Frequência de coleta' },
   'sources.schedule.default': { en: 'Global default', 'pt-BR': 'Padrão global' },
   'sources.schedule.6h': { en: 'Every 6 hours', 'pt-BR': 'A cada 6 horas' },
@@ -207,7 +304,111 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'sources.nextCheck': { en: 'Next check', 'pt-BR': 'Próxima revisão' },
   'sources.openBoard': { en: 'Open board', 'pt-BR': 'Abrir quadro' },
   'sources.markChecked': { en: 'Mark checked', 'pt-BR': 'Marcar como revisada' },
+  'sources.viewJobs': { en: 'View jobs', 'pt-BR': 'Ver vagas' },
+  'sources.viewJobsHint': {
+    en: 'Open this source’s jobs in the jobs list.',
+    'pt-BR': 'Abrir as vagas desta fonte na lista de vagas.',
+  },
+  'sources.viewJobsAria': { en: 'View the jobs from {name}', 'pt-BR': 'Ver as vagas de {name}' },
+  // Row actions are icon-only (the labels live in their tooltips), so the
+  // accessible name has to say what the button does *and* for which source.
+  'sources.openBoardAria': {
+    en: 'Open the board of {name}',
+    'pt-BR': 'Abrir o quadro de {name}',
+  },
+  'sources.markCheckedAria': {
+    en: 'Mark {name} as checked',
+    'pt-BR': 'Marcar {name} como revisada',
+  },
+  'sources.authAria': {
+    en: 'Authentication settings for {name}',
+    'pt-BR': 'Configurações de autenticação de {name}',
+  },
+  'sources.avoidAria': { en: 'Avoid {name}', 'pt-BR': 'Evitar {name}' },
+  'sources.restoreAria': { en: 'Restore {name}', 'pt-BR': 'Restaurar {name}' },
+  'sources.editAria': { en: 'Edit source {name}', 'pt-BR': 'Editar fonte {name}' },
+  'sources.deleteAria': { en: 'Delete source {name}', 'pt-BR': 'Excluir fonte {name}' },
+  'sources.manualHasNoJobs': {
+    en: 'Manual watchlists are checked by hand, so they collect no jobs.',
+    'pt-BR': 'Quadros manuais são revisados à mão, então não coletam vagas.',
+  },
   'sources.checked': { en: 'Source marked as checked.', 'pt-BR': 'Fonte marcada como revisada.' },
+  // --- Health panel ---------------------------------------------------------
+  // `degraded` and `failing` used to share one red badge; these labels and the
+  // warning/danger split make "needs a look" distinguishable from "broken".
+  'sources.health.healthy': { en: 'Healthy', 'pt-BR': 'Saudável' },
+  'sources.health.degraded': { en: 'Degraded', 'pt-BR': 'Degradada' },
+  'sources.health.failing': { en: 'Failing', 'pt-BR': 'Falhando' },
+  'sources.health.unknown': { en: 'Unknown', 'pt-BR': 'Desconhecida' },
+  'sources.health.running': { en: 'Scraping now…', 'pt-BR': 'Coletando agora…' },
+  'sources.health.openHint': {
+    en: 'See why this source has this status',
+    'pt-BR': 'Ver por que esta fonte está neste estado',
+  },
+  'sources.health.openAria': {
+    en: 'Open the health details of {name}',
+    'pt-BR': 'Abrir os detalhes de saúde de {name}',
+  },
+  'sources.health.title': { en: 'Source health — {name}', 'pt-BR': 'Saúde da fonte — {name}' },
+  'sources.health.loading': { en: 'Loading health…', 'pt-BR': 'Carregando saúde…' },
+  'sources.health.reason': {
+    en: 'Why it is not healthy',
+    'pt-BR': 'Por que não está saudável',
+  },
+  'sources.health.noReason': {
+    en: 'No failed or skipped run on record. The next run will update this.',
+    'pt-BR': 'Nenhuma execução falhou ou foi ignorada. A próxima execução atualiza isto.',
+  },
+  'sources.health.lastRun': { en: 'Last run', 'pt-BR': 'Última execução' },
+  'sources.health.lastSuccess': {
+    en: 'Last successful run',
+    'pt-BR': 'Última execução bem-sucedida',
+  },
+  'sources.health.jobsStored': { en: 'Jobs stored', 'pt-BR': 'Vagas armazenadas' },
+  'sources.health.newJobs': { en: '{count} new jobs', 'pt-BR': '{count} vagas novas' },
+  'sources.health.never': { en: 'Never', 'pt-BR': 'Nunca' },
+  'sources.health.history': { en: 'Recent runs', 'pt-BR': 'Execuções recentes' },
+  'sources.health.noRuns': {
+    en: 'No runs recorded yet.',
+    'pt-BR': 'Nenhuma execução registrada ainda.',
+  },
+  'sources.health.started': { en: 'Started', 'pt-BR': 'Iniciada' },
+  'sources.health.statusColumn': { en: 'Status', 'pt-BR': 'Estado' },
+  'sources.health.error': { en: 'Error', 'pt-BR': 'Erro' },
+  'sources.health.status.running': { en: 'Running', 'pt-BR': 'Em execução' },
+  'sources.health.status.success': { en: 'Success', 'pt-BR': 'Sucesso' },
+  'sources.health.status.failed': { en: 'Failed', 'pt-BR': 'Falhou' },
+  'sources.health.status.skipped': { en: 'Skipped', 'pt-BR': 'Ignorada' },
+  'sources.health.recheck': { en: 'Re-check now', 'pt-BR': 'Verificar agora' },
+  'sources.health.recheckHint': {
+    en: 'Enqueue a scrape now, ignoring any skip backoff',
+    'pt-BR': 'Enfileirar uma coleta agora, ignorando o bloqueio de novas tentativas',
+  },
+  'sources.health.queuing': { en: 'Queueing…', 'pt-BR': 'Enfileirando…' },
+  'sources.health.queued': {
+    en: 'Scrape queued — the status updates when the run starts.',
+    'pt-BR': 'Coleta enfileirada — o estado muda quando a execução começar.',
+  },
+  'sources.health.cannotScrape': {
+    en: 'Manual and avoided sources are not fetched',
+    'pt-BR': 'Fontes manuais e evitadas não são coletadas',
+  },
+  'sources.health.close': { en: 'Close', 'pt-BR': 'Fechar' },
+  'sources.health.copy': { en: 'Copy', 'pt-BR': 'Copiar' },
+  'sources.health.copied': { en: 'Error copied', 'pt-BR': 'Erro copiado' },
+  'sources.health.copyFailed': {
+    en: 'Could not copy the error',
+    'pt-BR': 'Não foi possível copiar o erro',
+  },
+  'sources.health.needsAttention': {
+    en: '{count} source(s) need attention',
+    'pt-BR': '{count} fonte(s) precisam de atenção',
+  },
+  'sources.health.review': { en: 'Review', 'pt-BR': 'Revisar' },
+  'sources.health.configInvalid': {
+    en: 'Invalid configuration: {error}',
+    'pt-BR': 'Configuração inválida: {error}',
+  },
   'sources.avoidedBadge': { en: 'Avoided', 'pt-BR': 'Evitada' },
   'sources.avoidOnly': { en: 'Avoid', 'pt-BR': 'Evitar' },
   'sources.avoidSource': { en: 'Avoid this source', 'pt-BR': 'Evitar esta fonte' },
@@ -217,20 +418,39 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
       'Fontes evitadas nunca são coletadas nem lembradas. Elas continuam listadas como um lembrete do que evitar — nada é excluído.',
   },
   'sources.restoreSource': { en: 'Restore', 'pt-BR': 'Restaurar' },
-  'sources.avoidReason': {
-    en: 'Why are you avoiding it? (optional)',
-    'pt-BR': 'Por que está evitando? (opcional)',
+  'sources.restoreSourceHint': {
+    en: 'Restore this source: it will be scraped and reminded about again.',
+    'pt-BR': 'Restaurar esta fonte: ela voltará a ser coletada e lembrada.',
   },
+  'sources.avoidReason': { en: 'Why are you avoiding it? (optional)', 'pt-BR': 'Por que está evitando? (opcional)' },
   'sources.avoidReasonHint': {
     en: 'Kept with the source and shown in the list, so the reason is not forgotten.',
     'pt-BR': 'Fica salvo com a fonte e aparece na lista, para o motivo não ser esquecido.',
   },
-  'sources.avoidReasonLabel': { en: 'Avoided because', 'pt-BR': 'Evitada porque' },
-  'sources.sourceAvoided': {
-    en: 'Source avoided — it will not be scraped anymore.',
-    'pt-BR': 'Fonte evitada — não será mais coletada.',
-  },
+  'sources.sourceAvoided': { en: 'Source avoided — it will not be scraped anymore.', 'pt-BR': 'Fonte evitada — não será mais coletada.' },
   'sources.sourceRestored': { en: 'Source restored.', 'pt-BR': 'Fonte restaurada.' },
+  'sources.hideAvoided': { en: 'Hide avoided sources', 'pt-BR': 'Ocultar fontes evitadas' },
+  'sources.avoidedCount': { en: '{count} avoided', 'pt-BR': '{count} evitada(s)' },
+  'sources.allAvoidedHidden': { en: 'Every source is avoided', 'pt-BR': 'Todas as fontes estão evitadas' },
+  'sources.allAvoidedHiddenHint': {
+    en: 'They are filtered out above. Avoided sources are never scraped, so nothing is being collected right now.',
+    'pt-BR':
+      'Elas estão ocultas pelo filtro acima. Fontes evitadas nunca são coletadas, então nada está sendo coletado no momento.',
+  },
+  'sources.showAvoided': { en: 'Show avoided sources', 'pt-BR': 'Mostrar fontes evitadas' },
+  'sources.quickFilters': { en: 'Quick filters', 'pt-BR': 'Filtros rápidos' },
+  'sources.filter.all': { en: 'All', 'pt-BR': 'Todas' },
+  'sources.filter.manual': { en: 'Manual', 'pt-BR': 'Manuais' },
+  'sources.filter.automated': { en: 'Automated', 'pt-BR': 'Automáticas' },
+  'sources.filter.unhealthy': { en: 'Unhealthy', 'pt-BR': 'Com problemas' },
+  'sources.filter.due': { en: 'Due', 'pt-BR': 'Pendentes' },
+  'sources.filter.avoided': { en: 'Avoided', 'pt-BR': 'Evitadas' },
+  'sources.noMatch': { en: 'No sources match this filter', 'pt-BR': 'Nenhuma fonte corresponde a este filtro' },
+  'sources.noMatchHint': {
+    en: 'Pick another filter or clear it to see every source.',
+    'pt-BR': 'Escolha outro filtro ou limpe-o para ver todas as fontes.',
+  },
+  'sources.clearFilter': { en: 'Clear filter', 'pt-BR': 'Limpar filtro' },
   'sources.adapter': { en: 'Adapter', 'pt-BR': 'Adaptador' },
   'sources.genericHtmlList': { en: 'Generic HTML list', 'pt-BR': 'Lista HTML genérica' },
   'sources.adapterConfig': { en: 'Adapter config (JSON)', 'pt-BR': 'Configuração do adaptador (JSON)' },
@@ -318,6 +538,7 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'sources.noSourcesHint': { en: 'Add a career page, aggregator, or RSS feed to start collecting jobs.', 'pt-BR': 'Adicione uma página de carreiras, um agregador ou um feed RSS para começar a coletar vagas.' },
   'sources.addFirstSource': { en: 'Add your first source', 'pt-BR': 'Adicione sua primeira fonte' },
   'sources.lastScraped': { en: 'Last scraped', 'pt-BR': 'Última coleta' },
+  'sources.sortBy': { en: 'Sort by {column}', 'pt-BR': 'Ordenar por {column}' },
 
   // ---- Applications --------------------------------------------------------
   'applications.title': { en: 'Application Pipeline', 'pt-BR': 'Pipeline de Candidaturas' },
@@ -423,6 +644,18 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'cv.templateLabel': { en: 'PDF template', 'pt-BR': 'Modelo do PDF' },
   'cv.template.classic': { en: 'Classic', 'pt-BR': 'Clássico' },
   'cv.template.ats': { en: 'ATS-safe', 'pt-BR': 'Compatível com ATS' },
+  'cv.exportLanguage.label': { en: 'CV language', 'pt-BR': 'Idioma do CV' },
+  'cv.exportLanguage.en': { en: 'English', 'pt-BR': 'Inglês' },
+  'cv.exportLanguage.ptBR': { en: 'Portuguese (BR)', 'pt-BR': 'Português (BR)' },
+  'cv.exportLanguage.needsLlm': {
+    en: 'Translated on export; requires the LLM in Admin → LLM.',
+    'pt-BR': 'Traduzido na exportação; requer o LLM em Admin → LLM.',
+  },
+  'cv.exportPtBr': { en: 'PDF (PT-BR)', 'pt-BR': 'PDF (PT-BR)' },
+  'cv.exportPtBrHint': {
+    en: 'Translated to Brazilian Portuguese on download.',
+    'pt-BR': 'Traduzido para português (BR) ao baixar.',
+  },
   'cv.exporting': { en: 'Exporting…', 'pt-BR': 'Exportando…' },
   'cv.pdfExported': { en: 'PDF exported.', 'pt-BR': 'PDF exportado.' },
   'cv.docxExported': { en: 'DOCX exported.', 'pt-BR': 'DOCX exportado.' },
@@ -451,8 +684,8 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'cv.panel.tailor': { en: 'Tailor CV for this job', 'pt-BR': 'Personalizar CV para esta vaga' },
   'cv.panel.retailor': { en: 'Tailor again', 'pt-BR': 'Personalizar novamente' },
   'cv.panel.pending': {
-    en: 'Tailoring queued — the worker is generating it. This screen refreshes itself.',
-    'pt-BR': 'Personalização na fila — o worker está gerando. Esta tela se atualiza sozinha.',
+    en: 'Tailoring queued — the worker is generating it. This page refreshes itself.',
+    'pt-BR': 'Personalização na fila — o worker está gerando. Esta página se atualiza sozinha.',
   },
   'cv.panel.enqueued': { en: 'Tailoring queued.', 'pt-BR': 'Personalização na fila.' },
   'cv.panel.emptyTitle': { en: 'No tailored CV yet', 'pt-BR': 'Nenhum CV personalizado ainda' },
@@ -472,10 +705,6 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'cv.panel.editSkills': {
     en: 'Skills (comma-separated)',
     'pt-BR': 'Habilidades (separadas por vírgula)',
-  },
-  'cv.panel.editBullets': {
-    en: 'Bullets (one per line)',
-    'pt-BR': 'Tópicos (um por linha)',
   },
   'cv.panel.editSave': { en: 'Save tailored CV', 'pt-BR': 'Salvar CV personalizado' },
   'cv.panel.editSaved': { en: 'Tailored CV updated.', 'pt-BR': 'CV personalizado atualizado.' },
@@ -585,12 +814,24 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'admin.statTotalRuns': { en: 'Total runs', 'pt-BR': 'Total de execuções' },
   'admin.sourceHealth': { en: 'Source Health', 'pt-BR': 'Saúde das Fontes' },
   'admin.lastScraped': { en: 'Last scraped', 'pt-BR': 'Última coleta' },
+  'admin.lastRun': { en: 'Last run', 'pt-BR': 'Última execução' },
+  'admin.healthReason': { en: 'Reason', 'pt-BR': 'Motivo' },
   'admin.action': { en: 'Action', 'pt-BR': 'Ação' },
   'admin.never': { en: 'never', 'pt-BR': 'nunca' },
   'admin.scrapeNow': { en: 'Scrape now', 'pt-BR': 'Coletar agora' },
   'admin.dlqTitle': { en: 'Dead-Letter Queue (failed scrape runs)', 'pt-BR': 'Fila de Mensagens Mortas (execuções de coleta com falha)' },
+  'admin.dlqFilter': { en: 'Run filter', 'pt-BR': 'Filtro de execuções' },
+  'admin.dlqFailed': { en: 'Failures', 'pt-BR': 'Falhas' },
+  'admin.dlqSkipped': { en: 'Skipped', 'pt-BR': 'Ignoradas' },
+  'admin.dlqAll': { en: 'All', 'pt-BR': 'Todas' },
+  'admin.statusCol': { en: 'Status', 'pt-BR': 'Estado' },
   'admin.noFailedRuns': { en: 'No failed runs', 'pt-BR': 'Nenhuma execução com falha' },
   'admin.noFailedRunsHint': { en: 'Everything is healthy — nothing to replay.', 'pt-BR': 'Tudo saudável — nada para reproduzir.' },
+  'admin.noSkippedRuns': { en: 'No skipped runs', 'pt-BR': 'Nenhuma execução ignorada' },
+  'admin.noSkippedRunsHint': {
+    en: 'Skips appear here when the engine refuses to fetch a source (robots.txt, missing API key, manual or avoided board).',
+    'pt-BR': 'Execuções ignoradas aparecem aqui quando o motor recusa buscar uma fonte (robots.txt, chave de API ausente, fonte manual ou evitada).',
+  },
   'admin.started': { en: 'Started', 'pt-BR': 'Iniciada' },
   'admin.errorCol': { en: 'Error', 'pt-BR': 'Erro' },
   'admin.jobsCol': { en: 'Jobs', 'pt-BR': 'Vagas' },
@@ -774,6 +1015,14 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   // ---- Errors / failures ---------------------------------------------------
   'errors.failedLoadJobs': { en: 'Failed to load jobs', 'pt-BR': 'Falha ao carregar as vagas' },
   'errors.failedCreateJob': { en: 'Failed to create job', 'pt-BR': 'Falha ao criar a vaga' },
+  'errors.failedImportJob': {
+    en: 'Failed to read that job posting',
+    'pt-BR': 'Falha ao ler essa vaga',
+  },
+  'errors.importUrlRequired': {
+    en: 'Paste the job posting URL first',
+    'pt-BR': 'Cole primeiro a URL da vaga',
+  },
   'errors.failedHideJob': { en: 'Failed to update job visibility', 'pt-BR': 'Falha ao atualizar a visibilidade da vaga' },
   'errors.failedDeleteJob': { en: 'Failed to delete job', 'pt-BR': 'Falha ao excluir a vaga' },
   'errors.failedLoadJob': { en: 'Failed to load job', 'pt-BR': 'Falha ao carregar a vaga' },
@@ -803,6 +1052,14 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     'pt-BR': 'Falha ao baixar o DOCX',
   },
   'errors.failedExportDocx': { en: 'Failed to export DOCX', 'pt-BR': 'Falha ao exportar o DOCX' },
+  'errors.failedTranslateCv': {
+    en: 'Failed to translate the CV — the LLM must be enabled in Admin → LLM',
+    'pt-BR': 'Falha ao traduzir o CV — o LLM precisa estar habilitado em Admin → LLM',
+  },
+  'errors.failedCleanupJobs': {
+    en: 'Failed to clean up jobs',
+    'pt-BR': 'Falha ao limpar as vagas',
+  },
   'errors.failedSaveCV': { en: 'Failed to save CV', 'pt-BR': 'Falha ao salvar o CV' },
   'errors.failedDeleteCV': { en: 'Failed to delete CV version', 'pt-BR': 'Falha ao excluir a versão do CV' },
   'errors.failedDeleteGeneratedCV': { en: 'Failed to delete tailored CV', 'pt-BR': 'Falha ao excluir o CV personalizado' },

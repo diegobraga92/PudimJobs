@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -74,3 +75,40 @@ class JobCleanupResponse(BaseModel):
     deleted: int
     protected: int
     dry_run: bool
+
+
+class JobImportRequest(BaseModel):
+    """The posting URL the user pasted into the Add-job dialog (ADR 025)."""
+
+    url: str = Field(min_length=1, max_length=1024)
+
+
+class JobImportPreview(BaseModel):
+    """A draft extracted from one posting URL — nothing has been saved (ADR 025).
+
+    Every field is what the review form should be pre-filled with; the user edits
+    it and the normal ``POST /api/jobs`` persists it. ``extraction`` says which
+    strategy produced the values, ``llm_used`` whether the optional LLM gap-fill
+    ran, and ``warnings`` what the user should double-check. A fetch that never
+    produced a page comes back as ``error`` (HTTP 200), so the form can explain
+    the failure without losing whatever the user already typed.
+    """
+
+    fetched_url: str
+    status_code: int | None = None
+    url: str | None = None
+    title: str = ""
+    company: str = ""
+    location: str | None = None
+    description: str | None = None
+    posted_date: date | None = None
+    tags: list[str] = Field(default_factory=list)
+    #: ``json_ld`` (schema.org metadata), ``css`` (heuristic selectors), ``llm``
+    #: (only the LLM found anything) or ``none`` (nothing readable on the page).
+    extraction: Literal["json_ld", "css", "llm", "none"] = "none"
+    llm_used: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    #: Set when the current user already saved a job with this URL.
+    existing_job_id: uuid.UUID | None = None
+    error: str | None = None
+

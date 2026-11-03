@@ -273,12 +273,13 @@ cost analysis. Known gaps (mobile parity for the newest features, prep-task
 reminders, free-text retrospectives) are listed in the ADRs.
 
 **Backend (FastAPI + PostgreSQL)** — JWT auth (`POST /api/auth/login`,
-`GET /api/auth/me`, bcrypt); user-scoped CRUD for sources, jobs (manual add +
-search/filter, with a `source_id` filter and a preview-first bulk cleanup —
-ADR 023), versioned master CV and applications (pipeline status, notes);
-audit logging for CV and application mutations; Alembic migrations + idempotent
-seed. 566 backend tests (350 run without PostgreSQL, 216 integration tests
-skipped when it is unreachable) and 110 Angular specs.
+`GET /api/auth/me`, bcrypt); user-scoped CRUD for sources, jobs (manual add,
+"import from a URL" into a reviewable draft — ADR 025 — plus search/filter, a
+`source_id` filter and a preview-first bulk cleanup — ADR 023), versioned master
+CV and applications (pipeline status, notes); audit logging for CV and
+application mutations; Alembic migrations + idempotent seed. 780 backend tests
+(526 run without PostgreSQL, 254 integration tests skipped when it is
+unreachable) and 160 Angular specs.
 
 **Scraping engine (Celery + RabbitMQ)** — pluggable scrapers (`scrapers/`:
 career page via schema.org/JSON-LD, RSS via feedparser, aggregator adapters,
@@ -398,7 +399,9 @@ management with quick filters (all / manual / automated / unhealthy / due /
 avoided) and a per-source jobs count that opens that board's jobs in the jobs
 list (`/jobs?source_id=…`, the filter the API already exposes — a manual
 watchlist stays unlinked until it owns a job); job listing with
-keyword/company/tag/date/source search, manual add, a
+keyword/company/tag/date/source search, manual add (or *import from a URL*: the
+API fetches and parses one posting into an editable draft the user reviews before
+saving — ADR 025), a
 preview-then-confirm bulk cleanup (age and/or source, applications protected by
 default — ADR 023) and a
 detail view (parsed requirements, *add to applications*, pipeline badge once

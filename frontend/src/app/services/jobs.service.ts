@@ -77,6 +77,31 @@ export interface TailorEnqueueResult {
   variants: CvVariant[];
 }
 
+/**
+ * A draft read from one posting URL (ADR 025). Nothing is saved: the caller
+ * pre-fills the Add-job form with it, the user reviews, and `create()` persists.
+ * `extraction` says how the values were found, `llm_used` whether the optional
+ * AI reader contributed, and `error` why a fetch produced nothing (the request
+ * still answers 200, like the source preview).
+ */
+export interface JobImportPreview {
+  fetched_url: string;
+  status_code: number | null;
+  url: string | null;
+  title: string;
+  company: string;
+  location: string | null;
+  description: string | null;
+  posted_date: string | null;
+  tags: string[];
+  extraction: 'json_ld' | 'css' | 'llm' | 'none';
+  llm_used: boolean;
+  warnings: string[];
+  /** Set when the user already saved a job with this URL (a warning, not a block). */
+  existing_job_id: string | null;
+  error: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class JobsService {
   constructor(private http: HttpClient) {}
@@ -99,6 +124,15 @@ export class JobsService {
 
   create(payload: JobInput): Observable<JobDetail> {
     return this.http.post<JobDetail>('/api/jobs', payload);
+  }
+
+  /**
+   * Read a posting URL into a draft (ADR 025). Server-side fetch + parse; the
+   * response answers 200 even when the page could not be read, so `error` is
+   * what tells the caller apart — check it before trusting the fields.
+   */
+  importPreview(url: string): Observable<JobImportPreview> {
+    return this.http.post<JobImportPreview>('/api/jobs/import-preview', { url });
   }
 
   update(id: string, payload: JobInput): Observable<JobDetail> {

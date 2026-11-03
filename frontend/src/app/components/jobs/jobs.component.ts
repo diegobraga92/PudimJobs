@@ -7,6 +7,7 @@ import {
   JobCleanupRequest,
   JobCleanupResult,
   JobFilters,
+  JobImportPreview,
   JobInput,
   JobSummary,
   JobsService,
@@ -55,6 +56,18 @@ export class JobsComponent implements OnInit {
   showForm = false;
   searchForm;
   jobForm;
+
+  /** "Import from a URL" (ADR 025): fetch, review, then Save as usual. */
+  importing = false;
+  /** Why the last import produced no page (already localized). */
+  importError: string | null = null;
+  importWarnings: string[] = [];
+  /** The optional AI reader filled something in the draft. */
+  importUsedLlm = false;
+  /** The fetched URL is already saved by this user (a warning, not a block). */
+  existingJobId: string | null = null;
+  /** At least one draft was applied: Save also enqueues JD parsing. */
+  importedFromUrl = false;
 
   /** When on, jobs the user already applied to are filtered out of the list. */
   hideApplied = false;
@@ -109,6 +122,8 @@ export class JobsComponent implements OnInit {
       added: [''],
     });
     this.jobForm = this.fb.group({
+      // Only feeds the import request; never part of the saved payload.
+      import_url: [''],
       title: ['', Validators.required],
       company: ['', Validators.required],
       location: [''],
@@ -353,11 +368,109 @@ export class JobsComponent implements OnInit {
 
   openCreate(): void {
     this.jobForm.reset();
+    this.resetImportState();
     this.showForm = true;
   }
 
   cancelForm(): void {
     this.showForm = false;
+  }
+
+  /** Clear everything the last import left behind (a fresh dialog). */
+  resetImportState(): void {
+    this.importing = false;
+    this.importError = null;
+    this.importWarnings = [];
+    this.importUsedLlm = false;
+    this.existingJobId = null;
+    this.importedFromUrl = false;
+  }
+
+  /**
+   * Fetch the pasted posting and pre-fill the form with a draft (ADR 025).
+   * Nothing is saved here — the user reviews the fields and presses Save.
+   */
+  importFromUrl(): void {
+    const url = String(this.jobForm.get('import_url')?.value ?? '').trim();
+    if (!url) {
+      this.toast.error(this.i18n.t('errors.importUrlRequired'));
+      return;
+    }
+    this.importing = true;
+    this.importError = null;
+    this.importWarnings = [];
+    this.importUsedLlm = false;
+    this.existingJobId = null;
+    this.service.importPreview(url).subscribe({
+      next: (draft) => {
+        this.importing = false;
+        this.applyDraft(draft);
+      },
+      error: () => {
+        // A transport/HTTP failure (the readable-page failures arrive as 200
+        // with `error`, handled in `applyDraft`).
+        this.importing = false;
+        this.importError = this.i18n.t('errors.failedImportJob');
+      },
+    });
+  }
+
+  /** Copy the draft into the form, keeping anything the user already typed. */
+  private applyDraft(draft: JobImportPreview): void {
+    const patch: Record<string, string> = {};
+    if (draft.title) {
+      patch['title'] = draft.title;
+    }
+    if (draft.company) {
+      patch['company'] = draft.company;
+    }
+    if (draft.location) {
+      patch['location'] = draft.location;
+    }
+    if (draft.url) {
+      patch['url'] = draft.url;
+    }
+    if (draft.posted_date) {
+      patch['posted_date'] = draft.posted_date;
+    }
+    if (draft.tags.length) {
+      patch['tags'] = draft.tags.join(', ');
+    }
+    if (draft.description) {
+      patch['description'] = draft.description;
+    }
+    if (Object.keys(patch).length) {
+      this.jobForm.patchValue(patch);
+      this.jobForm.markAsDirty();
+    }
+    this.importError = draft.error;
+    this.importWarnings = draft.warnings;
+    this.importUsedLlm = draft.llm_used;
+    this.existingJobId = draft.existing_job_id;
+    this.importedFromUrl = !draft.error;
+  }
+
+  /** Host shown in the "draft filled from …" line. */
+  get importedHost(): string {
+    const value = String(this.jobForm.get('url')?.value ?? '').trim();
+    if (!this.importedFromUrl || !value) {
+      return '';
+    }
+    try {
+      return new URL(value).host;
+    } catch {
+      return '';
+    }
+  }
+
+  /** Jump to the already-saved job the import flagged (if any). */
+  openExistingJob(): void {
+    if (!this.existingJobId) {
+      return;
+    }
+    const id = this.existingJobId;
+    this.showForm = false;
+    this.router.navigate(['/jobs', id]);
   }
 
   save(): void {
@@ -376,16 +489,27 @@ export class JobsComponent implements OnInit {
     const payload: JobInput = {
       title: value.title,
       company: value.company,
-      location: value.location.trim() || null,
-      url: value.url,
-      posted_date: value.posted_date,
-      description: value.description,
-      tags: this.parseTags(value.tags),
+      // `jobForm.reset()` leaves untouched controls as `null`, so every optional
+      // field has to be read defensively (an untouched location used to throw).
+      location: value.location?.trim() || null,
+      url: value.url?.trim() || null,
+      // A cleared date input reads `""`, which the API's `date | None` rejects.
+      posted_date: value.posted_date || null,
+      description: value.description || null,
+      tags: this.parseTags(value.tags ?? ''),
     };
+    const imported = this.importedFromUrl;
     this.service.create(payload).subscribe({
-      next: () => {
+      next: (job) => {
         this.showForm = false;
+        this.resetImportState();
         this.toast.success(this.i18n.t('jobs.jobAdded'));
+        // An imported description is what the skills/score gate reads; parse it
+        // now instead of waiting for the next manual request. Fire and forget:
+        // a failed enqueue must not make the save look failed.
+        if (imported) {
+          this.service.parse(job.id).subscribe({ error: () => undefined });
+        }
         this.search();
         this.loadPipeline();
       },

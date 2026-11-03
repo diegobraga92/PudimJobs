@@ -23,10 +23,13 @@ from app.schemas.job import (
     JobCleanupRequest,
     JobCleanupResponse,
     JobCreate,
+    JobImportPreview,
+    JobImportRequest,
     JobResponse,
     JobSummary,
     JobUpdate,
 )
+from app.services.job_import import import_job_from_url
 from app.services.llm_config import get_llm_config, llm_variant_wanted
 from app.services.search import keyword_filters
 
@@ -244,6 +247,54 @@ async def cleanup_jobs(
     await db.commit()
     return JobCleanupResponse(
         matched=matched, deleted=deleted, protected=protected, dry_run=False
+    )
+
+
+@router.post("/import-preview", response_model=JobImportPreview)
+@limiter.limit(settings.rate_limit_import, key_func=auth_key)
+async def preview_job_import(
+    request: Request,
+    payload: JobImportRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Fetch a posting URL and return an editable draft — nothing is saved.
+
+    The dialog pre-fills its fields from the draft, the user reviews and edits
+    them, and the normal ``POST /api/jobs`` persists the result (ADR 025). A
+    fetch or parse failure is reported in ``error`` with HTTP 200 so the form can
+    explain it without losing what the user already typed — the same contract as
+    the source preview.
+    """
+    # Trimmed once here: the service, the duplicate lookup and the draft URL all
+    # compare the value the user meant, not the whitespace of a paste.
+    url = payload.url.strip()
+    draft = await import_job_from_url(url, llm_config=await get_llm_config(db))
+    # The pasted URL and the one the page reported (after redirects, or the
+    # posting's canonical URL) are both worth matching against saved jobs.
+    candidates = sorted({value for value in (url, draft.url) if value})
+    existing = None
+    if candidates:
+        existing = await db.scalar(
+            select(Job.id)
+            .where(Job.user_id == user.id, Job.url.in_(candidates))
+            .limit(1)
+        )
+    return JobImportPreview(
+        fetched_url=draft.fetched_url,
+        status_code=draft.status_code,
+        url=draft.url,
+        title=draft.title,
+        company=draft.company,
+        location=draft.location,
+        description=draft.description,
+        posted_date=draft.posted_date,
+        tags=draft.tags,
+        extraction=draft.extraction,
+        llm_used=draft.llm_used,
+        warnings=draft.warnings,
+        existing_job_id=existing,
+        error=draft.error,
     )
 
 

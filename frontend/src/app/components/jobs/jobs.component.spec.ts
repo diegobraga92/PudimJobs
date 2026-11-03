@@ -3,7 +3,7 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
-import { JobCleanupResult, JobSummary } from '../../services/jobs.service';
+import { JobCleanupResult, JobImportPreview, JobSummary } from '../../services/jobs.service';
 import { Source } from '../../services/sources.service';
 import { I18nService } from '../../services/i18n.service';
 import { ToastService } from '../../shared/toast/toast.service';
@@ -46,6 +46,24 @@ const MANUAL_SOURCE: Source = {
 function preview(matched = 2, protectedCount = 0): JobCleanupResult {
   return { matched, deleted: 0, protected: protectedCount, dry_run: true };
 }
+
+/** What `POST /api/jobs/import-preview` returns for a readable posting. */
+const DRAFT: JobImportPreview = {
+  fetched_url: 'https://acme.example/jobs/1',
+  status_code: 200,
+  url: 'https://acme.example/jobs/1',
+  title: 'Staff Engineer',
+  company: 'Acme',
+  location: 'Remote, Brazil',
+  description: 'Own the API.',
+  posted_date: '2026-02-01',
+  tags: ['python', 'fastapi'],
+  extraction: 'json_ld',
+  llm_used: false,
+  warnings: [],
+  existing_job_id: null,
+  error: null,
+};
 
 describe('JobsComponent (bulk cleanup, ADR 023)', () => {
   let fixture: ComponentFixture<JobsComponent>;
@@ -386,3 +404,188 @@ describe('JobsComponent — source filter', () => {
     expect(component.error).toBeNull();
   });
 });
+
+describe('JobsComponent — import from a URL (ADR 025)', () => {
+  let fixture: ComponentFixture<JobsComponent>;
+  let component: JobsComponent;
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [JobsComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    }).compileComponents();
+
+    TestBed.inject(I18nService).setLanguage('en');
+    localStorage.removeItem('pudimjobs_jobs_last_visit');
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(JobsComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  afterEach(() => http.verify());
+
+  function flushInit(): void {
+    http.expectOne((c) => c.url === '/api/jobs').flush([]);
+    http.expectOne((c) => c.url === '/api/applications').flush([]);
+    http.expectOne((c) => c.url === '/api/sources').flush([]);
+  }
+
+  /** Open the Add-job dialog and paste a URL, without importing yet. */
+  function prepare(url = 'https://acme.example/jobs/1'): void {
+    flushInit();
+    component.openCreate();
+    component.jobForm.patchValue({ import_url: `  ${url}  ` });
+  }
+
+  it('pre-fills the form from the draft and saves it through POST /api/jobs', () => {
+    prepare();
+
+    component.importFromUrl();
+
+    const request = http.expectOne((c) => c.url === '/api/jobs/import-preview');
+    expect(request.request.method).toBe('POST');
+    // The pasted value is trimmed before it leaves the browser.
+    expect(request.request.body).toEqual({ url: 'https://acme.example/jobs/1' });
+    request.flush(DRAFT);
+
+    expect(component.importing).toBeFalse();
+    expect(component.importError).toBeNull();
+    expect(component.jobForm.get('title')?.value).toBe('Staff Engineer');
+    expect(component.jobForm.get('company')?.value).toBe('Acme');
+    expect(component.jobForm.get('location')?.value).toBe('Remote, Brazil');
+    expect(component.jobForm.get('url')?.value).toBe('https://acme.example/jobs/1');
+    expect(component.jobForm.get('posted_date')?.value).toBe('2026-02-01');
+    expect(component.jobForm.get('tags')?.value).toBe('python, fastapi');
+    expect(component.jobForm.get('description')?.value).toBe('Own the API.');
+    expect(component.importedHost).toBe('acme.example');
+    // Nothing is saved until the user presses Save.
+    http.expectNone((c) => c.url === '/api/jobs' && c.method === 'POST');
+
+    component.save();
+
+    const created = http.expectOne((c) => c.url === '/api/jobs' && c.method === 'POST');
+    expect(created.request.body).toEqual({
+      title: 'Staff Engineer',
+      company: 'Acme',
+      location: 'Remote, Brazil',
+      url: 'https://acme.example/jobs/1',
+      posted_date: '2026-02-01',
+      description: 'Own the API.',
+      tags: ['python', 'fastapi'],
+    });
+    created.flush({ ...JOB, id: 'job-9' });
+
+    // An imported description is parsed right away (skills + score).
+    http
+      .expectOne({ url: '/api/jobs/job-9/parse', method: 'POST' })
+      .flush({ enqueued: true, job_id: 'job-9' });
+    http.expectOne((c) => c.url === '/api/jobs').flush([]);
+    http.expectOne((c) => c.url === '/api/applications').flush([]);
+    expect(component.showForm).toBeFalse();
+    expect(component.importedFromUrl).toBeFalse();
+  });
+
+  it('keeps what the user typed when the draft has an empty field', () => {
+    prepare();
+    component.jobForm.patchValue({ title: 'My own title' });
+    component.importFromUrl();
+    http
+      .expectOne((c) => c.url === '/api/jobs/import-preview')
+      .flush({ ...DRAFT, title: '', location: null });
+
+    expect(component.jobForm.get('title')?.value).toBe('My own title');
+    expect(component.jobForm.get('company')?.value).toBe('Acme');
+  });
+
+
+  it('explains an unreadable page and leaves the form usable', () => {
+    prepare();
+    component.importFromUrl();
+    http.expectOne((c) => c.url === '/api/jobs/import-preview').flush({
+      ...DRAFT,
+      title: '',
+      company: '',
+      description: null,
+      tags: [],
+      extraction: 'none',
+      warnings: ['the page has no readable job description'],
+      error: 'timed out after 15s — the site may be slow or JS-rendered',
+    });
+
+    expect(component.importError).toContain('timed out');
+    expect(component.importWarnings).toEqual(['the page has no readable job description']);
+    // A failed import is not a successful one: nothing is enqueued on save.
+    expect(component.importedFromUrl).toBeFalse();
+    // An empty field is never patched, so the user's own value (or a blank
+    // control, `null` after `reset()`) is what the form keeps.
+    expect(component.jobForm.get('company')?.value).toBeFalsy();
+    expect(component.jobForm.get('title')?.value).toBeFalsy();
+  });
+
+  it('warns about an already saved URL without blocking the draft', () => {
+    prepare();
+    component.importFromUrl();
+    http
+      .expectOne((c) => c.url === '/api/jobs/import-preview')
+      .flush({ ...DRAFT, existing_job_id: 'job-1' });
+
+    expect(component.existingJobId).toBe('job-1');
+    expect(component.importedFromUrl).toBeTrue();
+
+    component.openExistingJob();
+    expect(component.showForm).toBeFalse();
+  });
+
+  it('flags that the AI reader filled fields', () => {
+    prepare();
+    component.importFromUrl();
+    http
+      .expectOne((c) => c.url === '/api/jobs/import-preview')
+      .flush({ ...DRAFT, llm_used: true });
+
+    expect(component.importUsedLlm).toBeTrue();
+  });
+
+  it('refuses an empty URL without calling the API', () => {
+    flushInit();
+    component.openCreate();
+    const toast = TestBed.inject(ToastService);
+    const error = spyOn(toast, 'error');
+
+    component.importFromUrl();
+
+    http.expectNone((c) => c.url === '/api/jobs/import-preview');
+    expect(error).toHaveBeenCalledWith(component.i18n.t('errors.importUrlRequired'));
+    expect(component.importing).toBeFalse();
+  });
+
+  it('surfaces a transport failure instead of leaving the dialog stuck', () => {
+    prepare();
+    component.importFromUrl();
+    http
+      .expectOne((c) => c.url === '/api/jobs/import-preview')
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+
+    expect(component.importing).toBeFalse();
+    expect(component.importError).toBe(component.i18n.t('errors.failedImportJob'));
+  });
+
+  it('sends null for a cleared posted date (422 guard)', () => {
+    flushInit();
+    component.openCreate();
+    component.jobForm.patchValue({ title: 'Backend Engineer', company: 'Acme', posted_date: '' });
+
+    component.save();
+
+    const created = http.expectOne((c) => c.url === '/api/jobs' && c.method === 'POST');
+    expect(created.request.body.posted_date).toBeNull();
+    created.flush({ ...JOB, id: 'job-7' });
+    http.expectOne((c) => c.url === '/api/jobs').flush([]);
+    http.expectOne((c) => c.url === '/api/applications').flush([]);
+    // Not imported: no parse request.
+    http.expectNone((c) => c.url === '/api/jobs/job-7/parse');
+  });
+});
+

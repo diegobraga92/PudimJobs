@@ -13,14 +13,24 @@ class CareerPageScraper(AbstractScraper):
     ) -> ScrapedPage:
         return await fetch_html(url, auth=auth)
 
-    def parse(self, page: ScrapedPage) -> list[RawJob]:
+    def parse_with_extraction(self, page: ScrapedPage) -> tuple[list[RawJob], str]:
+        """Parse a detail page and report which strategy produced the jobs.
+
+        ``"json_ld"`` means the page described itself with schema.org metadata;
+        ``"css"`` means the heuristic selectors had to guess. The single-URL
+        import (ADR 025) surfaces this to the user, and taking it from the same
+        method the engine uses keeps the two from disagreeing.
+        """
         # Preferred: schema.org JSON-LD JobPosting blocks.
         json_ld_jobs = parse_json_ld_jobs(page.html_content, page.final_url)
         if json_ld_jobs:
-            return json_ld_jobs
+            return json_ld_jobs, "json_ld"
 
         # Fallback: common CSS selectors (single-listing page assumption).
-        return parse_job_detail(page)
+        return parse_job_detail(page), "css"
+
+    def parse(self, page: ScrapedPage) -> list[RawJob]:
+        return self.parse_with_extraction(page)[0]
 
     def normalize(self, raw_jobs: list[RawJob]) -> list[dict]:
         return [

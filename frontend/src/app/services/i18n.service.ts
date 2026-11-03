@@ -117,6 +117,31 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'jobs.searching': { en: 'Searching…', 'pt-BR': 'Buscando…' },
   'jobs.search': { en: 'Search', 'pt-BR': 'Buscar' },
   'jobs.addJobManually': { en: 'Add job manually', 'pt-BR': 'Adicionar vaga manualmente' },
+  'jobs.import.title': { en: 'Import from a URL', 'pt-BR': 'Importar de uma URL' },
+  'jobs.import.urlPlaceholder': {
+    en: 'https://acme.example/jobs/123',
+    'pt-BR': 'https://acme.example/jobs/123',
+  },
+  'jobs.import.button': { en: 'Import', 'pt-BR': 'Importar' },
+  'jobs.import.importing': { en: 'Reading…', 'pt-BR': 'Lendo…' },
+  'jobs.import.hint': {
+    en: 'We open the page, read the posting and fill the fields below — you review before saving.',
+    'pt-BR': 'Abrimos a página, lemos a vaga e preenchemos os campos abaixo — você revisa antes de salvar.',
+  },
+  'jobs.import.filled': {
+    en: 'Draft filled from {host}. Check it before saving.',
+    'pt-BR': 'Rascunho preenchido a partir de {host}. Confira antes de salvar.',
+  },
+  'jobs.import.llmUsed': {
+    en: 'The optional AI reader filled some of these fields.',
+    'pt-BR': 'O leitor de IA opcional preencheu alguns destes campos.',
+  },
+  'jobs.import.check': { en: 'Check before saving:', 'pt-BR': 'Confira antes de salvar:' },
+  'jobs.import.existing': {
+    en: 'You already saved a job with this URL.',
+    'pt-BR': 'Você já salvou uma vaga com esta URL.',
+  },
+  'jobs.import.openExisting': { en: 'Open that job', 'pt-BR': 'Abrir essa vaga' },
   'jobs.titlePlaceholder': { en: 'Senior Python Engineer', 'pt-BR': 'Engenheiro(a) Python Sênior' },
   'jobs.postedDate': { en: 'Posted date', 'pt-BR': 'Data de publicação' },
   'jobs.descriptionPlaceholder': { en: 'Full job description…', 'pt-BR': 'Descrição completa da vaga…' },
@@ -987,6 +1012,14 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   // ---- Errors / failures ---------------------------------------------------
   'errors.failedLoadJobs': { en: 'Failed to load jobs', 'pt-BR': 'Falha ao carregar as vagas' },
   'errors.failedCreateJob': { en: 'Failed to create job', 'pt-BR': 'Falha ao criar a vaga' },
+  'errors.failedImportJob': {
+    en: 'Failed to read that job posting',
+    'pt-BR': 'Falha ao ler essa vaga',
+  },
+  'errors.importUrlRequired': {
+    en: 'Paste the job posting URL first',
+    'pt-BR': 'Cole primeiro a URL da vaga',
+  },
   'errors.failedHideJob': { en: 'Failed to update job visibility', 'pt-BR': 'Falha ao atualizar a visibilidade da vaga' },
   'errors.failedDeleteJob': { en: 'Failed to delete job', 'pt-BR': 'Falha ao excluir a vaga' },
   'errors.failedLoadJob': { en: 'Failed to load job', 'pt-BR': 'Falha ao carregar a vaga' },

@@ -67,6 +67,65 @@
   gap: var(--space-3);
 }
 
+/* "Import from a URL" (ADR 025): a self-contained block above the fields, so it
+   reads as "optional shortcut, then the form you already know". */
+.import-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+
+  /* Inline feedback, not page-level banners: the block owns the spacing. */
+  .alert {
+    margin-bottom: 0;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+}
+
+.import-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.import-row {
+  display: flex;
+  gap: var(--space-2);
+
+  .input {
+    flex: 1 1 auto;
+  }
+}
+
+.import-hint,
+.import-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
+
+.import-note {
+  color: var(--color-text-muted);
+}
+
+.import-warnings {
+  font-size: var(--text-xs);
+  color: var(--color-warning);
+
+  ul {
+    margin: var(--space-1) 0 0;
+    padding-left: 1.15rem;
+  }
+}
+
+.import-warnings-title {
+  font-weight: var(--font-weight-semibold);
+}
+
 .job-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -188,6 +247,11 @@
 @media (max-width: 640px) {
   .search-submit {
     flex: 1;
+  }
+
+  /* Stack the import field and its button: the dialog is narrow here. */
+  .import-row {
+    flex-direction: column;
   }
 }
 

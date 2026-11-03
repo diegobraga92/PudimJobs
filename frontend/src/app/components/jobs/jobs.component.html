@@ -174,6 +174,78 @@
       (ngSubmit)="save()"
       [attr.aria-label]="i18n.t('jobs.addJobManually')"
     >
+      <!-- Import first: paste a posting URL, review the draft it produces, save
+           only if it looks right (ADR 025). Enter must not submit the form. -->
+      <div class="import-box">
+        <label class="import-label" for="job-import-url">{{ i18n.t('jobs.import.title') }}</label>
+        <div class="import-row">
+          <input
+            id="job-import-url"
+            class="input"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            formControlName="import_url"
+            [placeholder]="i18n.t('jobs.import.urlPlaceholder')"
+            (keydown.enter)="importFromUrl(); $event.preventDefault()"
+          />
+          <button
+            type="button"
+            class="btn btn-primary"
+            [disabled]="importing"
+            (click)="importFromUrl()"
+          >
+            @if (importing) {
+              <app-icon class="spinner" name="loader" [size]="16" />
+            } @else {
+              <app-icon name="download" [size]="16" />
+            }
+            <span>{{ importing ? i18n.t('jobs.import.importing') : i18n.t('jobs.import.button') }}</span>
+          </button>
+        </div>
+        <p class="import-hint">{{ i18n.t('jobs.import.hint') }}</p>
+
+        @if (importError) {
+          <div class="alert alert-error" role="alert">
+            <app-icon class="alert-icon" name="circle-alert" [size]="16" />
+            <span>{{ importError }}</span>
+          </div>
+        }
+
+        @if (importedHost) {
+          <div class="alert alert-success" role="status">
+            <app-icon class="alert-icon" name="circle-check" [size]="16" />
+            <span>{{ i18n.t('jobs.import.filled', { host: importedHost }) }}</span>
+          </div>
+        }
+
+        @if (existingJobId) {
+          <div class="alert alert-warning" role="status">
+            <app-icon class="alert-icon" name="info" [size]="16" />
+            <span>{{ i18n.t('jobs.import.existing') }}</span>
+            <button type="button" class="btn btn-ghost btn-sm" (click)="openExistingJob()">
+              <app-icon name="external-link" [size]="14" />
+              {{ i18n.t('jobs.import.openExisting') }}
+            </button>
+          </div>
+        }
+
+        @if (importUsedLlm) {
+          <p class="import-note">{{ i18n.t('jobs.import.llmUsed') }}</p>
+        }
+
+        @if (importWarnings.length) {
+          <div class="import-warnings">
+            <span class="import-warnings-title">{{ i18n.t('jobs.import.check') }}</span>
+            <ul>
+              @for (warning of importWarnings; track warning) {
+                <li>{{ warning }}</li>
+              }
+            </ul>
+          </div>
+        }
+      </div>
+
       <div class="form-field">
         <label for="job-title">{{ i18n.t('common.title') }}</label>
         <input
