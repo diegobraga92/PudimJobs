@@ -33,9 +33,33 @@ CV = {
 }
 
 
-def test_tailor_orders_relevant_experience_first():
-    tailored = tailor_cv(CV, ["python", "fastapi", "postgresql"])
-    assert tailored.experience[0]["title"] == "Python Developer"
+def test_tailor_preserves_the_master_cv_order():
+    """Relevance picks bullets, never positions: the history stays in CV order.
+
+    Promoting the best-matching role to the top reorders the timeline, so the
+    dates a reader checks no longer match the career they are checking (ADR 027).
+    """
+    cv = {
+        **CV,
+        "experience": [
+            {
+                "title": "Java Developer",
+                "company": "Beta",
+                "bullets": ["Maintained Spring applications"],
+            },
+            {
+                "title": "Python Developer",
+                "company": "Acme",
+                "bullets": ["Built FastAPI services on AWS"],
+            },
+        ],
+    }
+    tailored = tailor_cv(cv, ["python", "fastapi", "postgresql"])
+
+    assert [role["title"] for role in tailored.experience] == [
+        "Java Developer",
+        "Python Developer",
+    ]
     assert tailored.matched_skills == ["python"]
     assert "fastapi" in tailored.missing_skills
 
@@ -63,15 +87,79 @@ def test_tailor_leads_with_the_cv_spelling_of_a_matched_alias():
     assert "kubernetes" not in tailored.skills
 
 
-def test_tailor_drops_irrelevant_blocks():
-    tailored = tailor_cv(CV, ["python", "fastapi"], drop_irrelevant=True)
-    assert len(tailored.experience) == 1
-    assert tailored.experience[0]["title"] == "Python Developer"
+def test_tailor_keeps_every_role_and_condenses_bullets():
+    """A role that shares no keyword keeps two bullets; the match keeps up to six."""
+    cv = {
+        **CV,
+        "experience": [
+            {
+                "title": "Python Developer",
+                "company": "Acme",
+                "bullets": [
+                    "Built FastAPI services on AWS",
+                    "Cut p95 latency",
+                    "Owned the migration",
+                    "Mentored two juniors",
+                    "Ran the on-call rota",
+                    "Wrote the RFC",
+                    "Led the rollout",
+                ],
+            },
+            {
+                "title": "Java Developer",
+                "company": "Beta",
+                "bullets": [
+                    "Maintained Spring applications",
+                    "Rewrote the billing job",
+                    "Onboarded new hires",
+                ],
+            },
+        ],
+    }
+    tailored = tailor_cv(cv, ["python", "fastapi"])
+
+    assert [role["title"] for role in tailored.experience] == [
+        "Python Developer",
+        "Java Developer",
+    ]
+    matched, unmatched = tailored.experience
+    assert len(matched["bullets"]) == 6  # a cap, and only for a matching role
+    assert matched["bullets"][0] == "Built FastAPI services on AWS"
+    assert unmatched["bullets"] == [
+        "Maintained Spring applications",
+        "Rewrote the billing job",
+    ]
+    assert tailored.used_fallback is False
 
 
-def test_tailor_keeps_all_when_not_dropping():
-    tailored = tailor_cv(CV, ["python", "fastapi"], drop_irrelevant=False)
+def test_tailor_keeps_the_dates_of_a_condensed_role():
+    """Condensing a role leaves the facts a reader needs to place it in time."""
+    cv = {
+        **CV,
+        "experience": [
+            {
+                "title": "Java Developer",
+                "company": "Beta",
+                "start_date": "2017-03",
+                "end_date": "2019-08",
+                "bullets": [
+                    "Maintained Spring applications",
+                    "Rewrote the billing job",
+                    "Onboarded new hires",
+                ],
+            }
+        ],
+    }
+    role = tailor_cv(cv, ["python"]).experience[0]
+
+    assert (role["start_date"], role["end_date"]) == ("2017-03", "2019-08")
+    assert len(role["bullets"]) == 2
+
+
+def test_tailor_keeps_every_bullet_when_not_condensing():
+    tailored = tailor_cv(CV, ["python", "fastapi"], condense_irrelevant=False)
     assert len(tailored.experience) == 2
+    assert len(tailored.experience[1]["bullets"]) == 1
 
 
 def test_tailor_relevance_zero_when_no_match():
@@ -81,29 +169,56 @@ def test_tailor_relevance_zero_when_no_match():
 
 
 def test_tailor_keeps_fallback_blocks_when_nothing_matches():
-    """No skill match must never produce an empty CV — top blocks are kept."""
-    tailored = tailor_cv(CV, ["rust"], drop_irrelevant=True)
+    """No skill match must never produce an empty or shortened CV (ADR 027)."""
+    tailored = tailor_cv(CV, ["rust"])
     assert tailored.relevance == 0.0
-    assert len(tailored.experience) == 2
+    assert [role["title"] for role in tailored.experience] == [
+        "Python Developer",
+        "Java Developer",
+    ]
     assert len(tailored.projects) == 1
 
 
-def test_tailor_fallback_is_bounded():
+def test_tailor_condenses_every_role_when_nothing_matches():
     big_cv = {
         "summary": "x",
-        "experience": [{"title": f"Role {i}", "company": "C", "bullets": []} for i in range(6)],
+        "experience": [
+            {"title": f"Role {i}", "company": "C", "bullets": ["a", "b", "c"]}
+            for i in range(6)
+        ],
         "education": [],
         "skills": ["python"],
         "projects": [],
     }
-    tailored = tailor_cv(big_cv, ["rust"], drop_irrelevant=True)
-    assert len(tailored.experience) == 3  # capped by _FALLBACK_TOP_N
+    tailored = tailor_cv(big_cv, ["rust"])
+
+    assert len(tailored.experience) == 6  # the number of roles is never a lever
+    assert all(len(role["bullets"]) == 2 for role in tailored.experience)
+    assert tailored.used_fallback is True
 
 
 def test_tailor_uses_annotations_to_score():
-    annotations = {"experience": [["python"], ["java"]]}
-    tailored = tailor_cv(CV, ["java", "spring"], annotations=annotations)
-    assert tailored.experience[0]["title"] == "Java Developer"
+    """A CV tag counts as a keyword, so it keeps the role's bullet budget."""
+    cv = {
+        **CV,
+        "experience": [
+            {
+                "title": "Data Engineer",
+                "company": "Acme",
+                "bullets": [f"Built pipeline {i}" for i in range(7)],
+            },
+            {
+                "title": "Java Developer",
+                "company": "Beta",
+                "bullets": ["Maintained Spring applications"],
+            },
+        ],
+    }
+    annotated = tailor_cv(cv, ["java"], annotations={"experience": [["java"], []]})
+    plain = tailor_cv(cv, ["java"])
+
+    assert len(annotated.experience[0]["bullets"]) == 6  # matched through its tag
+    assert len(plain.experience[0]["bullets"]) == 2  # unmatched, so condensed
 
 
 def test_tailor_summary_leads_with_matched_strengths():
@@ -127,8 +242,8 @@ def test_tailor_summary_untouched_without_matches():
 
 def test_tailor_flags_the_no_match_fallback():
     """A silent fallback was a bug: it is now explicit on the result."""
-    assert tailor_cv(CV, ["rust"], drop_irrelevant=True).used_fallback is True
-    assert tailor_cv(CV, ["python"], drop_irrelevant=True).used_fallback is False
+    assert tailor_cv(CV, ["rust"]).used_fallback is True
+    assert tailor_cv(CV, ["python"]).used_fallback is False
 
 
 def test_tailored_cv_round_trips_through_a_structure():
@@ -313,14 +428,15 @@ async def test_generate_tailored_cv_with_llm_degrades_on_failure(monkeypatch):
 async def test_generate_tailored_cv_with_llm_prompt_asks_for_a_two_page_tailored_cv(
     monkeypatch,
 ):
-    """The AI variant is a *selection* for this job, not a restatement of the CV.
+    """The AI variant tailors the job-relevant detail, never the history.
 
-    The previous prompt asked the model to "rewrite the candidate's CV so it is
-    maximally relevant" while also demanding that *every* fact be kept — leaving
-    no way to shorten anything, so relevance was demonstrated by adding and
-    splitting bullets and the artifact came back several pages long. These
-    assertions pin the framing (a CV tailored for the job, the master CV as the
-    reference) and the page budget.
+    Two prompt regressions are pinned here. The first: an earlier prompt asked
+    the model to "rewrite the CV so it is maximally relevant" while demanding
+    that *every* fact be kept — no way to shorten anything — so relevance was
+    demonstrated by adding and splitting bullets and the artifact came back
+    several pages long. The second: the fix budgeted the page by keeping "3-4
+    roles", which turned every extra job into an unexplained employment gap
+    (ADR 027). The budget is now spent on bullets and the history is fixed.
     """
     from app.services import llm_client
 
@@ -340,8 +456,12 @@ async def test_generate_tailored_cv_with_llm_prompt_asks_for_a_two_page_tailored
     user = fake.requests[0]["messages"][1]["content"]
     assert "tailored CV for the target job" in system
     assert "source of truth" in system
-    assert f"at most {LLM_TARGET_PAGES} pages" in system
-    assert "MAY omit" in system  # omitting is what makes the budget reachable
+    assert f"{LLM_TARGET_PAGES} pages to fill" in system  # a budget to spend...
+    assert "every role in the master CV must appear" in system  # ...on bullets...
+    assert "NEVER omit a role" in system
+    assert "at least 2" in system
+    assert "do not judge relevance by keyword overlap alone" in system
+    assert "MAY omit roles" not in system  # the rule that created the gaps
     assert "NEVER invent" in system  # truthfulness is unchanged
     assert "skill_groups" in system  # the model owns the skills section...
     assert "never use an 'Other' group" in system  # ...and never names a bucket "Other"
@@ -349,11 +469,14 @@ async def test_generate_tailored_cv_with_llm_prompt_asks_for_a_two_page_tailored
     assert "Master CV — the only source of truth" in user
 
 
-async def test_generate_tailored_cv_with_llm_accepts_a_shorter_cv(monkeypatch):
-    """Dropping a role is a valid answer, not a schema error (ADR 016).
+async def test_generate_tailored_cv_with_llm_restores_a_role_the_model_dropped(
+    monkeypatch, caplog
+):
+    """The history is enforced in code, not only asked for in the prompt (ADR 027).
 
-    The prompt grants permission to omit, so the contract has to accept a
-    structure with fewer entries than the master CV.
+    A prompt that forbids dropping a role is still a request: when the model
+    omits one anyway, the guard re-inserts it with its own facts (never invented
+    bullets) instead of shipping a CV with an employment gap.
     """
     from app.services import llm_client
 
@@ -362,15 +485,76 @@ async def test_generate_tailored_cv_with_llm_accepts_a_shorter_cv(monkeypatch):
     fake.reply = json.dumps({"cv": shortened, "ats_self_score": 60})
     monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
 
+    with caplog.at_level(logging.INFO, logger="app.services.cv_tailor"):
+        result = await generate_tailored_cv_with_llm(
+            CV, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+        )
+
+    assert result is not None
+    structure, self_score = result
+    assert [role["title"] for role in structure["experience"]] == [
+        "Python Developer",
+        "Java Developer",
+    ]
+    restored = structure["experience"][1]
+    assert restored["company"] == "Beta"
+    assert restored["bullets"] == ["Maintained Spring applications"]  # verbatim
+    assert structure["projects"] == []  # projects are still the model's call
+    assert self_score == 60
+    assert "llm_cv_roles_restored restored=1 unmatched=0" in caplog.text
+
+
+async def test_generate_tailored_cv_with_llm_keeps_a_complete_history_untouched(
+    monkeypatch, caplog
+):
+    """A reply that follows the rule is passed through — no duplicate roles."""
+    from app.services import llm_client
+
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": CV, "ats_self_score": 50})
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    with caplog.at_level(logging.INFO, logger="app.services.cv_tailor"):
+        result = await generate_tailored_cv_with_llm(
+            CV, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+        )
+
+    assert result is not None
+    structure, _score = result
+    assert [role["title"] for role in structure["experience"]] == [
+        "Python Developer",
+        "Java Developer",
+    ]
+    assert "llm_cv_roles_restored" not in caplog.text
+
+
+async def test_generate_tailored_cv_with_llm_does_not_duplicate_a_rewrapped_title(
+    monkeypatch,
+):
+    """A reworded title is the same job; the guard must not add a second copy."""
+    from app.services import llm_client
+
+    reworded = {
+        **CV,
+        "experience": [
+            CV["experience"][0],
+            {**CV["experience"][1], "title": "Sr. Java Developer"},
+        ],
+    }
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": reworded, "ats_self_score": 50})
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
     result = await generate_tailored_cv_with_llm(
         CV, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
     )
 
     assert result is not None
-    structure, self_score = result
-    assert len(structure["experience"]) == 1
-    assert structure["projects"] == []
-    assert self_score == 60
+    structure, _score = result
+    assert [role["title"] for role in structure["experience"]] == [
+        "Python Developer",
+        "Sr. Java Developer",
+    ]
 
 
 async def test_generate_tailored_cv_with_llm_trims_an_oversized_master_cv(

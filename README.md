@@ -322,14 +322,20 @@ and the *Mark checked* button, and keeps a free-form `notes` field on the source
 experience, education level and keywords into `jobs.parsed_jd` (JSONB), backed
 by a curated taxonomy (`app/data/skills_taxonomy.json`) with word-boundary
 matching and a `match_skills` score. Rule-based tailoring
-(`cv_tailor.tailor_cv`) scores/reorders/selects experience and project blocks,
-reorders skills (matched first) and leads the summary with JD-matched strengths,
-reporting `used_fallback` instead of silently returning the top blocks. An
+(`cv_tailor.tailor_cv`) keeps every role in the master CV's order and scores its
+bullets, condensing the ones that do not match the JD (up to 6 bullets for a
+matching role, 2 otherwise — relevance never deletes an employer, so no run can
+invent an employment gap, ADR 027), ranks/selects project blocks, reorders
+skills (matched first) and leads the summary with JD-matched strengths,
+reporting `used_fallback` when nothing matched at all. An
 optional **second** variant is a full LLM rewrite kept *alongside* the
 deterministic one (enabled in Admin → LLM with a stored API key; no env flag),
 schema-validated and degrading gracefully; its prompt asks for a CV tailored for
-the job (master CV as single source of truth, roles that do not support the
-application may be omitted) that fits two pages. Both variants render a PDF via
+the job (master CV as single source of truth, every role kept with its
+employer, title and dates, the two pages filled with 3–6 bullets for the roles
+that best support the application and at least 2 for the rest), and a role the
+model omits anyway is re-inserted from the master CV with its own dates and
+bullets rather than invented. Both variants render a PDF via
 Jinja2 templates (Classic and ATS-safe) behind `GET /api/cv/generated/{id}/pdf`;
 the same endpoint accepts `?format=docx`, and `POST /api/cv/pdf` (`?format=`,
 plus `?template=` for the PDF) renders straight from the editor, so both also
