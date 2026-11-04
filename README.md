@@ -372,7 +372,15 @@ mixes *Resumo* with *Summary* (ADR 024). The skill-group labels travel to the
 model with the copy, so a CV that groups its skills by taxonomy reads
 *Ferramentas* rather than *Tools*. English is the stored language and needs
 no LLM; the client learns whether translation is available from
-`GET /api/cv/capabilities` rather than by provoking a 409. Every export opens with the same header — the name over one flowing
+`GET /api/cv/capabilities` rather than by provoking a 409. Downloads are named
+for the candidate, the document and the role it was tailored for —
+`Ada-Lovelace-CV-Backend-Engineer.pdf`, with `-ATS` for the ATS-safe layout and
+`-pt-br` for a translated copy (the ATS marker is PDF-only: a Word export always
+has one plain layout) — and the same name reaches the clients as `file_stem`, so
+the browser's save and the API's `Content-Disposition` agree; the artifact's
+UUID stays an internal key (ADR 030). The PDF and the DOCX also carry the
+candidate as their own author and title, so neither file introduces itself as
+`WeasyPrint` or `python-docx`. Every export opens with the same header — the name over one flowing
 contact line (`email • phone • location • links`), set at the 8pt at which all
 five fields fit a single row of the A4 text block, with the DOCX put on the same
 page box (ADR 021).

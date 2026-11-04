@@ -1,5 +1,5 @@
 import { CVStructure, GeneratedCV } from '@/types';
-import { defaultArtifact, hasContent, variantLabelKey } from '@/utils/cv';
+import { defaultArtifact, cvFileStem, hasContent, variantLabelKey } from '@/utils/cv';
 
 const STRUCTURE: CVStructure = {
   summary: 'Tailored for Acme.',
@@ -22,6 +22,7 @@ function artifact(overrides: Partial<GeneratedCV> = {}): GeneratedCV {
     structured_json: STRUCTURE,
     ats_score: null,
     ats_report: null,
+    file_stem: 'Ada-Lovelace-CV-Backend-Engineer',
     ...overrides,
   };
 }
@@ -67,5 +68,36 @@ describe('defaultArtifact', () => {
 
   it('has nothing to open on an empty list', () => {
     expect(defaultArtifact([], 'gen-1')).toBeNull();
+  });
+});
+
+describe('cvFileStem (ADR 030)', () => {
+  it('names the candidate and the document, in that order', () => {
+    expect(cvFileStem('Ada Lovelace')).toBe('Ada-Lovelace-CV');
+  });
+
+  it('strips accents so a share sheet cannot mangle the name', () => {
+    expect(cvFileStem('José Conceição')).toBe('Jose-Conceicao-CV');
+  });
+
+  it('drops parentheticals and punctuation', () => {
+    expect(cvFileStem('Ada Lovelace (Remote)!!')).toBe('Ada-Lovelace-CV');
+  });
+
+  it('falls back to the bare document when there is no name', () => {
+    expect(cvFileStem('')).toBe('CV');
+    expect(cvFileStem(null)).toBe('CV');
+    expect(cvFileStem(undefined)).toBe('CV');
+  });
+
+  it('never doubles the document type for a junk name', () => {
+    expect(cvFileStem('Curriculum Vitae')).toBe('CV');
+    expect(cvFileStem('Resume')).toBe('CV');
+  });
+
+  it('caps a long name on a word boundary', () => {
+    const stem = cvFileStem('Maximiliano de Albuquerque Nascimento Filho Sobrinho');
+    expect(stem.endsWith('-CV')).toBe(true);
+    expect(stem.length).toBeLessThanOrEqual(48 + '-CV'.length);
   });
 });

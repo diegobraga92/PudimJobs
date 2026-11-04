@@ -14,6 +14,7 @@ import {
   MasterCV,
 } from '../../services/cv.service';
 import { AppIconComponent } from '../../shared/icons/icon.component';
+import { cvExportFilename, cvFileStem } from '../../shared/cv-file';
 import { CvPreviewComponent } from '../../shared/cv-preview/cv-preview.component';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ToastService } from '../../shared/toast/toast.service';
@@ -255,17 +256,17 @@ export class CvEditorComponent implements OnInit {
     });
   }
 
-  /** Mirrors the `Content-Disposition` filename the API returns. */
+  /**
+   * The name this export is saved under (ADR 030), mirroring the API's
+   * `Content-Disposition`: the candidate, the document, the layout and the
+   * language — never an id or a variant.
+   */
   private exportFilename(
     format: CvExportFormat,
     template: CvTemplate,
     language: CvLanguage,
   ): string {
-    const suffix = language === 'en' ? '' : `-${language.toLowerCase()}`;
-    if (format === 'docx') {
-      return `cv${suffix}.docx`;
-    }
-    return `${template === 'ats' ? 'cv-ats' : 'cv'}${suffix}.pdf`;
+    return cvExportFilename(cvFileStem(this.displayName), format, template, language);
   }
 
   get experience(): FormArray {

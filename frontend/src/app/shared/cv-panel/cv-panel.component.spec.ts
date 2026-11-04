@@ -49,6 +49,7 @@ function tailored(overrides: Partial<GeneratedCV> = {}): GeneratedCV {
     structured_json: STRUCTURED,
     ats_score: null,
     ats_report: null,
+    file_stem: 'Ada-Lovelace-CV-Backend-Engineer',
     ...overrides,
   };
 }
@@ -127,6 +128,32 @@ describe('CvPanelComponent', () => {
     docx.flush(new Blob(['PK'], { type: 'application/zip' }));
 
     expect(component.error).toBeNull();
+  });
+
+  it('saves the file under the CV name, never the artifact id (ADR 030)', () => {
+    build();
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([tailored()]);
+
+    const saved: string[] = [];
+    spyOn(HTMLAnchorElement.prototype, 'click').and.callFake(function (this: HTMLAnchorElement) {
+      saved.push(this.download);
+    });
+
+    component.downloadCv(tailored());
+    http
+      .expectOne((c) => c.url === '/api/cv/generated/gen-1/pdf')
+      .flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+
+    component.downloadCv(tailored(), 'docx', 'pt-BR');
+    http
+      .expectOne((c) => c.url === '/api/cv/generated/gen-1/pdf')
+      .flush(new Blob(['PK'], { type: 'application/zip' }));
+
+    // A PT-BR copy gets its own file instead of overwriting the English one.
+    expect(saved).toEqual([
+      'Ada-Lovelace-CV-Backend-Engineer.pdf',
+      'Ada-Lovelace-CV-Backend-Engineer-pt-br.docx',
+    ]);
   });
 
   it('downloads a PT-BR copy by asking the API to translate it (ADR 024)', () => {

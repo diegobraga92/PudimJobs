@@ -421,6 +421,8 @@ export interface GeneratedCV {
   structured_json: CVStructure | null;
   ats_score: number | null;
   ats_report: AtsReport | null;
+  /** Recruiter-facing base name for downloads (ADR 030), e.g. `Ada-Lovelace-CV-Backend-Engineer`; the client appends `-pt-br` and the extension. */
+  file_stem: string;
 }
 
 /** One weighted component of an ATS score (mirrors `app/schemas/ats.py`). */

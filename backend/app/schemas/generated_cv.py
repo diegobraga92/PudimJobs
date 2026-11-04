@@ -21,6 +21,10 @@ class GeneratedCVResponse(BaseModel):
     structured_json: dict | None = None
     ats_score: int | None = None
     ats_report: dict | None = None
+    # Recruiter-facing base name for downloads (ADR 030), e.g.
+    # "Ada-Lovelace-CV-Backend-Engineer". The client appends the language marker
+    # (-pt-br) and the extension; the artifact's UUID is never part of it.
+    file_stem: str
 
 
 class GeneratedCVUpdate(BaseModel):

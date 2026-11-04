@@ -134,6 +134,28 @@ describe('CvEditorComponent', () => {
     expect(component.exporting).toBeFalse();
   });
 
+  it('saves the export under the candidate name, not a template name (ADR 030)', () => {
+    flushInit(http);
+
+    const saved: string[] = [];
+    spyOn(HTMLAnchorElement.prototype, 'click').and.callFake(function (this: HTMLAnchorElement) {
+      saved.push(this.download);
+    });
+
+    component.exportCv('pdf', 'ats');
+    http
+      .expectOne((candidate) => candidate.url === '/api/cv/pdf')
+      .flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+
+    component.exportCv('docx', 'classic', 'pt-BR');
+    http
+      .expectOne((candidate) => candidate.url === '/api/cv/pdf')
+      .flush(new Blob(['PK'], { type: 'application/zip' }));
+
+    expect(component.displayName).toBe('Ada Lovelace');
+    expect(saved).toEqual(['Ada-Lovelace-CV-ATS.pdf', 'Ada-Lovelace-CV-pt-br.docx']);
+  });
+
   it('exports the current CV as DOCX for the Word download', () => {
     flushInit(http);
 

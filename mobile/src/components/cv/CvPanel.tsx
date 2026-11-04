@@ -171,7 +171,8 @@ export function CvPanel({
     if (!selected) {
       return;
     }
-    sharePdfFromUrl(`/api/cv/generated/${selected.id}/pdf`, `tailored-cv-${selected.id}.pdf`).catch(
+    // The server names the artifact (ADR 030); the app only adds the extension.
+    sharePdfFromUrl(`/api/cv/generated/${selected.id}/pdf`, `${selected.file_stem}.pdf`).catch(
       () => toast.error(i18n.t('errors.failedDownloadPdf')),
     );
   };

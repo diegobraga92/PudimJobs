@@ -73,6 +73,8 @@ export interface GeneratedCV {
   variant: CvVariant;
   created_at: string;
   updated_at: string;
+  /** Recruiter-facing base name for downloads (ADR 030), e.g. `Ada-Lovelace-CV-Backend-Engineer`. The client appends the language marker (`-pt-br`) and the extension, so the artifact's UUID never reaches a filename. */
+  file_stem: string;
   structured_json: CVStructure | null;
   ats_score: number | null;
   ats_report: AtsReport | null;

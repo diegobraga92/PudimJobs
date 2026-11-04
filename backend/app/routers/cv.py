@@ -35,6 +35,7 @@ from app.schemas.master_cv import (
     MasterCVUpdate,
 )
 from app.services.ats_scorer import derive_keywords, score_ats
+from app.services.cv_filename import cv_stem, export_filename, tailored_filename
 from app.services.cv_labels import (
     DEFAULT_LANGUAGE,
     EXPORT_LANGUAGES,
@@ -139,18 +140,6 @@ def _render_export(
     return generate_pdf(tailored, name=name, email=email, template=template, labels=labels)
 
 
-def _language_suffix(language: str) -> str:
-    """``""`` for the default language, ``-pt-br`` otherwise (never clobber a file)."""
-    return "" if language == DEFAULT_LANGUAGE else f"-{language.lower()}"
-
-
-def _export_filename(fmt: str, template: str, language: str = DEFAULT_LANGUAGE) -> str:
-    suffix = _language_suffix(language)
-    if fmt == "docx":
-        return f"cv{suffix}.docx"
-    return ("cv-ats" if template == "ats" else "cv") + f"{suffix}.pdf"
-
-
 async def get_owned_cv(cv_id: uuid.UUID, user: User, db: AsyncSession) -> MasterCV:
     """Fetch a CV version owned by the current user or raise 404."""
     result = await db.execute(
@@ -162,8 +151,15 @@ async def get_owned_cv(cv_id: uuid.UUID, user: User, db: AsyncSession) -> Master
     return cv
 
 
-def _generated_response(generated: GeneratedCV, job: Job | None) -> GeneratedCVResponse:
-    """Serialise a tailored artifact with its (optional) target job (ADR 016)."""
+def _generated_response(
+    generated: GeneratedCV, job: Job | None, *, user: User
+) -> GeneratedCVResponse:
+    """Serialise a tailored artifact with its (optional) target job (ADR 016).
+
+    ``file_stem`` is the recruiter-facing download name (ADR 030): the clients
+    append the language marker and the extension to it, so the naming rule lives
+    on the server alone.
+    """
     return GeneratedCVResponse(
         id=generated.id,
         job_id=generated.job_id,
@@ -176,6 +172,11 @@ def _generated_response(generated: GeneratedCV, job: Job | None) -> GeneratedCVR
         structured_json=generated.structured_json,
         ats_score=generated.ats_score,
         ats_report=generated.ats_report,
+        file_stem=cv_stem(
+            full_name=(generated.structured_json or {}).get("full_name"),
+            account_name=_account_name(user.email),
+            job_title=job.title if job else None,
+        ),
     )
 
 
@@ -341,7 +342,7 @@ async def list_generated(
         )
 
     return [
-        _generated_response(generated, job)
+        _generated_response(generated, job, user=user)
         for generated, job in rows
         if generated.structured_json
     ]
@@ -363,7 +364,7 @@ async def get_generated_cv(
     if row is None:
         raise HTTPException(status_code=404, detail="Generated CV not found")
     generated, job = row
-    return _generated_response(generated, job)
+    return _generated_response(generated, job, user=user)
 
 
 @router.put("/generated/{generated_id}", response_model=GeneratedCVResponse)
@@ -398,7 +399,7 @@ async def update_generated_cv(
     await db.commit()
 
     job = await db.get(Job, generated.job_id) if generated.job_id else None
-    return _generated_response(generated, job)
+    return _generated_response(generated, job, user=user)
 
 
 @router.get("/generated/{generated_id}/pdf")
@@ -428,6 +429,8 @@ async def get_generated_pdf(
     if generated is None:
         raise HTTPException(status_code=404, detail="Generated CV not found")
 
+    job = await db.get(Job, generated.job_id) if generated.job_id else None
+
     if format == "pdf" and language == DEFAULT_LANGUAGE:
         content = generated.pdf
     else:
@@ -451,7 +454,13 @@ async def get_generated_pdf(
                 tailored, name=_account_name(user.email), email=user.email, labels=labels
             )
 
-    filename = f"tailored-cv-{generated.id}{_language_suffix(language)}.{format}"
+    filename = tailored_filename(
+        full_name=(generated.structured_json or {}).get("full_name"),
+        account_name=_account_name(user.email),
+        job_title=job.title if job else None,
+        fmt=format,
+        language=language,
+    )
     return Response(
         content=content,
         media_type=EXPORT_FORMATS[format],
@@ -513,14 +522,19 @@ async def export_cv(
         name=_account_name(user.email),
         email=user.email,
     )
+    # The name comes from the *source* structure, not the translated one: a
+    # person's name is not translated (ADR 024), and the file must match the
+    # header the page prints.
+    filename = export_filename(
+        cv_stem(full_name=payload.full_name, account_name=_account_name(user.email)),
+        fmt=format,
+        template=template,
+        language=language,
+    )
     return Response(
         content=content,
         media_type=EXPORT_FORMATS[format],
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{_export_filename(format, template, language)}"'
-            )
-        },
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

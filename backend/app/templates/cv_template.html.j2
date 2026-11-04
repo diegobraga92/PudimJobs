@@ -2,6 +2,15 @@
 <html lang="{{ labels.locale }}">
 <head>
 <meta charset="utf-8">
+{# What the PDF says about itself (ADR 030): WeasyPrint copies these into the
+   Info dictionary, and a reader that shows the document title instead of the
+   filename — as well as ATS parsers that read /Title — then sees the candidate,
+   not an empty string and a library name. #}
+<title>{% if name %}{{ name }} — {% endif %}{{ labels.document_title }}</title>
+{% if name %}<meta name="author" content="{{ name }}">
+{% endif %}<meta name="description" content="{{ labels.document_title }}">
+{% if skills %}<meta name="keywords" content="{{ skills[:20]|join(', ') }}">
+{% endif %}
 <style>
   @page { size: A4; margin: 1.6cm 1.8cm; }
   /* One shared leading/margin scale so Summary, Experience and every other

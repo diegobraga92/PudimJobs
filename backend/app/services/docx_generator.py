@@ -37,6 +37,12 @@ _SIDE_MARGIN = Cm(1.8)
 # Typographic en dash, escaped because a literal one trips RUF001 (ambiguous
 # unicode). It is the separator the PDF's experience header uses.
 _DATE_SEPARATOR = "\u2013"
+# Em dash for the document's own title ("Ada Lovelace — Curriculum Vitae"),
+# escaped for the same reason as the en dash above.
+_TITLE_SEPARATOR = "\u2014"
+# How many skills the document's keyword metadata lists: enough for a preview
+# pane or a search index to match on, short enough to stay a line.
+_METADATA_KEYWORDS = 15
 
 
 def _set_a4_page(document: Document) -> None:
@@ -186,6 +192,34 @@ def _add_education(document: Document, education: list[dict], heading: str) -> N
             document.add_paragraph(line)
 
 
+def _set_document_properties(
+    document: Document, tailored: TailoredCV, *, name: str, labels: CVLabels
+) -> None:
+    """Put the candidate — not the library — in the document's own metadata (ADR 030).
+
+    ``Document()`` starts from python-docx's bundled template, whose
+    ``author`` is literally ``"python-docx"``. Word shows that in *File → Info*
+    and the file manager shows it in the *Authors* column: the loudest signal
+    that nobody wrote the file. The name the CV prints is what a reader expects
+    there, and the title names the document the way its filename does.
+    """
+    display_name = (tailored.full_name or name).strip()
+    properties = document.core_properties
+    properties.author = display_name or labels.document_title
+    properties.last_modified_by = properties.author
+    properties.title = (
+        f"{display_name} {_TITLE_SEPARATOR} {labels.document_title}"
+        if display_name
+        else labels.document_title
+    )
+    properties.subject = labels.document_title
+    # The template also ships a comment and a category; both stay empty so the
+    # only prose in the metadata is the CV's own.
+    properties.comments = ""
+    properties.category = ""
+    properties.keywords = ", ".join(tailored.skills[:_METADATA_KEYWORDS])
+
+
 def generate_docx(
     tailored: TailoredCV,
     *,
@@ -201,6 +235,7 @@ def generate_docx(
     """
     document = Document()
     _set_a4_page(document)
+    _set_document_properties(document, tailored, name=name, labels=labels)
     _add_header(document, tailored, name=name, email=email)
     if tailored.summary:
         document.add_heading(labels.summary, level=1)

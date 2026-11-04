@@ -394,6 +394,10 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
    * Download a tailored CV. The default is the stored PDF; `docx` asks the API
    * for an editable Word copy rendered from the same content (ADR 017), and a
    * non-default `language` asks for a fresh, LLM-translated render (ADR 024).
+   *
+   * The saved name is the artifact's own `file_stem` (ADR 030) — the naming rule
+   * lives on the server, and the API's `Content-Disposition` carries the same
+   * one, so a download started from a link and one started here agree.
    */
   downloadCv(item: GeneratedCV, format: CvExportFormat = 'pdf', language: CvLanguage = 'en'): void {
     this.service.downloadCv(item.id, format, language).subscribe({
@@ -401,8 +405,9 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
+        // A PT-BR copy gets its own file instead of overwriting the English one.
         const suffix = language === 'en' ? '' : `-${language.toLowerCase()}`;
-        anchor.download = `tailored-cv-${item.id}${suffix}.${format}`;
+        anchor.download = `${item.file_stem}${suffix}.${format}`;
         anchor.click();
         URL.revokeObjectURL(url);
       },

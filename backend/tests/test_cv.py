@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from io import BytesIO
 
 from docx import Document
+from pypdf import PdfReader
 from sqlalchemy import select
 from structlog.testing import capture_logs
 
@@ -84,9 +85,14 @@ async def test_export_cv_docx(auth_client):
 
     assert response.status_code == 200
     assert response.headers["content-type"] == DOCX_MEDIA_TYPE
-    assert response.headers["content-disposition"] == 'attachment; filename="cv.docx"'
+    # Named after the candidate, not the request (ADR 030): CV_PAYLOAD carries no
+    # `full_name`, so the email-derived account name ("user@example.com") is it.
+    assert response.headers["content-disposition"] == 'attachment; filename="User-CV.docx"'
     assert response.content.startswith(b"PK")
-    Document(BytesIO(response.content))  # parses as a Word document
+    document = Document(BytesIO(response.content))  # parses as a Word document
+    # ...and the file does not introduce itself as python-docx's template.
+    assert document.core_properties.author == "User"
+    assert document.core_properties.title == "User — Curriculum Vitae"
 
 
 async def test_export_cv_docx_keeps_llm_skill_groups(auth_client):
@@ -408,7 +414,7 @@ async def test_download_generated_cv_as_docx(auth_client, db_session):
     assert response.status_code == 200
     assert response.headers["content-type"] == DOCX_MEDIA_TYPE
     assert response.headers["content-disposition"] == (
-        f'attachment; filename="tailored-cv-{generated.id}.docx"'
+        'attachment; filename="Jane-Doe-CV.docx"'
     )
     texts = [paragraph.text for paragraph in Document(BytesIO(response.content)).paragraphs]
     assert "Jane Doe" in texts
@@ -429,14 +435,77 @@ async def test_download_generated_cv_serves_the_stored_pdf(auth_client, db_sessi
 
     assert response.content == b"%PDF-1.4 stored"
     assert response.headers["content-type"] == "application/pdf"
-    assert response.headers["content-disposition"] == (
-        f'attachment; filename="tailored-cv-{generated.id}.pdf"'
-    )
+    assert response.headers["content-disposition"] == 'attachment; filename="User-CV.pdf"'
 
     explicit = await client.get(
         f"/api/cv/generated/{generated.id}/pdf", params={"format": "pdf"}
     )
     assert explicit.content == b"%PDF-1.4 stored"
+
+
+async def test_download_generated_cv_names_the_role_it_was_tailored_for(auth_client, db_session):
+    """A tailored download is named for the candidate and the role (ADR 030).
+
+    The artifact's UUID is an internal key: the name a recruiter sees in an
+    attachment list must say *whose* CV it is and *which job* it targets, and the
+    JSON the panel renders hands the client the same stem so the browser save and
+    the API download cannot disagree.
+    """
+    client, user, _ = auth_client
+    job = (
+        await client.post(
+            "/api/jobs", json={"title": "Backend Engineer (Remote)", "company": "Acme"}
+        )
+    ).json()
+    generated = GeneratedCV(
+        user_id=user.id,
+        job_id=uuid.UUID(job["id"]),
+        pdf=b"%PDF-1.4 stored",
+        structured_json={**CV_PAYLOAD, "full_name": "José Conceição"},
+    )
+    db_session.add(generated)
+    await db_session.commit()
+    await db_session.refresh(generated)
+
+    response = await client.get(f"/api/cv/generated/{generated.id}/pdf")
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="Jose-Conceicao-CV-Backend-Engineer.pdf"'
+    )
+
+    listed = (await client.get("/api/cv/generated", params={"job_id": job["id"]})).json()
+    assert listed[0]["file_stem"] == "Jose-Conceicao-CV-Backend-Engineer"
+
+
+async def test_export_pdf_carries_the_candidate_as_document_metadata(auth_client):
+    """The PDF says who wrote it instead of shipping an empty Info dictionary."""
+    client, _, _ = auth_client
+    response = await client.post(
+        "/api/cv/pdf", json={**CV_PAYLOAD, "full_name": "Ada Lovelace"}
+    )
+
+    assert response.status_code == 200
+    metadata = dict(PdfReader(BytesIO(response.content)).metadata)
+    assert metadata["/Author"] == "Ada Lovelace"
+    assert metadata["/Title"] == "Ada Lovelace — Curriculum Vitae"
+    assert metadata["/Subject"] == "Curriculum Vitae"
+
+
+async def test_export_pdf_ats_template_names_the_candidate_too(auth_client):
+    """An ATS parser that reads /Title must find the name there as well."""
+    client, _, _ = auth_client
+    response = await client.post(
+        "/api/cv/pdf",
+        json={**CV_PAYLOAD, "full_name": "Ada Lovelace"},
+        params={"template": "ats"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="Ada-Lovelace-CV-ATS.pdf"'
+    )
+    metadata = dict(PdfReader(BytesIO(response.content)).metadata)
+    assert metadata["/Author"] == "Ada Lovelace"
+    assert metadata["/Title"] == "Ada Lovelace — Curriculum Vitae"
 
 
 async def test_download_generated_cv_rejects_unknown_format(auth_client, db_session):
@@ -590,7 +659,7 @@ async def test_export_cv_translates_on_demand_for_pt_br(auth_client, monkeypatch
     )
 
     assert response.status_code == 200
-    assert response.headers["content-disposition"] == 'attachment; filename="cv-pt-br.docx"'
+    assert response.headers["content-disposition"] == 'attachment; filename="User-CV-pt-br.docx"'
     texts = [paragraph.text for paragraph in Document(BytesIO(response.content)).paragraphs]
     assert "Engenheiro backend" in texts
     assert "Resumo" in texts
@@ -655,7 +724,7 @@ async def test_download_generated_cv_in_pt_br_renders_on_demand(
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["content-disposition"] == (
-        f'attachment; filename="tailored-cv-{generated.id}-pt-br.pdf"'
+        'attachment; filename="Jane-Doe-CV-pt-br.pdf"'
     )
     assert response.content != b"%PDF-1.4 stored"
     assert response.content.startswith(b"%PDF")
@@ -710,7 +779,7 @@ async def test_download_generated_cv_pt_br_docx_carries_portuguese_headings(
 
     assert response.status_code == 200
     assert response.headers["content-disposition"] == (
-        f'attachment; filename="tailored-cv-{generated.id}-pt-br.docx"'
+        'attachment; filename="J-CV-pt-br.docx"'
     )
     texts = [paragraph.text for paragraph in Document(BytesIO(response.content)).paragraphs]
     assert "Resumo" in texts

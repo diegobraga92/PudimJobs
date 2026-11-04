@@ -20,6 +20,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/theme/ThemeProvider';
 import { CVStructure, ExperienceItem, MasterCV } from '@/types';
+import { cvFileStem } from '@/utils/cv';
 import { shortDate, dateLocale } from '@/utils/dates';
 import { parseLines, parseList } from '@/utils/lists';
 import { displayNameFromEmail } from '@/utils/names';
@@ -262,7 +263,9 @@ export function CvEditorScreen() {
     setMessage(null);
     try {
       const blob = await exportPdf(toStructure(form));
-      await sharePdfBlob(blob, 'cv.pdf');
+      // Named for the candidate, not "cv" (ADR 030): this render is never
+      // stored, so the name is built here from the same rule the API uses.
+      await sharePdfBlob(blob, `${cvFileStem(cvName)}.pdf`);
       toast.success(i18n.t('cv.pdfExported'));
     } catch {
       setError(i18n.t('errors.failedExportPdf'));

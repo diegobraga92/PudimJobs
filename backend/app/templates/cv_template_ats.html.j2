@@ -2,6 +2,13 @@
 <html lang="{{ labels.locale }}">
 <head>
 <meta charset="utf-8">
+{# Same document metadata as the classic template (ADR 030): an ATS that reads
+   /Title instead of the filename must find the candidate's name here. #}
+<title>{% if name %}{{ name }} — {% endif %}{{ labels.document_title }}</title>
+{% if name %}<meta name="author" content="{{ name }}">
+{% endif %}<meta name="description" content="{{ labels.document_title }}">
+{% if skills %}<meta name="keywords" content="{{ skills[:20]|join(', ') }}">
+{% endif %}
 <style>
   /* ATS-friendly layout (ADR 013): one column, no tables/floats/images,
      no decorative glyphs, standard fonts and plain black text. Section titles

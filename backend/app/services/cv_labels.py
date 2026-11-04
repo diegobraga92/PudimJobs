@@ -36,6 +36,9 @@ class CVLabels:
     languages: str
     # The open-ended end date of the current role, as the date range renders it.
     present: str
+    # What the document calls itself, for its own metadata (PDF /Title, DOCX
+    # core properties) rather than for a heading (ADR 030).
+    document_title: str
 
 
 _EN = CVLabels(
@@ -48,6 +51,7 @@ _EN = CVLabels(
     certifications="Certifications",
     languages="Languages",
     present="Present",
+    document_title="Curriculum Vitae",
 )
 
 # Brazilian Portuguese headings. "Competências" over "Habilidades" for the skills
@@ -63,6 +67,7 @@ _PT_BR = CVLabels(
     certifications="Certificações",
     languages="Idiomas",
     present="Atual",
+    document_title="Currículo",
 )
 
 _CATALOG: dict[str, CVLabels] = {"en": _EN, "pt-BR": _PT_BR}
