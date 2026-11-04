@@ -330,21 +330,32 @@ and the *Mark checked* button, and keeps a free-form `notes` field on the source
 **JD parsing & CV tailoring** — a spaCy worker extracts skills, years of
 experience, education level and keywords into `jobs.parsed_jd` (JSONB), backed
 by a curated taxonomy (`app/data/skills_taxonomy.json`) with word-boundary
-matching and a `match_skills` score. Rule-based tailoring
-(`cv_tailor.tailor_cv`) keeps every role in the master CV's order and scores its
-bullets, condensing the ones that do not match the JD (up to 6 bullets for a
-matching role, 2 otherwise — relevance never deletes an employer, so no run can
-invent an employment gap, ADR 027), ranks/selects project blocks, reorders
-skills (matched first) and leads the summary with JD-matched strengths,
-reporting `used_fallback` when nothing matched at all. An
-optional **second** variant is a full LLM rewrite kept *alongside* the
-deterministic one (enabled in Admin → LLM with a stored API key; no env flag),
-schema-validated and degrading gracefully; its prompt asks for a CV tailored for
-the job (master CV as single source of truth, every role kept with its
-employer, title and dates, the two pages filled with 3–6 bullets for the roles
-that best support the application and at least 2 for the rest), and a role the
-model omits anyway is re-inserted from the master CV with its own dates and
-bullets rather than invented. Roles are matched on what a rewrite cannot change
+matching and a `match_skills` score. Tailoring is **AI-first** (ADR 029): when
+the LLM is enabled in Admin → LLM with a stored API key, the full rewrite is the
+artifact the run offers — the worker links and prefers it, the API lists it first
+and both panels open on it — and the deterministic engine is the fallback that
+always runs, so a disabled or failing LLM still produces a CV. The fallback
+(`cv_tailor.tailor_cv`) keeps every role in the master CV's order with its first
+four bullets, verbatim, and no role is condensed more than another: a keyword
+score cannot say which bullet earns its place, so it only *reports*
+(`matched_skills`, `relevance`, `used_fallback`) — relevance never deletes an
+employer, so no run can invent an employment gap (ADR 027). It still ranks and
+selects project blocks (a project is not a timeline), reorders skills (matched
+first) and leads the summary with JD-matched strengths. The AI rewrite's prompt
+is a *brief*, not a recipe: the master CV as the single source of truth, every
+role kept with its employer, title and dates in order and never as a bare
+header, at most two pages — and the allocation itself (which roles carry the CV,
+how much space each gets) is the model's judgement, since that is the one part of
+a tailor run that can actually read the candidate against the job. Nothing is
+pre-filtered for it either: an oversized master CV is *abbreviated* (optional
+sections, then project prose, then the longest bullets) rather than reduced to
+keyword-selected rows, so every bullet reaches the model. The brief is enforced
+in code, not trusted — a role the model omits or empties is re-inserted from the
+master CV with its own dates and bullets, numbers it uses that the master CV does
+not contain are reported (`llm_cv_unverified_numbers`), and a reply that renders
+over two pages gets one corrective retry with the real page count
+(`llm_rewrite_page_retry`) before the over-budget warning. Roles are matched on
+what a rewrite cannot change
 — the period (`2022-07` and `Jul 2022` agree) and then the employer/title words
 — so a reworded title is the same job, a promotion at one employer stays two
 roles, and a role the model writes twice is de-duplicated instead of printed
@@ -381,10 +392,13 @@ so a compound lands in the group its parts agree on ("JavaScript/TypeScript" und
 Languages) and a JD asking for TypeScript is matched by a CV that lists it as half
 of one. A CV that labels its own groups therefore parses back into exactly the
 taxonomy's categories (ADR 020/022).
-The two variants are committed one after the other — the deterministic one first —
-so the 202 from `POST /api/jobs/{id}/tailor` reports which variants the run will
-produce and the web/mobile panels keep polling until *all* of them have landed
-instead of settling on the first artifact and hiding the AI rewrite.
+The two variants are committed one after the other — the deterministic fallback
+first, so a run always has something to show — and the 202 from
+`POST /api/jobs/{id}/tailor` reports which variants the run will produce, so the
+web/mobile panels keep polling until *all* of them have landed instead of
+settling on the first artifact and hiding the AI rewrite. Once it lands, the AI
+rewrite is what the application is linked to and what the panels open on
+(ADR 029); a variant the user recorded with *Use this one* is never replaced.
 
 **Applications, retrospectives & interview prep** — a per-application workspace
 (`/applications/:id`) with the target job (`GET /api/applications/{id}`), the

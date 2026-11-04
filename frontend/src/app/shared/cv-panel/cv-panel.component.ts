@@ -143,10 +143,20 @@ export class CvPanelComponent implements OnChanges, OnDestroy {
     this.tailored = items.filter((item) => this.hasContent(item));
   }
 
-  /** Keep the current selection when it survived the reload, else fall back to the newest artifact. */
+  /**
+   * Keep the current selection when it survived the reload; otherwise open on the
+   * artifact the panel offers as *the* CV for this job (ADR 029).
+   */
   private selectFrom(usable: GeneratedCV[]): void {
     const stillThere = usable.some((item) => item.id === this.selectedId);
-    this.select(stillThere ? this.selectedId : (usable[0]?.id ?? null));
+    this.select(stillThere ? this.selectedId : this.defaultId(usable));
+  }
+
+  /** The artifact a fresh panel opens on: recorded-as-sent → AI rewrite → first (ADR 029). */
+  private defaultId(usable: GeneratedCV[]): string | null {
+    const linked = usable.find((item) => this.isLinked(item));
+    const llm = usable.find((item) => item.variant === 'llm');
+    return (linked ?? llm ?? usable[0])?.id ?? null;
   }
 
   /** Apply a freshly fetched list: resolve the pending state once an artifact exists, and keep the current selection when it is still there. */

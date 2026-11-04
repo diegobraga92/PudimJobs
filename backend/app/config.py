@@ -19,15 +19,16 @@ class Settings(BaseSettings):
     # derived from `secret_key` when this is empty (see app/services/secrets.py).
     fernet_key: str = ""
 
-    # CV tailoring / optional LLM enhancement
+    # CV tailoring / the AI-first variant (ADR 029)
     tailoring_llm_enabled: bool = False
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
-    # Max CV bullets rephrased per LLM call (ADR 006 rate limit).
-    tailor_llm_max_bullets: int = 5
     # Cap on the CV + JD payload sent to the full-rewrite LLM call (ADR 016).
-    tailor_llm_max_chars: int = 12_000
+    # Sized so the *whole* master CV usually fits: the model decides what matters
+    # (ADR 029), and a pre-trimmed input would make that decision in code. Raise it
+    # if `llm_cv_input_abbreviated` shows bullets being shortened on every run.
+    tailor_llm_max_chars: int = 32_000
 
     # Notifications / email (Mailpit for local dev)
     smtp_host: str = "localhost"

@@ -147,7 +147,7 @@ async def test_tailor_task_is_idempotent(test_engine, db_session):
     assert len(generated) == 1
 
 
-async def test_tailor_task_links_application_to_the_rule_artifact(test_engine, db_session):
+async def test_tailor_task_links_application_to_the_fallback_artifact(test_engine, db_session):
     """Passing ``application_id`` records which artifact the app was sent with."""
     user, cv, job = await _seed_cv_job(db_session)
     application = Application(user_id=user.id, job_id=job.id)
@@ -159,6 +159,75 @@ async def test_tailor_task_links_application_to_the_rule_artifact(test_engine, d
 
     await db_session.refresh(application)
     assert str(application.generated_cv_id) == result["generated_cv_id"]
+
+
+async def test_tailor_task_links_the_ai_variant_by_default(
+    test_engine, db_session, monkeypatch
+):
+    """That the AI rewrite exists should be linked to the application as the CV."""
+    user, cv, job = await _seed_cv_job(db_session)
+    application = Application(user_id=user.id, job_id=job.id)
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    async def _enabled_config(_session):
+        return LlmRuntimeConfig(
+            enabled=True, api_key="sk-x", base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    async def _fake_rewrite(structure, **_kwargs):
+        return ({**structure, "summary": "Rewritten for the job"}, 88)
+
+    monkeypatch.setattr(tailor_module, "get_llm_config", _enabled_config)
+    monkeypatch.setattr(tailor_module, "generate_tailored_cv_with_llm", _fake_rewrite)
+
+    result = await _run_tailor(str(job.id), str(cv.id), str(application.id))
+
+    await db_session.refresh(application)
+    assert result["generated_cv_id"] == result["llm_generated_cv_id"]
+    assert result["variant"] == "llm"
+    assert str(application.generated_cv_id) == result["llm_generated_cv_id"]
+
+
+async def test_tailor_task_never_overwrites_an_explicit_variant_choice(
+    test_engine, db_session, monkeypatch
+):
+    """A later run must not swap the CV an application says it was sent with.
+
+    The first run linked the fallback; enabling the LLM afterwards produces the AI
+    rewrite but leaves the recorded choice alone — *Use this one* is the user's
+    call, not a side effect of re-tailoring.
+    """
+    user, cv, job = await _seed_cv_job(db_session)
+    application = Application(user_id=user.id, job_id=job.id)
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    first = await _run_tailor(str(job.id), str(cv.id), str(application.id))
+    await db_session.refresh(application)
+    assert str(application.generated_cv_id) == first["generated_cv_id"]
+
+    async def _enabled_config(_session):
+        return LlmRuntimeConfig(
+            enabled=True, api_key="sk-x", base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    async def _fake_rewrite(structure, **_kwargs):
+        return ({**structure, "summary": "Rewritten for the job"}, 88)
+
+    monkeypatch.setattr(tailor_module, "get_llm_config", _enabled_config)
+    monkeypatch.setattr(tailor_module, "generate_tailored_cv_with_llm", _fake_rewrite)
+
+    with capture_logs() as logs:
+        second = await _run_tailor(str(job.id), str(cv.id), str(application.id))
+
+    assert second["llm_generated_cv_id"] is not None  # the rewrite was produced...
+    await db_session.refresh(application)
+    assert str(application.generated_cv_id) == first["generated_cv_id"]  # ...and ignored
+    kept = [entry for entry in logs if entry["event"] == "cv_tailor_application_link_kept"]
+    assert len(kept) == 1
 
 
 async def test_tailor_task_links_reused_artifact(test_engine, db_session):
@@ -352,6 +421,79 @@ async def test_tailor_task_warns_when_the_ai_variant_exceeds_the_page_budget(
     assert {entry["variant"] for entry in stored} == {"rule", "llm"}
 
 
+async def test_tailor_task_retries_once_when_the_ai_variant_overflows(
+    test_engine, db_session, monkeypatch
+):
+    """The page budget is enforceable only after a render, so it gets one retry.
+
+    The model cannot count pages; the worker can. A first attempt that prints
+    three pages comes back once with the real number in the correction, and the
+    shorter rendering is the one stored (ADR 029).
+    """
+    _, cv, job = await _seed_cv_job(db_session)
+
+    async def _enabled_config(_session):
+        return LlmRuntimeConfig(
+            enabled=True, api_key="sk-x", base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    calls: list[dict] = []
+
+    async def _fake_rewrite(structure, **kwargs):
+        calls.append(kwargs)
+        return ({**structure, "summary": f"Attempt {len(calls)}"}, 70)
+
+    monkeypatch.setattr(tailor_module, "get_llm_config", _enabled_config)
+    monkeypatch.setattr(tailor_module, "generate_tailored_cv_with_llm", _fake_rewrite)
+    # rule render, first AI render (over), retried AI render (fits).
+    pages = iter([1, LLM_TARGET_PAGES + 1, 1])
+    monkeypatch.setattr(tailor_module, "_pdf_pages", lambda _pdf: next(pages))
+
+    with capture_logs() as logs:
+        await _run_tailor(str(job.id), str(cv.id))
+
+    assert len(calls) == 2  # exactly one retry
+    assert calls[0].get("feedback") is None
+    assert f"printed as {LLM_TARGET_PAGES + 1} pages" in calls[1]["feedback"]
+    retries = [entry for entry in logs if entry["event"] == "llm_rewrite_page_retry"]
+    assert len(retries) == 1
+    assert retries[0]["before"] == LLM_TARGET_PAGES + 1
+    assert retries[0]["after"] == 1
+    assert retries[0]["kept"] == "retry"
+    assert not [e for e in logs if e["event"] == "llm_rewrite_over_page_budget"]
+
+    generated = (await db_session.execute(select(GeneratedCV))).scalars().all()
+    llm = next(item for item in generated if item.variant == CVVariant.llm)
+    assert llm.structured_json["summary"] == "Attempt 2"
+
+
+async def test_tailor_task_does_not_retry_when_the_ai_variant_fits(
+    test_engine, db_session, monkeypatch
+):
+    """A run that fits on the first attempt costs exactly what it did before."""
+    _, cv, job = await _seed_cv_job(db_session)
+
+    async def _enabled_config(_session):
+        return LlmRuntimeConfig(
+            enabled=True, api_key="sk-x", base_url="http://llm", model="gpt-4o-mini"
+        )
+
+    calls: list[dict] = []
+
+    async def _fake_rewrite(structure, **kwargs):
+        calls.append(kwargs)
+        return ({**structure, "summary": "Rewritten for the job"}, 70)
+
+    monkeypatch.setattr(tailor_module, "get_llm_config", _enabled_config)
+    monkeypatch.setattr(tailor_module, "generate_tailored_cv_with_llm", _fake_rewrite)
+
+    with capture_logs() as logs:
+        await _run_tailor(str(job.id), str(cv.id))
+
+    assert len(calls) == 1
+    assert not [entry for entry in logs if entry["event"] == "llm_rewrite_page_retry"]
+
+
 # --- content-less artifacts (pre-ADR-016 rows) ------------------------------
 
 
@@ -430,8 +572,11 @@ async def test_tailor_task_repairs_empty_rule_and_still_adds_the_llm_variant(
     result = await _run_tailor(str(job.id), str(cv.id))
 
     assert result["already_exists"] is False
-    assert result["generated_cv_id"] == str(stale.id)
+    # The repaired rule row is reused; the run's preferred artifact is now the AI
+    # rewrite, so `generated_cv_id` points at it (ADR 029).
+    assert result["generated_cv_id"] == result["llm_generated_cv_id"]
     assert set(result["generated_cv_ids"]) == {"rule", "llm"}
+    assert result["generated_cv_ids"]["rule"] == str(stale.id)
 
     rows = (await db_session.execute(select(GeneratedCV))).scalars().all()
     assert len(rows) == 2  # the empty rule row was reused, the llm row is new

@@ -169,10 +169,31 @@ describe('CvPanelComponent', () => {
     });
     http.expectOne((c) => c.url === '/api/cv/generated').flush([rule, llm]);
 
-    expect(component.variantLabel(rule)).toBe('Deterministic');
+    expect(component.variantLabel(rule)).toBe('Fallback');
     expect(component.variantLabel(llm)).toBe('AI rewrite');
     expect(component.isLinked(rule)).toBeTrue();
     expect(component.isLinked(llm)).toBeFalse();
+  });
+
+  it('opens on the AI rewrite when nothing was recorded as sent (ADR 029)', () => {
+    // The API lists the AI rewrite first within a run, but the panel must not
+    // depend on that order to find it: the fallback is the fallback either way.
+    build();
+    const rule = tailored();
+    const llm = tailored({ id: 'gen-2', variant: 'llm' });
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([rule, llm]);
+
+    expect(component.selectedId).toBe('gen-2');
+    expect(component.selected?.variant).toBe('llm');
+  });
+
+  it('keeps the recorded choice even when the AI rewrite is listed', () => {
+    build('gen-1');
+    const rule = tailored();
+    const llm = tailored({ id: 'gen-2', variant: 'llm' });
+    http.expectOne((c) => c.url === '/api/cv/generated').flush([llm, rule]);
+
+    expect(component.selectedId).toBe('gen-1');
   });
 
   it('explains why only the deterministic variant exists', () => {
@@ -181,7 +202,7 @@ describe('CvPanelComponent', () => {
     fixture.detectChanges();
 
     expect(component.llmVariantMissing).toBeTrue();
-    expect(fixture.nativeElement.textContent).toContain('Only the deterministic variant exists.');
+    expect(fixture.nativeElement.textContent).toContain('This is the deterministic fallback.');
   });
 
   it('does not present a content-less legacy artifact as a tailored CV', () => {

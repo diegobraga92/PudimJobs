@@ -23,7 +23,7 @@ import { useAuthStore } from '@/store/auth';
 import { useTheme } from '@/theme/ThemeProvider';
 import { AtsReport, CvVariant, GeneratedCV } from '@/types';
 import { scoreVariant } from '@/utils/ats';
-import { hasContent, variantLabelKey } from '@/utils/cv';
+import { defaultArtifact, hasContent, variantLabelKey } from '@/utils/cv';
 import { dateLocale, shortDate } from '@/utils/dates';
 import { displayNameFromEmail } from '@/utils/names';
 import { sharePdfFromUrl } from '@/utils/pdf';
@@ -96,7 +96,8 @@ export function CvPanel({
   // The notice resolves itself as soon as the run's artifacts show up.
   const showPending = tracking && !pollExpired && !runSettled;
 
-  const selected = artifacts.find((item) => item.id === selectedId) ?? artifacts[0] ?? null;
+  const selected =
+    artifacts.find((item) => item.id === selectedId) ?? defaultArtifact(artifacts, linkedCvId);
   // A freshly computed report wins over the one cached on the artifact.
   const activeReport =
     reportFor && reportFor === selected?.id ? report : (selected?.ats_report ?? null);

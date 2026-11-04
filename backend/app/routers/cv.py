@@ -12,13 +12,14 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import log_audit
 from app.auth import get_current_user
 from app.config import settings
 from app.database import get_db
+from app.models.enums import CVVariant
 from app.models.generated_cv import GeneratedCV
 from app.models.job import Job
 from app.models.master_cv import MasterCV
@@ -318,7 +319,16 @@ async def list_generated(
     )
     if job_id is not None:
         stmt = stmt.where(GeneratedCV.job_id == job_id)
-    stmt = stmt.order_by(GeneratedCV.created_at.desc())
+    # Newest first, and among artifacts created by the same run the AI rewrite
+    # leads (ADR 029). Both variants of a run share `created_at` down to the
+    # microsecond only when the DB clock does not move, so the variant tiebreak is
+    # what makes the order deterministic — otherwise the UI opened on whichever
+    # row Postgres happened to return first.
+    stmt = stmt.order_by(
+        GeneratedCV.created_at.desc(),
+        case((GeneratedCV.variant == CVVariant.llm, 0), else_=1),
+        GeneratedCV.id,
+    )
     rows = (await db.execute(stmt)).all()
 
     empty = [generated for generated, _ in rows if not generated.structured_json]

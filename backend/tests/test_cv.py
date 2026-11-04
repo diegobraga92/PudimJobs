@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from datetime import UTC, datetime
 from io import BytesIO
 
 from docx import Document
@@ -9,6 +10,7 @@ from sqlalchemy import select
 from structlog.testing import capture_logs
 
 from app.models.audit_log import AuditLog
+from app.models.enums import CVVariant
 from app.models.generated_cv import GeneratedCV
 from app.routers import cv as cv_router
 from app.routers.cv import DOCX_MEDIA_TYPE
@@ -228,6 +230,55 @@ async def test_list_generated_filters_by_job(auth_client, db_session):
 
     scoped = await client.get("/api/cv/generated", params={"job_id": job_a["id"]})
     assert [row["job_id"] for row in scoped.json()] == [job_a["id"]]
+
+
+async def test_list_generated_orders_the_ai_rewrite_first_within_a_run(auth_client, db_session):
+    """Both variants of a run share ``created_at``; the AI rewrite must still lead.
+
+    The panel opens on the first row, so leaving the order to Postgres made the
+    default CV arbitrary — sometimes the fallback, sometimes the rewrite (ADR 029).
+    """
+    client, user, _ = auth_client
+    job = (await client.post("/api/jobs", json={"title": "A", "company": "Acme"})).json()
+    same_run = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
+    older_run = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    db_session.add_all(
+        [
+            GeneratedCV(
+                user_id=user.id,
+                job_id=uuid.UUID(job["id"]),
+                variant=CVVariant.rule,
+                pdf=b"%PDF-1.4 rule",
+                structured_json=CV_PAYLOAD,
+                created_at=same_run,
+            ),
+            GeneratedCV(
+                user_id=user.id,
+                job_id=uuid.UUID(job["id"]),
+                variant=CVVariant.llm,
+                pdf=b"%PDF-1.4 llm",
+                structured_json=CV_PAYLOAD,
+                created_at=same_run,
+            ),
+            GeneratedCV(
+                user_id=user.id,
+                job_id=uuid.UUID(job["id"]),
+                variant=CVVariant.rule,
+                pdf=b"%PDF-1.4 older",
+                structured_json=CV_PAYLOAD,
+                created_at=older_run,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get("/api/cv/generated", params={"job_id": job["id"]})
+
+    assert response.status_code == 200
+    listed = response.json()
+    assert listed[0]["variant"] == "llm"  # the run's AI rewrite leads...
+    assert listed[1]["variant"] == "rule"  # ...its fallback follows...
+    assert listed[2]["created_at"].startswith("2026-01-01")  # ...and older runs last
 
 
 async def test_list_generated_hides_content_less_artifacts(auth_client, db_session):

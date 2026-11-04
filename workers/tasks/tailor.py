@@ -1,4 +1,4 @@
-"""CV tailoring Celery task (ADR 016)."""
+"""CV tailoring Celery task (ADR 016, ADR 029)."""
 
 import asyncio
 import uuid
@@ -66,17 +66,47 @@ def _has_content(row: GeneratedCV) -> bool:
     return bool(row.structured_json)
 
 
+def _render(structure: dict, user: User | None) -> tuple[bytes, int | None]:
+    """Render a CV structure to PDF bytes and count the pages it prints."""
+    tailored = TailoredCV.from_structure(structure)
+    pdf_bytes = generate_pdf(tailored, name=_pdf_name(user), email=user.email if user else "")
+    return pdf_bytes, _pdf_pages(pdf_bytes)
+
+
 async def _link_application(
     session, application_id: str | None, cv: MasterCV, job: Job, generated_cv_id: uuid.UUID
 ) -> None:
-    """Point an application at the CV artifact it was sent with."""
+    """Point an application at the CV artifact it was sent with (ADR 016, ADR 029).
+
+    The link is only ever *filled in*, never replaced: once the user picked a
+    variant with *Use this one*, a later tailor run must not silently swap the CV
+    the application says it was sent with.
+    """
     if not application_id:
         return
     application = await session.get(Application, uuid.UUID(application_id))
     if application is None or application.user_id != cv.user_id or application.job_id != job.id:
         logger.warning("cv_tailor_application_link_skipped", application_id=application_id)
         return
+    if application.generated_cv_id is not None:
+        logger.info(
+            "cv_tailor_application_link_kept",
+            application_id=application_id,
+            generated_cv_id=str(application.generated_cv_id),
+            offered_generated_cv_id=str(generated_cv_id),
+        )
+        return
     application.generated_cv_id = generated_cv_id
+
+
+def _preferred(products: dict[CVVariant, GeneratedCV]) -> GeneratedCV:
+    """The artifact a run offers as *the* CV for this job (ADR 029).
+
+    The AI rewrite when one was produced, the deterministic fallback otherwise —
+    the same order the API lists them in, so the panel opens on the CV the model
+    wrote.
+    """
+    return products.get(CVVariant.llm) or products[CVVariant.rule]
 
 
 async def _store_variant(
@@ -89,11 +119,14 @@ async def _store_variant(
     structure: dict,
     llm_self_score: int | None = None,
     existing: GeneratedCV | None = None,
+    rendered: tuple[bytes, int | None] | None = None,
 ) -> GeneratedCV:
-    """Render and persist one tailored artifact."""
-    tailored = TailoredCV.from_structure(structure)
-    pdf_bytes = generate_pdf(tailored, name=_pdf_name(user), email=user.email if user else "")
-    pages = _pdf_pages(pdf_bytes)
+    """Render and persist one tailored artifact.
+
+    ``rendered`` lets a caller that already had to render (the page-budget check
+    on the AI variant) hand the bytes over instead of rendering twice.
+    """
+    pdf_bytes, pages = rendered if rendered is not None else _render(structure, user)
     generated = existing if existing is not None else GeneratedCV(
         user_id=cv.user_id,
         source_master_cv_id=cv.id,
@@ -127,11 +160,12 @@ async def _store_variant(
         pages=pages,
     )
     if variant == CVVariant.llm and pages is not None and pages > LLM_TARGET_PAGES:
-        # Reported, never corrected: the prompt asks the AI variant for at most
-        # LLM_TARGET_PAGES pages, so a longer PDF means the guidance was not
-        # followed. Trimming it here would silently delete content the model (or
-        # the user, after an edit) chose on purpose — the count is surfaced and
-        # both variants stay available to compare.
+        # Reported, never trimmed: the prompt asks the AI variant for at most
+        # LLM_TARGET_PAGES pages and `_llm_variant` already spent one corrective
+        # retry on it, so a longer PDF means the guidance was ignored twice.
+        # Trimming it here would silently delete content the model (or the user,
+        # after an edit) chose on purpose — the count is surfaced and both
+        # variants stay available to compare.
         logger.warning(
             "llm_rewrite_over_page_budget",
             generated_cv_id=str(generated.id),
@@ -150,6 +184,74 @@ def _llm_variant_skip_reason(config: LlmRuntimeConfig) -> str:
 def _llm_variant_wanted(config: LlmRuntimeConfig) -> bool:
     """The full-LLM variant needs an enabled LLM config with a usable API key."""
     return llm_variant_wanted(config)
+
+
+async def _llm_variant(
+    *,
+    cv: MasterCV,
+    job: Job,
+    jd_skills: list[str],
+    jd_text: str,
+    config: LlmRuntimeConfig,
+    user: User | None,
+    job_id: str,
+) -> tuple[dict, int | None, bytes, int | None] | None:
+    """Write the AI variant, retrying once when it prints over the page budget.
+
+    The model cannot measure pages, so the prompt's budget is only checkable
+    after a render. One corrective attempt — with the real page count in the
+    correction — and the shorter rendering wins; a run that fits on the first try
+    costs exactly what it did before (ADR 029).
+    """
+    rewritten = await generate_tailored_cv_with_llm(
+        cv.structured_json,
+        jd_text=jd_text,
+        jd_title=job.title,
+        jd_skills=jd_skills,
+        config=config,
+    )
+    if rewritten is None:
+        return None
+    structure, self_score = rewritten
+    pdf_bytes, pages = _render(structure, user)
+    if pages is None or pages <= LLM_TARGET_PAGES:
+        return structure, self_score, pdf_bytes, pages
+
+    first_pages = pages
+    retried = await generate_tailored_cv_with_llm(
+        cv.structured_json,
+        jd_text=jd_text,
+        jd_title=job.title,
+        jd_skills=jd_skills,
+        config=config,
+        feedback=(
+            f"The previous attempt printed as {first_pages} pages. Keep every role "
+            f"and tighten the CV to at most {LLM_TARGET_PAGES}: shorten or drop "
+            "bullets that add nothing."
+        ),
+    )
+    if retried is None:
+        logger.warning("llm_rewrite_page_retry_failed", job_id=job_id, pages=first_pages)
+        return structure, self_score, pdf_bytes, pages
+    retry_structure, retry_score = retried
+    retry_pdf, retry_pages = _render(retry_structure, user)
+    kept = "first"
+    if retry_pages is not None and retry_pages <= first_pages:
+        structure, self_score, pdf_bytes, pages = (
+            retry_structure,
+            retry_score,
+            retry_pdf,
+            retry_pages,
+        )
+        kept = "retry"
+    logger.info(
+        "llm_rewrite_page_retry",
+        job_id=job_id,
+        before=first_pages,
+        after=retry_pages,
+        kept=kept,
+    )
+    return structure, self_score, pdf_bytes, pages
 
 
 async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None = None) -> dict:
@@ -219,13 +321,18 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
         # Idempotency: re-tailoring the same job against the same source CV
         # version reuses the artifacts instead of minting new ones.
         if len(existing) == len(wanted):
-            rule = existing[CVVariant.rule]
-            await _link_application(session, application_id, cv, job, rule.id)
+            preferred = _preferred(existing)
+            await _link_application(session, application_id, cv, job, preferred.id)
             await session.commit()
-            logger.info("cv_tailored_reused", job_id=job_id, generated_cv_id=str(rule.id))
+            logger.info(
+                "cv_tailored_reused",
+                job_id=job_id,
+                generated_cv_id=str(preferred.id),
+                variant=preferred.variant.value,
+            )
             return {
-                "generated_cv_id": str(rule.id),
-                "variant": rule.variant.value,
+                "generated_cv_id": str(preferred.id),
+                "variant": preferred.variant.value,
                 "generated_cv_ids": {
                     variant.value: str(row.id) for variant, row in existing.items()
                 },
@@ -253,18 +360,20 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
                 existing=empty.get(CVVariant.rule),
             )
 
-        # Optional full-LLM variant, kept alongside the deterministic one. A
-        # failure here degrades gracefully — the rule artifact still ships.
+        # Optional full-LLM variant, kept alongside the deterministic fallback.
+        # A failure here degrades gracefully — the rule artifact still ships.
         if CVVariant.llm in wanted and CVVariant.llm not in products:
-            rewritten = await generate_tailored_cv_with_llm(
-                cv.structured_json,
-                jd_text=jd_text,
-                jd_title=job.title,
+            rendered = await _llm_variant(
+                cv=cv,
+                job=job,
                 jd_skills=jd_skills,
+                jd_text=jd_text,
                 config=llm_config,
+                user=user,
+                job_id=job_id,
             )
-            if rewritten is not None:
-                structure, self_score = rewritten
+            if rendered is not None:
+                structure, self_score, pdf_bytes, pages = rendered
                 products[CVVariant.llm] = await _store_variant(
                     session,
                     cv=cv,
@@ -274,25 +383,28 @@ async def _run_tailor(job_id: str, cv_id: str | None, application_id: str | None
                     structure=structure,
                     llm_self_score=self_score,
                     existing=empty.get(CVVariant.llm),
+                    rendered=(pdf_bytes, pages),
                 )
 
-        # Auto-link the deterministic variant only; the LLM variant is linked when
-        # the user explicitly picks it (ADR 016).
-        rule = products[CVVariant.rule]
-        await _link_application(session, application_id, cv, job, rule.id)
+        # The AI rewrite is *the* CV when it exists (ADR 029); the deterministic
+        # artifact is the fallback. The link is only filled in when the
+        # application has none, so an explicit *Use this one* always wins.
+        preferred = _preferred(products)
+        await _link_application(session, application_id, cv, job, preferred.id)
         await session.commit()
 
         logger.info(
             "cv_tailored",
             job_id=job_id,
-            generated_cv_id=str(rule.id),
+            generated_cv_id=str(preferred.id),
+            variant=preferred.variant.value,
             variants=sorted(variant.value for variant in products),
             matched=len(tailored.matched_skills),
             relevance=tailored.relevance,
         )
         return {
-            "generated_cv_id": str(rule.id),
-            "variant": CVVariant.rule.value,
+            "generated_cv_id": str(preferred.id),
+            "variant": preferred.variant.value,
             "generated_cv_ids": {
                 variant.value: str(row.id) for variant, row in products.items()
             },

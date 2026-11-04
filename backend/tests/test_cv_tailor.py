@@ -1,4 +1,4 @@
-"""Tests for the rule-based CV tailoring engine."""
+"""Tests for the CV tailoring engine: the deterministic fallback + the AI brief (ADR 029)."""
 
 import json
 import logging
@@ -7,7 +7,8 @@ from app.services.cv_tailor import (
     LLM_TARGET_PAGES,
     TailoredCV,
     _coerce_self_score,
-    enhance_with_llm,
+    _fit_cv_for_prompt,
+    _unverified_numbers,
     generate_tailored_cv_with_llm,
     tailor_cv,
 )
@@ -87,8 +88,13 @@ def test_tailor_leads_with_the_cv_spelling_of_a_matched_alias():
     assert "kubernetes" not in tailored.skills
 
 
-def test_tailor_keeps_every_role_and_condenses_bullets():
-    """A role that shares no keyword keeps two bullets; the match keeps up to six."""
+def test_tailor_keeps_every_role_and_condenses_bullets_uniformly():
+    """The fallback condenses every role the same way, matching or not (ADR 029).
+
+    Space used to follow the keyword score (6 bullets for a matching role, 2 for
+    the rest), which read as judgement without being any: the fallback cannot
+    tell which evidence wins an interview, so it must not imply it can.
+    """
     cv = {
         **CV,
         "experience": [
@@ -112,6 +118,8 @@ def test_tailor_keeps_every_role_and_condenses_bullets():
                     "Maintained Spring applications",
                     "Rewrote the billing job",
                     "Onboarded new hires",
+                    "Wrote the runbook",
+                    "Shadowed the release",
                 ],
             },
         ],
@@ -122,12 +130,15 @@ def test_tailor_keeps_every_role_and_condenses_bullets():
         "Python Developer",
         "Java Developer",
     ]
-    matched, unmatched = tailored.experience
-    assert len(matched["bullets"]) == 6  # a cap, and only for a matching role
-    assert matched["bullets"][0] == "Built FastAPI services on AWS"
-    assert unmatched["bullets"] == [
+    for role in tailored.experience:
+        assert len(role["bullets"]) == 4  # one cap, both roles
+    # Verbatim, in the CV's own order — no reordering by keyword count.
+    assert tailored.experience[0]["bullets"][0] == "Built FastAPI services on AWS"
+    assert tailored.experience[1]["bullets"] == [
         "Maintained Spring applications",
         "Rewrote the billing job",
+        "Onboarded new hires",
+        "Wrote the runbook",
     ]
     assert tailored.used_fallback is False
 
@@ -146,6 +157,8 @@ def test_tailor_keeps_the_dates_of_a_condensed_role():
                     "Maintained Spring applications",
                     "Rewrote the billing job",
                     "Onboarded new hires",
+                    "Wrote the runbook",
+                    "Shadowed the release",
                 ],
             }
         ],
@@ -153,7 +166,7 @@ def test_tailor_keeps_the_dates_of_a_condensed_role():
     role = tailor_cv(cv, ["python"]).experience[0]
 
     assert (role["start_date"], role["end_date"]) == ("2017-03", "2019-08")
-    assert len(role["bullets"]) == 2
+    assert len(role["bullets"]) == 4
 
 
 def test_tailor_keeps_every_bullet_when_not_condensing():
@@ -183,7 +196,7 @@ def test_tailor_condenses_every_role_when_nothing_matches():
     big_cv = {
         "summary": "x",
         "experience": [
-            {"title": f"Role {i}", "company": "C", "bullets": ["a", "b", "c"]}
+            {"title": f"Role {i}", "company": "C", "bullets": ["a", "b", "c", "d", "e", "f"]}
             for i in range(6)
         ],
         "education": [],
@@ -193,12 +206,12 @@ def test_tailor_condenses_every_role_when_nothing_matches():
     tailored = tailor_cv(big_cv, ["rust"])
 
     assert len(tailored.experience) == 6  # the number of roles is never a lever
-    assert all(len(role["bullets"]) == 2 for role in tailored.experience)
+    assert all(len(role["bullets"]) == 4 for role in tailored.experience)
     assert tailored.used_fallback is True
 
 
-def test_tailor_uses_annotations_to_score():
-    """A CV tag counts as a keyword, so it keeps the role's bullet budget."""
+def test_tailor_reports_annotations_without_changing_the_space():
+    """A CV tag still scores the role, but score no longer buys bullets (ADR 029)."""
     cv = {
         **CV,
         "experience": [
@@ -214,11 +227,15 @@ def test_tailor_uses_annotations_to_score():
             },
         ],
     }
-    annotated = tailor_cv(cv, ["java"], annotations={"experience": [["java"], []]})
-    plain = tailor_cv(cv, ["java"])
+    annotated = tailor_cv(cv, ["kubernetes"], annotations={"experience": [["kubernetes"], []]})
+    plain = tailor_cv(cv, ["kubernetes"])
 
-    assert len(annotated.experience[0]["bullets"]) == 6  # matched through its tag
-    assert len(plain.experience[0]["bullets"]) == 2  # unmatched, so condensed
+    # The tag makes the role count as a match for the JD report...
+    assert annotated.used_fallback is False
+    assert plain.used_fallback is True
+    # ...but the same four bullets survive either way.
+    assert len(annotated.experience[0]["bullets"]) == 4
+    assert len(plain.experience[0]["bullets"]) == 4
 
 
 def test_tailor_summary_leads_with_matched_strengths():
@@ -422,21 +439,21 @@ async def test_generate_tailored_cv_with_llm_degrades_on_failure(monkeypatch):
     )
 
 
-# --- the AI variant's prompt: a tailored selection, not a restatement --------
+# --- the AI variant's prompt: a brief, not a recipe (ADR 029) ----------------
 
 
-async def test_generate_tailored_cv_with_llm_prompt_asks_for_a_two_page_tailored_cv(
-    monkeypatch,
-):
-    """The AI variant tailors the job-relevant detail, never the history.
+async def test_generate_tailored_cv_with_llm_prompt_is_a_brief_not_a_recipe(monkeypatch):
+    """The AI variant is briefed on the goal and the invariants — nothing else.
 
     Two prompt regressions are pinned here. The first: an earlier prompt asked
     the model to "rewrite the CV so it is maximally relevant" while demanding
     that *every* fact be kept — no way to shorten anything — so relevance was
     demonstrated by adding and splitting bullets and the artifact came back
-    several pages long. The second: the fix budgeted the page by keeping "3-4
-    roles", which turned every extra job into an unexplained employment gap
-    (ADR 027). The budget is now spent on bullets and the history is fixed.
+    several pages long. The second: the fix answered that with arithmetic ("the
+    2-3 best roles get 3-8 bullets, every other role at least 2"), which told the
+    model that keyword overlap *is* relevance and turned an LLM into a rule
+    engine with a bigger vocabulary. What is left is the goal, the invariants
+    and the page budget; how to spend the space is the model's call.
     """
     from app.services import llm_client
 
@@ -453,19 +470,22 @@ async def test_generate_tailored_cv_with_llm_prompt_asks_for_a_two_page_tailored
     )
 
     system = fake.requests[0]["messages"][0]["content"]
+    brief = system.split("Return ONLY", 1)[0]
     user = fake.requests[0]["messages"][1]["content"]
-    assert "tailored CV for the target job" in system
+    # The invariants that make a tailored CV safe to send.
     assert "source of truth" in system
-    assert f"{LLM_TARGET_PAGES} pages to fill" in system  # a budget to spend...
-    assert "every role in the master CV must appear" in system  # ...on bullets...
-    assert "NEVER omit a role" in system
-    assert "at least 2" in system
-    assert "do not judge relevance by keyword overlap alone" in system
-    assert "MAY omit roles" not in system  # the rule that created the gaps
-    assert "NEVER invent" in system  # truthfulness is unchanged
-    assert "skill_groups" in system  # the model owns the skills section...
-    assert "never use an 'Other' group" in system  # ...and never names a bucket "Other"
-    assert "Rewrite the candidate's CV" not in system
+    assert "Every role appears" in system
+    assert "bare header" in system
+    assert f"at most {LLM_TARGET_PAGES} pages" in system
+    assert "never swap the two fields" in system
+    assert "skill_groups" in system  # the model owns the skills section
+    # The allocation is guidance, not a formula.
+    assert "How to spend the space" in system
+    assert "Relevance is not keyword overlap alone" in system
+    for formula in ("3-8", "at least 2", "2-3 roles", "one or two lines", "600-750"):
+        assert formula not in system
+    # Short enough to still read as a brief rather than a document.
+    assert len(brief.split()) < 250
     assert "Master CV — the only source of truth" in user
 
 
@@ -501,7 +521,41 @@ async def test_generate_tailored_cv_with_llm_restores_a_role_the_model_dropped(
     assert restored["bullets"] == ["Maintained Spring applications"]  # verbatim
     assert structure["projects"] == []  # projects are still the model's call
     assert self_score == 60
-    assert "llm_cv_roles_restored restored=1 unmatched=0" in caplog.text
+    assert "llm_cv_roles_restored restored=1 unmatched=0 emptied=0" in caplog.text
+
+
+async def test_generate_tailored_cv_with_llm_restores_a_bare_header_role(
+    monkeypatch, caplog
+):
+    """A role returned with no bullets is a header a reader cannot use (ADR 029).
+
+    The brief names the rule ("no role may be a bare header") but a brief is not
+    a guarantee, so the guard enforces it: a role with no bullets counts as
+    dropped and the master CV's own bullets are restored verbatim.
+    """
+    from app.services import llm_client
+
+    bare = {
+        **CV,
+        "experience": [CV["experience"][0], {**CV["experience"][1], "bullets": []}],
+    }
+    fake = _FakeLLMClient()
+    fake.reply = json.dumps({"cv": bare, "ats_self_score": 60})
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
+
+    with caplog.at_level(logging.INFO, logger="app.services.cv_tailor"):
+        result = await generate_tailored_cv_with_llm(
+            CV, jd_text="Python role", jd_skills=["python"], config=_enabled_llm_config()
+        )
+
+    assert result is not None
+    structure, _score = result
+    assert [role["title"] for role in structure["experience"]] == [
+        "Python Developer",
+        "Java Developer",
+    ]
+    assert structure["experience"][1]["bullets"] == ["Maintained Spring applications"]
+    assert "llm_cv_roles_restored restored=1 unmatched=0 emptied=1" in caplog.text
 
 
 async def test_generate_tailored_cv_with_llm_keeps_a_complete_history_untouched(
@@ -699,7 +753,7 @@ async def test_generate_tailored_cv_with_llm_keeps_a_promotion_at_one_employer(
         ("Senior Engineer", "2020-01"),
         ("Engineer", "2017-01"),
     ]
-    assert "llm_cv_roles_restored restored=1 unmatched=0" in caplog.text
+    assert "llm_cv_roles_restored restored=1 unmatched=0 emptied=0" in caplog.text
 
 
 async def test_generate_tailored_cv_with_llm_drops_a_repeated_role(monkeypatch, caplog):
@@ -742,64 +796,91 @@ def test_role_date_understands_the_ways_a_date_is_written():
     assert _role_date(None) == ""
 
 
-async def test_generate_tailored_cv_with_llm_trims_an_oversized_master_cv(
-    monkeypatch, caplog
-):
-    """An oversized master CV is trimmed into *valid* JSON, never sliced raw.
+def test_fit_cv_for_prompt_abbreviates_instead_of_filtering():
+    """An oversized master CV is shortened, never keyword-filtered (ADR 029).
 
-    A byte-slice of the serialised JSON sent the model a syntactically broken
-    reference while asking it to write the CV from that reference — a gap that
-    gets filled from imagination. Whole entries are dropped instead.
+    The model decides what this job needs, so the reference it reads must still
+    contain every role and every bullet. Space is bought from the copy nobody
+    needs to reproduce a history — links, certifications, project prose — and
+    then from length, not from content.
     """
-    from app.services import cv_tailor, llm_client
+    cv = {
+        "summary": "Backend engineer with a taste for boring technology",
+        "links": ["https://github.com/someone"],
+        "certifications": ["AWS Certified Solutions Architect"],
+        "languages": ["English", "Portuguese"],
+        "skills": ["python", "fastapi", "postgresql"],
+        "projects": [
+            {
+                "name": "Job Tracker",
+                "description": "FastAPI + PostgreSQL pipeline with a React front end " * 3,
+            },
+            {"name": "CV Parser", "description": "Rule-based parser for messy PDFs " * 3},
+        ],
+        "experience": [
+            {
+                "title": f"Engineer {i}",
+                "company": f"Company {i}",
+                "start_date": f"20{10 + i}-01",
+                "end_date": f"20{11 + i}-12",
+                "bullets": [
+                    f"Built python services number {i} on AWS with a lot of context",
+                    f"Cut latency for service {i} by half while migrating it",
+                    f"Mentored engineers on service {i} and wrote its runbooks",
+                    f"Owned the on-call rota for service {i} across two regions",
+                    f"Rewrote the billing job for service {i} without downtime",
+                ],
+            }
+            for i in range(3)
+        ],
+    }
+    limit = len(json.dumps(cv)) // 2
 
-    fake = _FakeLLMClient()
-    fake.reply = json.dumps({"cv": CV, "ats_self_score": 50})
-    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
-    monkeypatch.setattr(cv_tailor.settings, "tailor_llm_max_chars", 2_000)
+    reference, changed = _fit_cv_for_prompt(cv, limit)
 
-    bulky = {
-        **CV,
+    parsed = json.loads(reference)  # always valid JSON
+    assert len(reference) <= limit
+    # Nothing is filtered: every role, every bullet.
+    assert len(parsed["experience"]) == 3
+    assert sum(len(role["bullets"]) for role in parsed["experience"]) == 15
+    assert [role["title"] for role in parsed["experience"]] == [
+        "Engineer 0",
+        "Engineer 1",
+        "Engineer 2",
+    ]
+    # The space came from optional copy and from length.
+    assert parsed["links"] == []
+    assert parsed["certifications"] == []
+    assert changed["sections"] == 3
+    assert changed["bullets"] + changed["projects"] > 0
+
+
+def test_unverified_numbers_reports_only_numbers_absent_from_the_master_cv():
+    """Numbers must trace back to the source; formatting differences are fine."""
+    master = {
         "experience": [
             {
                 "title": "Engineer",
-                "company": f"Company {i}",
-                "bullets": [f"Built python services number {i} on AWS"] * 3,
+                "company": "Acme",
+                "bullets": ["Cut latency 40% for 2M users", "Saved 100,000 per year"],
             }
-            for i in range(40)
-        ],
+        ]
     }
-    with caplog.at_level(logging.INFO, logger="app.services.cv_tailor"):
-        result = await generate_tailored_cv_with_llm(
-            bulky,
-            jd_text="Python role",
-            jd_skills=["python"],
-            config=_enabled_llm_config(),
-        )
+    reply = {
+        "experience": [
+            {
+                "title": "Engineer",
+                "company": "Acme",
+                "bullets": [
+                    "Cut latency 40% for 2M users",  # verbatim
+                    "Saved 100.000 per year",  # same number, reformatted
+                    "Grew revenue by 500k",  # invented
+                ],
+            }
+        ]
+    }
 
-    assert result is not None
-    user = fake.requests[0]["messages"][1]["content"]
-    reference = user.split("source of truth (JSON):\n", 1)[1]
-    assert len(reference) <= 1_000  # half of the monkeypatched budget
-    parsed = json.loads(reference)  # the reference always parses
-    assert 0 < len(parsed["experience"]) < 40
-    assert "llm_cv_input_truncated" in caplog.text
-
-
-async def test_enhance_with_llm_disabled_returns_bullets_unchanged():
-    config = LlmRuntimeConfig(
-        enabled=False, api_key="sk-x", base_url="https://api.openai.com/v1", model="gpt-4o-mini"
-    )
-    bullets = ["Built FastAPI services"]
-    assert await enhance_with_llm(bullets, ["python", "fastapi"], config=config) == bullets
-
-
-async def test_enhance_with_llm_missing_key_returns_bullets_unchanged():
-    config = LlmRuntimeConfig(
-        enabled=True, api_key="", base_url="https://api.openai.com/v1", model="gpt-4o-mini"
-    )
-    bullets = ["Built FastAPI services"]
-    assert await enhance_with_llm(bullets, ["python"], config=config) == bullets
+    assert _unverified_numbers(reply, master) == ["500"]
 
 
 class _FakeLLMResponse:
@@ -833,46 +914,3 @@ class _FakeLLMClient:
     async def post(self, url, *, headers=None, json=None, **kwargs):
         self.requests.append(json)
         return _FakeLLMResponse(self.reply)
-
-
-async def test_enhance_with_llm_caps_bullets_and_parses(monkeypatch):
-    from app.services import llm_client
-
-    config = LlmRuntimeConfig(
-        enabled=True,
-        api_key="sk-x",
-        base_url="https://api.openai.com/v1",
-        model="gpt-4o-mini",
-    )
-    fake = _FakeLLMClient()
-    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
-
-    bullets = [f"bullet {i}" for i in range(8)]
-    out = await enhance_with_llm(bullets, ["python"], config=config, max_bullets=5)
-
-    # Only the first 5 bullets were sent to the API.
-    sent = fake.requests[0]["messages"][1]["content"]
-    assert "1. bullet 0" in sent
-    assert "6. bullet 5" not in sent
-    # Numbered reply parsed; count preserved (rephrased head + untouched tail).
-    assert out[0] == "Rewritten bullet"
-    assert len(out) == 8
-    assert out[5:] == bullets[5:]
-
-
-async def test_enhance_with_llm_pads_short_reply(monkeypatch):
-    from app.services import llm_client
-
-    config = LlmRuntimeConfig(
-        enabled=True,
-        api_key="sk-x",
-        base_url="https://api.openai.com/v1",
-        model="gpt-4o-mini",
-    )
-    fake = _FakeLLMClient()
-    fake.reply = "1. Only one"
-    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *a, **k: fake)
-
-    out = await enhance_with_llm(["a", "b", "c"], ["python"], config=config, max_bullets=5)
-    assert out[0] == "Only one"
-    assert len(out) == 3  # padded with originals to keep the count stable

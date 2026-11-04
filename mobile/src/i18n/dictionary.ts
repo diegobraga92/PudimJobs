@@ -733,12 +733,12 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
     en: "The AI's own estimate: {score}/100.",
     'pt-BR': 'Estimativa da própria IA: {score}/100.',
   },
-  'cv.variant.rule': { en: 'Deterministic', 'pt-BR': 'Determinística' },
+  'cv.variant.rule': { en: 'Fallback', 'pt-BR': 'Alternativa' },
   'cv.variant.llm': { en: 'AI rewrite', 'pt-BR': 'Reescrita por IA' },
   'cv.panel.llmVariantOff': {
-    en: 'Only the deterministic variant exists. The AI rewrite variant needs an LLM enabled in Admin → LLM with an API key.',
+    en: 'This is the deterministic fallback. The AI rewrite needs an LLM enabled in Admin → LLM with an API key.',
     'pt-BR':
-      'Só existe a variante determinística. A variante de reescrita por IA exige um LLM habilitado em Admin → LLM com chave de API.',
+      'Esta é a alternativa determinística. A reescrita por IA exige um LLM habilitado em Admin → LLM com chave de API.',
   },
   'cv.panel.noContent': {
     en: 'This version has no stored content to preview.',
