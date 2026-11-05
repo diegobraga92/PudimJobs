@@ -3,13 +3,12 @@ import { RouterOutlet } from '@angular/router';
 
 import { ThemeService } from './services/theme.service';
 import { I18nService } from './services/i18n.service';
-import { ConfirmDialogComponent } from './shared/confirm/confirm-dialog.component';
 import { ToastViewportComponent } from './shared/toast/toast-viewport.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ToastViewportComponent, ConfirmDialogComponent],
+  imports: [RouterOutlet, ToastViewportComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
 })

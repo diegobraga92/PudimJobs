@@ -130,22 +130,25 @@ describe('JobsComponent (bulk cleanup, ADR 023)', () => {
     list.flush([]);
   });
 
-  it('sends hide_applied while the box is ticked', () => {
-    flushInit();
-
-    // Off by default: the param is omitted, not sent as `false`.
-    http.expectNone((c) => c.url === '/api/jobs' && c.params.has('hide_applied'));
+  it('sends hide_applied by default and drops it when the box is unticked', () => {
+    // On by default: the feed request issued on init is already narrowed.
+    const initial = http.expectOne((c) => c.url === '/api/jobs');
+    expect(initial.request.params.get('hide_applied')).toBe('true');
+    initial.flush([JOB]);
+    http.expectOne((c) => c.url === '/api/applications').flush([]);
+    http.expectOne((c) => c.url === '/api/sources').flush([]);
 
     component.toggleHideApplied();
     let list = http.expectOne((c) => c.url === '/api/jobs');
 
-    expect(list.request.params.get('hide_applied')).toBe('true');
+    // Off: the param is omitted, not sent as `false`.
+    expect(list.request.params.has('hide_applied')).toBeFalse();
     list.flush([]);
 
     component.toggleHideApplied();
     list = http.expectOne((c) => c.url === '/api/jobs');
 
-    expect(list.request.params.has('hide_applied')).toBeFalse();
+    expect(list.request.params.get('hide_applied')).toBe('true');
     list.flush([]);
   });
 

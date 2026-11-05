@@ -1,6 +1,17 @@
 <div class="page-header">
   <h2>{{ i18n.t('applications.title') }}</h2>
-  <span class="muted pipeline-count">{{ i18n.t('applications.total', { total }) }}</span>
+  <div class="header-meta">
+    <span class="muted pipeline-count">{{ i18n.t('applications.total', { total }) }}</span>
+    <label class="checkbox-row pipeline-toggle">
+      <input
+        type="checkbox"
+        [checked]="showRejected"
+        (change)="toggleRejected()"
+        [attr.aria-label]="i18n.t('applications.showRejected')"
+      />
+      {{ i18n.t('applications.showRejected') }}
+    </label>
+  </div>
 </div>
 
 @if (error) {
@@ -22,7 +33,7 @@
 
 @if (total > 0) {
 <div class="kanban" cdkDropListGroup>
-  @for (status of statuses; track status) {
+  @for (status of visibleStatuses; track status) {
     <div class="column">
       <h3 class="column-title">
         <span class="status-dot" [class]="'dot-' + status" aria-hidden="true"></span>
@@ -37,7 +48,15 @@
         (cdkDropListDropped)="onDrop($event)"
       >
         @for (application of columns[status]; track application.id) {
-          <button class="card" cdkDrag [cdkDragData]="application" (click)="openWorkspace(application)">
+          <button
+            class="card"
+            cdkDrag
+            [cdkDragData]="application"
+            (pointerdown)="onCardPointerDown($event)"
+            (cdkDragStarted)="onDragStarted()"
+            (cdkDragEnded)="onDragEnded()"
+            (click)="openWorkspace(application)"
+          >
             <span class="card-title">{{ application.job_title }}</span>
             <span class="card-company">{{ application.job_company }}</span>
             @if (application.applied_date) {

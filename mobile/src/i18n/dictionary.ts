@@ -562,6 +562,7 @@ export const DICTIONARY: Record<string, TranslationEntry> = {
   'applications.emptyTitle': { en: 'Your pipeline is empty', 'pt-BR': 'Seu pipeline está vazio' },
   'applications.emptyHint': { en: 'Open a job and press "Add to applications" to start tracking it here.', 'pt-BR': 'Abra uma vaga e clique em "Adicionar às candidaturas" para começar a acompanhá-la aqui.' },
   'applications.dropHere': { en: 'Drop here', 'pt-BR': 'Solte aqui' },
+  'applications.showRejected': { en: 'Show rejected', 'pt-BR': 'Mostrar rejeitadas' },
   'applications.viewPosting': { en: 'View posting', 'pt-BR': 'Ver publicação' },
   'applications.moveToStatus': { en: 'Move to status', 'pt-BR': 'Mover para o status' },
   'applications.removeTitle': { en: 'Remove application?', 'pt-BR': 'Remover candidatura?' },

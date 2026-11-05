@@ -47,8 +47,9 @@ export function JobsScreen() {
   const queryClient = useQueryClient();
 
   const [searchFields, setSearchFields] = useState<SearchFields>(EMPTY_SEARCH);
-  const [filters, setFilters] = useState<JobFilters>({});
-  const [hideApplied, setHideApplied] = useState(false);
+  // Mirrors the web: already-applied jobs are filtered out until the user opts out.
+  const [filters, setFilters] = useState<JobFilters>({ hide_applied: true });
+  const [hideApplied, setHideApplied] = useState(true);
   const [showHidden, setShowHidden] = useState(false);
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);

@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, HostListener, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { CdkDragDrop, DragDropModule, moveItemInArray, transferArrayItem } from '@angular/cdk/drag-drop';
@@ -13,6 +13,8 @@ import { ToastService } from '../../shared/toast/toast.service';
 import { I18nService } from '../../services/i18n.service';
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
+/** Columns shown until the user asks for the rejected one (or starts dragging a card). */
+const VISIBLE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer'];
 
 /** Application pipeline (kanban). */
 @Component({
@@ -33,6 +35,22 @@ export class ApplicationsComponent implements OnInit {
   statuses = STATUSES;
   error: string | null = null;
   total = 0;
+  /**
+   * Rejected applications are hidden from the board by default: that column is
+   * history, not work in progress. It can be pinned on with the header toggle
+   * and it appears on its own while a card is being dragged, so a card can
+   * still be dropped into it.
+   */
+  showRejected = false;
+  /** True from pressing a card until the end of the press (drag or plain click). */
+  dragging = false;
+  /** True while CDK is actually moving a card, from the first moved pixel to the drop. */
+  dragActive = false;
+
+  /** The columns the board renders right now. */
+  get visibleStatuses(): ApplicationStatus[] {
+    return this.showRejected || this.dragging ? this.statuses : VISIBLE_STATUSES;
+  }
 
   constructor(
     private service: ApplicationsService,
@@ -51,7 +69,49 @@ export class ApplicationsComponent implements OnInit {
 
   /** Open the application workspace for a card. */
   openWorkspace(application: Application): void {
+    this.dragging = false;
     this.router.navigate(['/applications', application.id]);
+  }
+
+  toggleRejected(): void {
+    this.showRejected = !this.showRejected;
+  }
+
+  /**
+   * Reveal the rejected column as soon as a card is pressed. CDK measures and
+   * caches every drop list's rect when the drag starts (on the first pointer
+   * move), so the column has to be laid out *before* that — revealing it on
+   * `cdkDragStarted` would be one change detection too late and it could never
+   * receive the card.
+   */
+  onCardPointerDown(event: PointerEvent): void {
+    if (event.button === 0) {
+      this.dragging = true;
+    }
+  }
+
+  /** CDK took over the press and is moving a card. */
+  onDragStarted(): void {
+    this.dragActive = true;
+  }
+
+  /** The drag finished: hide the column again unless it was pinned or received the card. */
+  onDragEnded(): void {
+    this.dragActive = false;
+    this.dragging = false;
+  }
+
+  /**
+   * A press that never turned into a drag must not leave the column showing.
+   * During a real drag `dragActive` is already true here, so the column stays
+   * until `cdkDragEnded` — the drop is resolved a moment after pointerup.
+   */
+  @HostListener('document:pointerup')
+  @HostListener('document:pointercancel')
+  onPointerReleased(): void {
+    if (!this.dragActive) {
+      this.dragging = false;
+    }
   }
 
   /** Move a card between pipeline columns, persist the new status and revert on error. */
@@ -59,6 +119,7 @@ export class ApplicationsComponent implements OnInit {
     if (event.previousContainer === event.container) {
       // Intra-column reorder — visual only, not persisted.
       moveItemInArray(event.container.data, event.previousIndex, event.currentIndex);
+      this.dragging = false;
       return;
     }
     const application = event.item.data as Application;
@@ -71,6 +132,9 @@ export class ApplicationsComponent implements OnInit {
       event.currentIndex,
     );
     application.status = targetStatus;
+    this.dragging = false;
+    // Keep the column on screen after a drop into it, so the card doesn't vanish.
+    this.showRejected = this.showRejected || targetStatus === 'rejected';
 
     this.service.update(application.id, { status: targetStatus }).subscribe({
       next: () => {

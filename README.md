@@ -289,7 +289,7 @@ CV and applications (pipeline status, notes; the feed's `hide_applied` filter
 hides every job already in the pipeline, whatever its status, `saved`
 included); audit logging for CV and application mutations; Alembic migrations +
 idempotent seed. 785 backend tests (526 run without PostgreSQL, 259 integration
-tests skipped when it is unreachable) and 166 Angular specs.
+tests skipped when it is unreachable) and 193 Angular specs.
 
 **Scraping engine (Celery + RabbitMQ)** — pluggable scrapers (`scrapers/`:
 career page via schema.org/JSON-LD, RSS via feedparser, aggregator adapters,
@@ -441,7 +441,8 @@ management with quick filters (all / manual / automated / unhealthy / due /
 avoided) and a per-source jobs count that opens that board's jobs in the jobs
 list (`/jobs?source_id=…`, the filter the API already exposes — a manual
 watchlist stays unlinked until it owns a job); job listing with
-keyword/company/tag/date/source search, manual add (or *import from a URL*: the
+keyword/company/tag/date/source search and the pipeline's jobs hidden by default
+(the *Hide jobs in my pipeline* box turns that filter off), manual add (or *import from a URL*: the
 API fetches and parses one posting into an editable draft the user reviews before
 saving — ADR 025), a
 preview-then-confirm bulk cleanup (age and/or source, applications protected by
@@ -453,7 +454,9 @@ projects, certifications, languages) with version history, PDF/DOCX/ODT import,
 live preview and Classic/ATS-safe PDF export (plus a PT-BR copy translated on
 demand, ADR 024); a kanban pipeline (saved → applied
 → interview → offer → rejected) with Angular CDK drag & drop whose cards open the
-per-application workspace; interview prep and lessons-learned pages; a
+per-application workspace, and a rejected column that stays out of the way until
+a card is picked up (it is measured into the board on press so it can receive the
+drop) or the *Show rejected* toggle is ticked; interview prep and lessons-learned pages; a
 five-tab admin panel (Overview, Sources, Quality, Dead-Letter Queue, Audit Log);
 onboarding panel for new users; client-side pagination (12/page).
 

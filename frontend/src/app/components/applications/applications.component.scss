@@ -2,6 +2,18 @@
   font-size: var(--text-sm);
 }
 
+/* Header right side: the total plus the toggle that reveals the rejected column. */
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.pipeline-toggle {
+  font-size: var(--text-sm);
+}
+
 .kanban {
   display: grid;
   grid-template-columns: repeat(5, minmax(190px, 1fr));

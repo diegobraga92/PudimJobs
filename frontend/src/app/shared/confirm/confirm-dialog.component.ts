@@ -1,45 +1,50 @@
-import { Component, HostListener } from '@angular/core';
+import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
+import { Component, Inject } from '@angular/core';
 
 import { AppIconComponent } from '../icons/icon.component';
-import { ConfirmService } from './confirm.service';
 
-/** Accessible confirmation dialog (role="dialog", Escape to cancel, focus stays within the modal via inert backdrop behavior). */
+/** What the prompt renders; `ConfirmService` fills in the localized defaults. */
+export interface ConfirmDialogData {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  destructive: boolean;
+}
+
+/**
+ * Confirmation prompt (role="alertdialog"). `ConfirmService` opens it through
+ * the CDK dialog overlay, so it lives outside the routed view tree and paints
+ * on top of whatever page is open — including a page that just finished an
+ * async action. CDK supplies the backdrop, the focus trap, Escape and focus
+ * restoration; closing with `true` confirms, anything else cancels.
+ */
 @Component({
   selector: 'app-confirm-dialog',
   standalone: true,
   imports: [AppIconComponent],
   template: `
-    @if (service.state().visible) {
-      <div class="modal-backdrop" (click)="service.close(false)">
-        <div
-          class="modal confirm-modal"
-          role="alertdialog"
-          aria-modal="true"
-          [attr.aria-labelledby]="'confirm-title'"
-          (click)="$event.stopPropagation()"
-        >
-          <div class="confirm-icon" [class.destructive]="service.state().destructive">
-            <app-icon name="triangle-alert" [size]="24" />
-          </div>
-          <div class="confirm-body">
-            <h3 id="confirm-title">{{ service.state().title }}</h3>
-            <p>{{ service.state().message }}</p>
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn btn-ghost" (click)="service.close(false)">
-              {{ service.state().cancelLabel }}
-            </button>
-            <button
-              type="button"
-              [class]="service.state().destructive ? 'btn btn-danger-solid' : 'btn btn-primary'"
-              (click)="service.close(true)"
-            >
-              {{ service.state().confirmLabel }}
-            </button>
-          </div>
-        </div>
+    <div class="modal confirm-modal">
+      <div class="confirm-icon" [class.destructive]="data.destructive">
+        <app-icon name="triangle-alert" [size]="24" />
       </div>
-    }
+      <div class="confirm-body">
+        <h3 id="confirm-title">{{ data.title }}</h3>
+        <p id="confirm-message">{{ data.message }}</p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" (click)="ref.close(false)">
+          {{ data.cancelLabel }}
+        </button>
+        <button
+          type="button"
+          [class]="data.destructive ? 'btn btn-danger-solid' : 'btn btn-primary'"
+          (click)="ref.close(true)"
+        >
+          {{ data.confirmLabel }}
+        </button>
+      </div>
+    </div>
   `,
   styles: [
     `
@@ -74,12 +79,8 @@ import { ConfirmService } from './confirm.service';
   ],
 })
 export class ConfirmDialogComponent {
-  constructor(readonly service: ConfirmService) {}
-
-  @HostListener('document:keydown.escape')
-  onEscape(): void {
-    if (this.service.state().visible) {
-      this.service.close(false);
-    }
-  }
+  constructor(
+    @Inject(DIALOG_DATA) readonly data: ConfirmDialogData,
+    readonly ref: DialogRef<boolean>,
+  ) {}
 }

@@ -69,8 +69,12 @@ export class JobsComponent implements OnInit {
   /** At least one draft was applied: Save also enqueues JD parsing. */
   importedFromUrl = false;
 
-  /** When on, jobs the user already applied to are filtered out of the list. */
-  hideApplied = false;
+  /**
+   * When on, jobs the user already applied to are filtered out of the list.
+   * On by default: the feed should show what is still actionable, and the
+   * pipeline already lists everything that was applied to.
+   */
+  hideApplied = true;
   /** When on, soft-hidden (dismissed) jobs are included so they can be restored. */
   showHidden = false;
   /**

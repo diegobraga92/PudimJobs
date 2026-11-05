@@ -1,6 +1,6 @@
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppHeader } from '@/components/layout/AppHeader';
@@ -8,6 +8,7 @@ import { Alert } from '@/components/ui/Alert';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Icon } from '@/components/icons/Icon';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Switch } from '@/components/ui/Switch';
 import { useApplications } from '@/hooks/useApplications';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ApplicationsStackParamList } from '@/navigation/types';
@@ -17,6 +18,8 @@ import { Application, ApplicationStatus } from '@/types';
 import { dateLocale, mediumDate } from '@/utils/dates';
 
 const STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer', 'rejected'];
+/** Columns shown until the user asks for the rejected one (mirrors the web board). */
+const VISIBLE_STATUSES: ApplicationStatus[] = ['saved', 'applied', 'interview', 'offer'];
 
 /** Status-dot color derived from theme tokens (adapts to dark mode, like the web). */
 function statusDotColor(status: ApplicationStatus, colors: ThemeColors): string {
@@ -39,6 +42,9 @@ export function ApplicationsScreen() {
   const i18n = useI18n();
   const navigation = useNavigation<NativeStackNavigationProp<ApplicationsStackParamList>>();
   const { data: applications = [], isPending, error } = useApplications();
+  /** Rejected applications are history, not work in progress: hidden by default. */
+  const [showRejected, setShowRejected] = useState(false);
+  const statuses = showRejected ? STATUSES : VISIBLE_STATUSES;
 
   const openWorkspace = (application: Application) =>
     navigation.navigate('ApplicationDetail', { id: application.id });
@@ -70,6 +76,17 @@ export function ApplicationsScreen() {
         <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
           {i18n.t('applications.total', { total: applications.length })}
         </Text>
+
+        <View style={styles.toggleRow}>
+          <Text style={[styles.toggleLabel, { color: theme.colors.text }]}>
+            {i18n.t('applications.showRejected')}
+          </Text>
+          <Switch
+            value={showRejected}
+            onValueChange={setShowRejected}
+            accessibilityLabel={i18n.t('applications.showRejected')}
+          />
+        </View>
 
         {error ? <Alert tone="error">{i18n.t('errors.failedLoadApplications')}</Alert> : null}
 
@@ -104,7 +121,7 @@ export function ApplicationsScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.board}
           >
-            {STATUSES.map((status) => (
+            {statuses.map((status) => (
               <View
                 key={status}
                 style={[
@@ -203,6 +220,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
     marginBottom: 8,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  toggleLabel: {
+    fontSize: 14,
   },
   skeletons: {
     gap: 12,

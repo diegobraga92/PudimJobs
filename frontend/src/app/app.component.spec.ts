@@ -25,12 +25,11 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('router-outlet')).toBeTruthy();
   });
 
-  it('should mount the global toast and confirm-dialog viewports', () => {
+  it('should mount the global toast viewport', () => {
     fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-toast-viewport')).toBeTruthy();
-    expect(compiled.querySelector('app-confirm-dialog')).toBeTruthy();
     expect(compiled.querySelector('.skip-link')).toBeTruthy();
   });
 });
